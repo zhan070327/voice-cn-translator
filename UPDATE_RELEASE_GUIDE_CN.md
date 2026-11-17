@@ -1,6 +1,6 @@
 # 私聊发测试包，软件内检查更新
 
-更新功能已加入源码，仓库 [zhan070327/voice-cn-translator](https://github.com/zhan070327/voice-cn-translator) 仍为**私人仓库**。Windows GitHub Actions 已通过 33 项自动测试、打包后启动自检和中文安装器编译，并发布私人预览版 `v0.3.0b1`。尚未在用户 Windows 电脑上验证安装、游戏音频及版本升级。私人仓库的 Release 无法让无 GitHub 登录的测试者检查更新；准备发测试包时还需让更新仓库公开。不要把源码压缩包发给普通测试者当安装包。
+更新功能已加入源码，仓库 [zhan070327/voice-cn-translator](https://github.com/zhan070327/voice-cn-translator) 已公开。Windows GitHub Actions 已通过 33 项自动测试、打包后启动自检和中文安装器编译，并发布预览版 `v0.3.0b1`。免登录的 GitHub Release API 已验证可读取安装包信息。尚未在用户 Windows 电脑上验证安装、游戏音频及版本升级。不要把源码压缩包发给普通测试者当安装包。
 
 ## 测试者会怎么用
 
@@ -12,7 +12,7 @@
 
 ## 发布者首次设置
 
-1. 已创建私人仓库 `zhan070327/voice-cn-translator`。现在保持私人，不在抖音公开下载链接。准备好给测试者使用软件内更新时，再改为公开；公开仓库和 Release **不是访问控制**，知道地址的人仍可下载。不要上传语音、历史数据库、模型文件或个人密钥。
+1. 仓库 `zhan070327/voice-cn-translator` 已公开，但下载链接可只私聊发给测试者。公开仓库和 Release **不是访问控制**，知道地址的人仍可下载，源码和 Actions 日志也公开。不要上传语音、历史数据库、模型文件或个人密钥。
 2. 当前项目的 `config/update_channel.json` 已填入仓库名。若以后更换仓库，在你自己的 Windows 项目目录运行：
 
    ```bat
@@ -21,7 +21,7 @@
 
    它把仓库名写入 `config\update_channel.json`。**必须在打包前写好**；已发出的 EXE 不会因你后来修改源码目录而改变。
 3. GitHub Actions 已构建安装包；也可在 Windows 用 `make_public_installer_windows.bat` 复现。发给测试者前，先在自己的 Windows 电脑验证“安装后打开软件”“检查更新”“模型仍在”。`build_windows.bat` 会检查程序版本与安装脚本版本是否一致，并把更新仓库配置打进 EXE。
-4. 私人仓库已有 `v0.3.0b1` 预览版 Release，安装包名为 `VoiceCNTranslator_Beta_Setup.exe`。完成 Windows 实测并确认仓库公开后，可私聊发送此安装包。GitHub 的 Release API 已提供安装包大小与 SHA-256 摘要；若以后缺少摘要或文件名不对，程序会拒绝自动安装。
+4. 公开仓库已有 [`v0.3.0b1` 预览版安装包](https://github.com/zhan070327/voice-cn-translator/releases/download/v0.3.0b1/VoiceCNTranslator_Beta_Setup.exe)，文件名为 `VoiceCNTranslator_Beta_Setup.exe`。GitHub 的 Release API 已提供安装包大小与 SHA-256 摘要；若以后缺少摘要或文件名不对，程序会拒绝自动安装。此版本尚需用户 Windows 实测。
 
 ## 以后每次更新
 
