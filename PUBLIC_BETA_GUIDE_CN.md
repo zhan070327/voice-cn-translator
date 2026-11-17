@@ -4,12 +4,12 @@
 
 ## 给测试者的最短步骤
 
-1. 从你公布的可信下载地址取得 `VoiceCNTranslator_Beta_Setup.exe`，安装并从桌面快捷方式打开。也可下载 `ValorantTranslator_Portable.zip`，解压后双击里面的 `ValorantTranslator.exe`。两者都不需要测试者安装 Python。
+1. 点击[测试版安装包直链](https://github.com/zhan070327/voice-cn-translator/releases/download/v0.3.0b1/VoiceCNTranslator_Beta_Setup.exe)下载 `VoiceCNTranslator_Beta_Setup.exe`，双击安装并从桌面快捷方式打开。测试者不需要安装 Python。
 2. 首次打开后点击“一键下载模型”，等待约 2.5 GB 的模型文件下载完成；若已有完整模型文件夹，点击“从文件夹导入”。**只有用户点击才会下载。** 软件运行时不上传语音或字幕。
 3. 选择自己听游戏声音的“系统声音：耳机/扬声器”，先点“测试字幕（20 秒）”，确认能看到字幕窗口，再点“开始翻译”。
 4. 遇到问题时点“复制反馈信息”，粘贴给开发者，并补充实际听到的原话。也可以在“翻译历史”里修正译文、导出 CSV。发送前请检查是否包含不想公开的对话文字。
 
-你可以在抖音只征集自愿测试者，私聊发送首次安装包，不在视频或简介里放下载链接。若想让他们以后点“检查更新”，需先按 [更新发布指南](UPDATE_RELEASE_GUIDE_CN.md) 配置 GitHub Releases。公开仓库虽然不在抖音宣传，知道地址的人仍可下载；不要把这种方式描述成仅受邀者可访问。更新按钮只在用户点击时联网，不影响模型下载完成后的离线翻译。
+你可以在抖音只征集自愿测试者，私聊发送安装包直链，不在视频或简介里放下载链接。GitHub Releases 更新通道已经配置；以后发布更高版本时可按[更新发布指南](UPDATE_RELEASE_GUIDE_CN.md)操作。公开仓库虽然不在抖音宣传，知道地址的人仍可下载；不要把这种方式描述成仅受邀者可访问。更新按钮只在用户点击时联网，不影响模型下载完成后的离线翻译。
 
 模型使用 `%LOCALAPPDATA%\ValorantTranslator\models`，同一模型在普通软件更新时不需要再次下载；从旧 NLLB 版升级时需下载一次 M2M100。历史记录使用 `%LOCALAPPDATA%\ValorantTranslator\history.sqlite3`，可在软件中关闭保存或删除。卸载程序不会自动删除模型与历史，防止误删用户数据。
 
