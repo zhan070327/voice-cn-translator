@@ -1,0 +1,38 @@
+name: Publish tested Windows beta
+
+on:
+  push:
+    branches: [codex/publish-beta-v0.3.0b1]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: VoiceCNTranslator-Windows-Beta
+          run-id: 44093622627
+          github-token: ${{ github.token }}
+          path: package
+      - name: Check installer
+        shell: bash
+        run: |
+          test -s package/VoiceCNTranslator_Beta_Setup.exe
+          sha256sum package/VoiceCNTranslator_Beta_Setup.exe
+          stat -c '%s bytes' package/VoiceCNTranslator_Beta_Setup.exe
+      - name: Create private prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create v0.3.0b1 package/VoiceCNTranslator_Beta_Setup.exe \
+            --repo "${{ github.repository }}" \
+            --target 2fa6d2aeb532390742ec840b83c536f933e4e78a \
+            --prerelease --latest=false \
+            --title "队友语音翻译器 0.3.0 测试版" \
+            --notes "包含检查更新入口。首次安装后需在软件内下载本地模型。实时游戏字幕存在 Riot 政策和反作弊风险；请先在桌面或第二显示器测试。"
