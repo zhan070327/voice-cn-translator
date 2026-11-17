@@ -1,6 +1,6 @@
 # 私聊发测试包，软件内检查更新
 
-当前更新功能已加入源码，仓库 [zhan070327/voice-cn-translator](https://github.com/zhan070327/voice-cn-translator) 已创建为**私人仓库**，但尚未上传源码、发布 Release，也没有在 Windows 上构建并验证这个新版安装程序。私人仓库的 Release 无法让无 GitHub 登录的测试者检查更新；等准备发测试包时，需要将仓库改为公开并完成 Windows 实测。不要把本源码压缩包发给普通测试者当安装包。
+更新功能已加入源码，仓库 [zhan070327/voice-cn-translator](https://github.com/zhan070327/voice-cn-translator) 仍为**私人仓库**。Windows GitHub Actions 已通过 33 项自动测试、打包后启动自检和中文安装器编译，并发布私人预览版 `v0.3.0b1`。尚未在用户 Windows 电脑上验证安装、游戏音频及版本升级。私人仓库的 Release 无法让无 GitHub 登录的测试者检查更新；准备发测试包时还需让更新仓库公开。不要把源码压缩包发给普通测试者当安装包。
 
 ## 测试者会怎么用
 
@@ -20,8 +20,8 @@
    ```
 
    它把仓库名写入 `config\update_channel.json`。**必须在打包前写好**；已发出的 EXE 不会因你后来修改源码目录而改变。
-3. 用 `make_public_installer_windows.bat` 构建安装包，先在自己的 Windows 电脑验证“打开软件”“检查更新”“模型仍在”。`build_windows.bat` 会检查程序版本与安装脚本版本是否一致，并把更新仓库配置打进 EXE。
-4. 在仓库的 Releases 创建第一个 Release。Tag 填 `v0.3.0b1`，可以标为 **Pre-release**；上传文件名完全相同的 `VoiceCNTranslator_Beta_Setup.exe`。填写简短更新说明。把这个已验证的安装包私聊发给测试者。GitHub 的 Release API 会提供安装包大小与 SHA-256 摘要；若缺少摘要或文件名不对，程序会拒绝自动安装。
+3. GitHub Actions 已构建安装包；也可在 Windows 用 `make_public_installer_windows.bat` 复现。发给测试者前，先在自己的 Windows 电脑验证“安装后打开软件”“检查更新”“模型仍在”。`build_windows.bat` 会检查程序版本与安装脚本版本是否一致，并把更新仓库配置打进 EXE。
+4. 私人仓库已有 `v0.3.0b1` 预览版 Release，安装包名为 `VoiceCNTranslator_Beta_Setup.exe`。完成 Windows 实测并确认仓库公开后，可私聊发送此安装包。GitHub 的 Release API 已提供安装包大小与 SHA-256 摘要；若以后缺少摘要或文件名不对，程序会拒绝自动安装。
 
 ## 以后每次更新
 
@@ -34,4 +34,4 @@
 
 ## 当前验证边界
 
-本机 macOS 自动测试覆盖了版本比较、预发布版本、错误地址拒绝、大小与 SHA-256 校验、缓存和失败清理。Windows 安装程序的下载、关闭旧程序、覆盖安装及打开新版**未验证**。你建立仓库并完成首次 Windows 构建后，需用自己的电脑或一位自愿测试者做一次从旧版到新版的完整升级，再发给更多人。
+本机 macOS 自动测试覆盖了版本比较、预发布版本、错误地址拒绝、大小与 SHA-256 校验、缓存和失败清理。Windows CI 已通过 33 项自动测试、打包后 EXE 启动自检、中文安装器编译与 Release 上传。Windows 安装程序的实际下载、安装、游戏音频、关闭旧程序、覆盖安装及打开新版**未验证**。需用自己的电脑或一位自愿测试者做一次从旧版到新版的完整升级，再发给更多人。

@@ -17,7 +17,7 @@
 
 在自己的 Windows 项目目录双击 `make_public_installer_windows.bat`。它会安装缺少的 Python 依赖、用 PyInstaller 构建程序、执行打包后的启动自检，并生成 `dist\ValorantTranslator_Portable.zip`。若本机有 `winget`，脚本还会尝试安装 Inno Setup 6，编译单文件 `dist\VoiceCNTranslator_Beta_Setup.exe`。**制作安装包的人仍需要 Python 3.11/3.12 和网络；下载安装包的测试者不需要 Python。** 如果自动安装 Inno Setup 失败，按脚本显示的官方链接安装 Inno Setup 6，再双击脚本。不要给测试者发送源码 ZIP 或制作脚本。
 
-仓库中还有 `.github/workflows/windows-beta.yml`。私人 GitHub 仓库 [zhan070327/voice-cn-translator](https://github.com/zhan070327/voice-cn-translator) 已创建，但尚未上传项目源码或连接为本地 Git 远程。上传源码后，可手动运行 `Windows beta build` 工作流；工作流在 Windows 上安装依赖、写入当前仓库作为更新地址、运行测试、生成便携 ZIP 和安装程序，并上传构建产物。**工作流产物不会自动创建 GitHub Release**，发布者仍需核验并手动上传。工作流尚未实际运行。
+私人 GitHub 仓库 [zhan070327/voice-cn-translator](https://github.com/zhan070327/voice-cn-translator) 已上传源码。`.github/workflows/windows-beta.yml` 的 Windows 构建已通过 33 项自动测试、打包后启动自检和安装器编译；私人预览版 Release `v0.3.0b1` 已附上安装包。仓库仍未公开，无 GitHub 登录的测试者无法通过软件检查更新。真实 Windows 安装及游戏音频尚未在用户电脑上验证。
 
 公开下载前请在一台干净的 Windows 10/11 电脑验证：安装、首次模型下载或导入、系统声音设备选择、字幕预览、真实语音、断网重启、卸载和再次安装。当前没有 Windows 构建结果或安装包，不能把上述步骤说成已通过。
 
