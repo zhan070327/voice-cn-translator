@@ -1,0 +1,48 @@
+name: Windows beta build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Create environment
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu126
+          .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+      - name: Run tests
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -m pytest -q
+      - name: Configure public GitHub update channel
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -m scripts.configure_updates "https://github.com/${{ github.repository }}"
+      - name: Build portable executable
+        shell: cmd
+        run: build_windows.bat --ci
+      - name: Build installer
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\ValorantTranslator.iss
+      - name: Upload beta packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceCNTranslator-Windows-Beta
+          path: |
+            dist/ValorantTranslator_Portable.zip
+            dist/VoiceCNTranslator_Beta_Setup.exe
+          if-no-files-found: error

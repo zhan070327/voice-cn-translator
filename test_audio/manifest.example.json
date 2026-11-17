@@ -1,0 +1,7 @@
+[
+  {"file": "en.wav", "language": "auto", "reference_text": "Two A main", "reference_chinese": "A 大两个。"},
+  {"file": "ms.wav", "language": "auto", "reference_text": "Dua di A main", "reference_chinese": "A 大两个。"},
+  {"file": "hi.wav", "language": "auto", "reference_text": "बी साइट पर दो हैं", "reference_chinese": "B 包点有两个。"},
+  {"file": "ta.wav", "language": "auto", "reference_text": "பி தளத்தில் இரண்டு பேர்", "reference_chinese": "B 包点有两个人。"},
+  {"file": "th.wav", "language": "auto", "reference_text": "มีสองคนที่ไซต์บี", "reference_chinese": "B 包点有两个人。"}
+]
