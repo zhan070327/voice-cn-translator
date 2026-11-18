@@ -22,7 +22,7 @@ if errorlevel 1 goto fail
   --add-data "assets\app_icon.ico;assets" ^
   --add-data "THIRD_PARTY_NOTICES_CN.md;." ^
   --collect-all soundcard --collect-all faster_whisper --collect-all ctranslate2 ^
-  --collect-all transformers --collect-all torch --collect-all sentencepiece ^
+  --collect-all transformers --collect-all sentencepiece ^
   --collect-all huggingface_hub --collect-all tokenizers --collect-all opencc ^
   --exclude-module valorant_translator.translation.nllb ^
   main.py
