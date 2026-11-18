@@ -76,10 +76,10 @@ class LocalWhisper:
         try:
             return self._transcribe(audio, language)
         except RuntimeError as exc:
-            if self.device != "cuda" or "out of memory" not in str(exc).lower():
+            if self.device != "cuda":
                 raise
             from faster_whisper import WhisperModel
-            LOG.warning("Whisper CUDA OOM; reloading on CPU")
+            LOG.warning("Whisper CUDA inference failed; reloading on CPU: %s", exc)
             del self.model
             gc.collect()
             self.device = "cpu"
