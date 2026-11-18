@@ -48,6 +48,12 @@ jobs:
             dist/ValorantTranslator_Portable.zip
             dist/VoiceCNTranslator_Beta_Setup.exe
           if-no-files-found: error
+      - name: Check installer size
+        shell: pwsh
+        run: |
+          $size = (Get-Item "dist/VoiceCNTranslator_Beta_Setup.exe").Length
+          Write-Host "Installer size: $size bytes"
+          if ($size -ge 2147483648) { throw "Installer exceeds GitHub's 2 GiB release asset limit" }
       - name: Publish beta release
         if: github.ref == 'refs/heads/main'
         shell: pwsh
@@ -58,5 +64,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $tag = "v$version"
           gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) { Write-Host "Release $tag already exists"; exit 0 }
-          gh release create $tag "dist/VoiceCNTranslator_Beta_Setup.exe" --title "队友语音翻译器 $tag 测试版" --notes "更新 Windows CUDA 12.8 运行库并加入 CUDA 推理失败后的 CPU 回退。GPU 效果需在测试者电脑验证；游戏内覆盖仍有 Riot 政策和反作弊风险。" --prerelease
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag "dist/VoiceCNTranslator_Beta_Setup.exe" --clobber
+          } else {
+            gh release create $tag "dist/VoiceCNTranslator_Beta_Setup.exe" --title "队友语音翻译器 $tag 测试版" --notes "更新 Windows CUDA 12.8 运行库并加入 CUDA 推理失败后的 CPU 回退。GPU 效果需在测试者电脑验证；游戏内覆盖仍有 Riot 政策和反作弊风险。" --prerelease
+          }
