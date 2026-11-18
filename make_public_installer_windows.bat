@@ -8,10 +8,10 @@ if errorlevel 1 goto fail
 ".venv\Scripts\python.exe" -m scripts.verify_release --require-update-channel
 if errorlevel 1 goto fail
 
-".venv\Scripts\python.exe" -c "import torch,sys; sys.exit(0 if torch.version.cuda else 1)"
+".venv\Scripts\python.exe" -c "import torch,sys; sys.exit(0 if torch.__version__.startswith('2.8.0+cu128') else 1)"
 if errorlevel 1 (
-    echo Installing the CUDA-enabled PyTorch package for the Windows build...
-    ".venv\Scripts\python.exe" -m pip install --upgrade torch==2.8.0 --index-url https://download.pytorch.org/whl/cu126
+    echo Installing the CUDA 12.8 PyTorch package for the Windows build...
+    ".venv\Scripts\python.exe" -m pip install --upgrade torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
     if errorlevel 1 goto fail
 )
 

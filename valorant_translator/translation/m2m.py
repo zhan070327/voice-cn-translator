@@ -15,7 +15,7 @@ SUPPORTED_LANGUAGES = frozenset(("en", "ms", "hi", "ta", "th"))
 
 
 class LocalM2M:
-    """Load once, prefer CUDA, and fall back to CPU on CUDA memory errors."""
+    """Load once, prefer CUDA, and fall back to CPU on CUDA runtime errors."""
 
     def __init__(self, requested_device: str, fast_mode: bool = True):
         import torch
@@ -29,6 +29,7 @@ class LocalM2M:
         self.converter = OpenCC("t2s")
         self.device = "cuda" if requested_device != "cpu" and torch.cuda.is_available() else "cpu"
         self.tokenizer = M2M100Tokenizer.from_pretrained(str(M2M_DIR), local_files_only=True)
+        self.model_type = M2M100ForConditionalGeneration
         self.model = self._load_model(M2M100ForConditionalGeneration)
 
     def _load_model(self, model_type):
@@ -58,12 +59,17 @@ class LocalM2M:
         try:
             return self._translate(source)
         except RuntimeError as exc:
-            if self.device != "cuda" or "out of memory" not in str(exc).lower():
+            if self.device != "cuda":
                 raise
-            LOG.warning("M2M100 CUDA OOM; falling back to CPU")
-            self.model.to("cpu")
+            LOG.warning("M2M100 CUDA inference failed; reloading on CPU: %s", exc)
+            del self.model
+            gc.collect()
+            try:
+                self.torch.cuda.empty_cache()
+            except RuntimeError:
+                LOG.warning("Could not clear CUDA cache after inference failure")
             self.device = "cpu"
-            self.torch.cuda.empty_cache()
+            self.model = self._load_model(self.model_type)
             return self._translate(source)
 
     def _translate(self, source: str) -> str:

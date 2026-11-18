@@ -9,6 +9,8 @@ jobs:
   build:
     runs-on: windows-2022
     timeout-minutes: 90
+    permissions:
+      contents: write
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
@@ -22,7 +24,7 @@ jobs:
         run: |
           python -m venv .venv
           .\.venv\Scripts\python.exe -m pip install --upgrade pip
-          .\.venv\Scripts\python.exe -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu126
+          .\.venv\Scripts\python.exe -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
           .\.venv\Scripts\python.exe -m pip install -r requirements.txt
       - name: Run tests
         shell: pwsh
@@ -46,3 +48,15 @@ jobs:
             dist/ValorantTranslator_Portable.zip
             dist/VoiceCNTranslator_Beta_Setup.exe
           if-no-files-found: error
+      - name: Publish beta release
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = & .\.venv\Scripts\python.exe -c "from valorant_translator.version import APP_VERSION; print(APP_VERSION)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tag = "v$version"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) { Write-Host "Release $tag already exists"; exit 0 }
+          gh release create $tag "dist/VoiceCNTranslator_Beta_Setup.exe" --title "队友语音翻译器 $tag 测试版" --notes "更新 Windows CUDA 12.8 运行库并加入 CUDA 推理失败后的 CPU 回退。GPU 效果需在测试者电脑验证；游戏内覆盖仍有 Riot 政策和反作弊风险。" --prerelease
