@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import os
+import signal
+import socket
+import ssl
+import sys
 import threading
 import time
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 BUCKET = "valorant-translator-update-1535709511"
@@ -14,10 +19,65 @@ URL = f"https://{BUCKET}.cos.ap-guangzhou.myqcloud.com/{KEY}"
 INSTALLER = Path("dist/VoiceCNTranslator_Beta_Setup.exe")
 PART_MIB = 16
 THREADS = 6
+FIRST_PART_DEADLINE_SECONDS = 300
 
 
 def log(message: str) -> None:
     print(f"[COS b4] {message}", flush=True)
+
+
+def timed_call(label: str, operation, *args, **kwargs):
+    """Show where an SDK call stalls without printing signed URLs or secrets."""
+    started = time.monotonic()
+    log(f"{label}: start")
+    try:
+        result = operation(*args, **kwargs)
+    except Exception as exc:
+        status = exc.get_status_code() if hasattr(exc, "get_status_code") else None
+        log(f"{label}: failed after {time.monotonic() - started:.1f}s ({type(exc).__name__}, HTTP {status})")
+        raise
+    log(f"{label}: success in {time.monotonic() - started:.1f}s")
+    return result
+
+
+def diagnose_network() -> None:
+    """Read-only DNS, TCP, TLS and HTTPS probe; no COS credentials required."""
+    host = f"{BUCKET}.cos.ap-guangzhou.myqcloud.com"
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    def dns_timeout(signum, frame):
+        raise TimeoutError("DNS lookup exceeded 15 seconds")
+    signal.signal(signal.SIGALRM, dns_timeout)
+    signal.alarm(15)
+    try:
+        addresses = timed_call("DNS", socket.getaddrinfo, host, 443, type=socket.SOCK_STREAM)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous_handler)
+    log(f"DNS: resolved {len(addresses)} address record(s)")
+    connection = timed_call("TCP 443", socket.create_connection, (host, 443), 8)
+    try:
+        connection.settimeout(10)
+        context = ssl.create_default_context()
+        tls = timed_call("TLS handshake", context.wrap_socket, connection, server_hostname=host)
+        try:
+            log(f"TLS: {tls.version()}")
+        finally:
+            tls.close()
+    finally:
+        connection.close()
+    started = time.monotonic()
+    log("HTTPS HEAD: start")
+    try:
+        with urlopen(Request(URL, method="HEAD"), timeout=15) as response:
+            status = response.status
+    except HTTPError as exc:
+        status = exc.code  # 403/404 proves HTTPS service is reachable.
+    except Exception as exc:
+        log(f"HTTPS HEAD: failed after {time.monotonic() - started:.1f}s ({type(exc).__name__})")
+        raise
+    log(f"HTTPS HEAD: HTTP {status} in {time.monotonic() - started:.1f}s")
+    if status not in (200, 403, 404):
+        raise RuntimeError(f"Unexpected public HTTPS status: {status}")
 
 
 def header(headers: dict, name: str) -> str | None:
@@ -50,12 +110,23 @@ def protected_client_class(base):
     """The SDK's upload_file() omits ForbidOverwrite at multipart completion."""
 
     class ProtectedClient(base):
+        def _get_resumable_uploadid(self, *args, **kwargs):
+            return timed_call("find resumable multipart upload", super()._get_resumable_uploadid, *args, **kwargs)
+
+        def _check_all_upload_parts(self, *args, **kwargs):
+            return timed_call("verify resumable parts", super()._check_all_upload_parts, *args, **kwargs)
+
+        def create_multipart_upload(self, *args, **kwargs):
+            kwargs["ForbidOverwrite"] = "true"
+            return timed_call("initialize multipart upload", super().create_multipart_upload, *args, **kwargs)
+
         def complete_multipart_upload(self, *args, **kwargs):
             kwargs["ForbidOverwrite"] = "true"
-            return super().complete_multipart_upload(*args, **kwargs)
+            return timed_call("complete multipart upload", super().complete_multipart_upload, *args, **kwargs)
 
         def upload_part(self, Bucket, Key, Body, PartNumber, UploadId, EnableMD5=False, **kwargs):
-            result = super().upload_part(
+            result = timed_call(
+                f"upload part {PartNumber}", super().upload_part,
                 Bucket, Key, Body, PartNumber, UploadId, EnableMD5, **kwargs
             )
             callback = getattr(self, "on_part_uploaded", None)
@@ -72,6 +143,7 @@ class Progress:
         self.completed = 0  # Includes resumed parts, as reported by the SDK.
         self.transferred = 0  # Bytes actually sent in this attempt.
         self.started = time.monotonic()
+        self.last_activity = self.started
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._heartbeat, daemon=True)
@@ -82,11 +154,18 @@ class Progress:
 
     def completed_callback(self, consumed: int, total: int) -> None:
         with self.lock:
+            if consumed > self.completed:
+                self.last_activity = time.monotonic()
             self.completed = consumed
 
     def transferred_callback(self, amount: int) -> None:
         with self.lock:
             self.transferred += amount
+            self.last_activity = time.monotonic()
+
+    def stalled(self, now: float) -> bool:
+        with self.lock:
+            return now - self.last_activity >= FIRST_PART_DEADLINE_SECONDS
 
     def report(self) -> None:
         with self.lock:
@@ -102,6 +181,10 @@ class Progress:
     def _heartbeat(self) -> None:
         while not self.stop_event.wait(20):
             self.report()
+            if self.stalled(time.monotonic()):
+                log(f"no completed part or resume progress for {FIRST_PART_DEADLINE_SECONDS}s; "
+                    "terminating stuck SDK worker pool; incomplete parts remain resumable")
+                os._exit(124)  # SDK's Queue.join() cannot cancel blocked workers.
 
     def stop(self) -> None:
         self.stop_event.set()
@@ -142,7 +225,8 @@ def upload_or_reuse(client, size: int, sha: str, crc: str) -> tuple[str, float]:
 
     # Required for SDK resume; fail before transfer if the scoped CAM key lacks it.
     preflight = time.monotonic()
-    client.list_multipart_uploads(Bucket=BUCKET, Prefix=KEY, MaxUploads=1)
+    timed_call("list unfinished multipart uploads", client.list_multipart_uploads,
+               Bucket=BUCKET, Prefix=KEY, MaxUploads=1)
     log(f"multipart resume permission checked in {time.monotonic() - preflight:.1f}s")
     if size <= PART_MIB * 1024**2:
         raise RuntimeError("Unexpected small installer; refusing to use single PUT")
@@ -202,6 +286,8 @@ def main() -> None:
     if not secret_id or not secret_key:
         raise RuntimeError("COS Environment Secrets are missing")
 
+    diagnose_network()
+
     log("local CRC64 calculation started; source SHA-256 was validated earlier")
     crc = local_crc64(INSTALLER)
     log(f"local CRC64 ready in {time.monotonic() - started:.1f}s")
@@ -209,8 +295,9 @@ def main() -> None:
     client = Client(CosConfig(
         Region="ap-guangzhou", SecretId=secret_id, SecretKey=secret_key,
         Token=os.environ.get("COS_SESSION_TOKEN") or None,
-        Scheme="https", Timeout=180,
-    ))
+        Scheme="https", Timeout=(10, 60),
+    ), retry=1)
+    log("COS SDK: connect timeout 10s, socket read timeout 60s, one internal retry")
     checked = time.monotonic()
     versioning = client.get_bucket_versioning(Bucket=BUCKET)
     if versioning.get("Status") not in (None, ""):
@@ -235,4 +322,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--diagnose-network"]:
+        diagnose_network()
+    elif len(sys.argv) == 1:
+        main()
+    else:
+        raise SystemExit("usage: upload_b4_cos.py [--diagnose-network]")
