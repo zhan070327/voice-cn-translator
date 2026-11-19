@@ -29,6 +29,10 @@ if errorlevel 1 goto fail
   --exclude-module valorant_translator.translation.nllb ^
   main.py
 if errorlevel 1 goto fail
+if "%VALORANT_CPU_PACKAGE%"=="1" (
+  ".venv\Scripts\python.exe" -m scripts.audit_cuda_bundle "dist\ValorantTranslator" --prune-cpu-only
+  if errorlevel 1 goto fail
+)
 "dist\ValorantTranslator\ValorantTranslator.exe" --self-test
 if errorlevel 1 (
     echo ERROR: Packaged EXE self-test failed. See build log.

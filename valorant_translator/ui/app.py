@@ -827,8 +827,10 @@ class MainWindow(QMainWindow):
 
     def _runtime(self, message: str) -> None:
         self.runtime_label.setText(f"实际运行设备：{message}")
-        self.device_stat.setText(message.rsplit(" · ", 1)[0])
-        self.model_stat.setText(self.settings.whisper_model)
+        runtime, marker, model = message.partition(" · Whisper ")
+        self.device_stat.setText(runtime.rsplit(" · ", 1)[0])
+        if marker and model:
+            self.model_stat.setText(model)
 
     def _result(self, result: SubtitleResult) -> None:
         self.latency_stat.setText(f"{result.total_seconds:.2f} 秒")

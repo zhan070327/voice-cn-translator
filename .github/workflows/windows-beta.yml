@@ -127,6 +127,9 @@ jobs:
             if ($env:BUILD_EDITION -eq 'cpu' -and $dll -in $dlls.Name) { throw "CPU installer contains CUDA DLL: $dll" }
             if ($env:BUILD_EDITION -eq 'gpu' -and $dll -notin $dlls.Name) { throw "Missing CUDA runtime DLL from bundle: $dll" }
           }
+          if ($env:BUILD_EDITION -eq 'cpu' -and ($dlls.Name -match '(cuda|cudnn|cublas|cufft|curand|cusparse|cusolver|nvrtc|nvjitlink|nvblas|nvjpeg|cufile)')) {
+            throw 'CPU installer still contains NVIDIA CUDA runtime DLLs.'
+          }
           $location = Join-Path $env:RUNNER_TEMP 'voice-cn-install-smoke'
           $log = Join-Path $env:GITHUB_WORKSPACE 'build_logs/inno-install.log'
           # The completed installer and receipt suffice now. Reclaim space for the installation.

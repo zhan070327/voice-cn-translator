@@ -230,6 +230,8 @@ def main() -> None:
             return
         if args.notes_file is None:
             parser.error("发布或 dry-run 必须提供 --notes-file")
+        if args.upload and Version(APP_VERSION) >= Version("0.3.0b5"):
+            parser.error("b5 起使用 scripts.publish_paired_release 同步发布双渠道。")
         data = prepare(args.installer, args.receipt, args.notes_file, args.output)
         if not args.upload:
             print(f"dry-run 通过：{data['version']}，安装包 {data['size']} 字节；清单：{args.output}；未联网或上传。")

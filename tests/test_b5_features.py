@@ -129,3 +129,19 @@ def test_release_mirror_rejects_different_checksum():
     assets[1]["digest"] = "sha256:" + "0" * 64
     with pytest.raises(github.UpdateError):
         verify_github_assets(assets, manifest)
+
+
+def test_cpu_packaging_prunes_vendor_cuda_but_refuses_cuda_torch(tmp_path):
+    from scripts.audit_cuda_bundle import prune_cpu_runtime
+
+    cuda = tmp_path / "cudnn64_9.dll"
+    cpu = tmp_path / "torch_cpu.dll"
+    cuda.write_bytes(b"CUDA")
+    cpu.write_bytes(b"CPU")
+    assert prune_cpu_runtime(tmp_path) == [cuda]
+    assert not cuda.exists() and cpu.exists()
+    torch_cuda = tmp_path / "torch_cuda.dll"
+    torch_cuda.write_bytes(b"CUDA")
+    with pytest.raises(ValueError, match="CUDA PyTorch"):
+        prune_cpu_runtime(tmp_path)
+    assert torch_cuda.exists()

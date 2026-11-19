@@ -113,6 +113,12 @@ class Pipeline:
         except queue.Full:
             pass
 
+    def _report_runtime(self, asr, translator) -> None:
+        mode = "低延迟模式" if self.settings.fast_mode else "准确优先模式"
+        path = getattr(asr, "path", None)
+        model = f" · Whisper {path.name.removeprefix('whisper-')}" if path else ""
+        self.on_runtime(f"识别 {asr.device.upper()} · 翻译 {translator.device.upper()} · {mode}{model}")
+
     def translate_microphone(self, audio):
         session = self.model_session
         if session is None:
@@ -132,8 +138,7 @@ class Pipeline:
                                self.settings.fast_mode)
             self.on_status("加载本地翻译模型…")
             translator = LocalM2M(self.settings.compute_device, self.settings.fast_mode)
-            self.on_runtime(f"识别 {asr.device.upper()} · 翻译 {translator.device.upper()}"
-                            + (" · 低延迟模式" if self.settings.fast_mode else " · 准确优先模式"))
+            self._report_runtime(asr, translator)
             glossary = game_glossary(self.settings.game)
             asr.glossary = glossary
             self.model_session = (asr, translator)
@@ -174,8 +179,7 @@ class Pipeline:
                     finally:
                         self.asr_busy.clear()
                         watchdog.cancel()
-                    self.on_runtime(f"识别 {asr.device.upper()} · 翻译 {translator.device.upper()}"
-                                    + (" · 低延迟模式" if self.settings.fast_mode else " · 准确优先模式"))
+                    self._report_runtime(asr, translator)
                     t1 = time.monotonic()
                     if not recognized:
                         self.on_diagnostic(
@@ -247,8 +251,7 @@ class Pipeline:
                 if translated is None:
                     with self.mt_lock:
                         translated = translator.translate(recognized.text, recognized.language)
-                self.on_runtime(f"识别 {asr.device.upper()} · 翻译 {translator.device.upper()}"
-                                + (" · 低延迟模式" if self.settings.fast_mode else " · 准确优先模式"))
+                self._report_runtime(asr, translator)
                 finished = time.monotonic()
                 translation_seconds = finished - started
                 if (translation_seconds > self.settings.translation_timeout
