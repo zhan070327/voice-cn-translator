@@ -13,6 +13,7 @@ from scripts.upload_b4_cos import (
     FIRST_PART_DEADLINE_SECONDS, Progress, diagnose_network, local_crc64, protected_client_class,
     require_same_object, upload_or_reuse,
 )
+from scripts.probe_b4_cos_part import probe
 from unittest.mock import MagicMock, patch
 
 
@@ -84,6 +85,38 @@ class TestB4CosUpload(unittest.TestCase):
         self.assertIn("TCP 443: success", output.getvalue())
         self.assertIn("TLS handshake: success", output.getvalue())
         self.assertIn("HTTPS HEAD: HTTP 404", output.getvalue())
+
+    def test_controlled_part_probe_aborts_on_success_and_failure(self):
+        class FakeClient:
+            def __init__(self, fail=False):
+                self.fail = fail
+                self.aborted = False
+
+            def create_multipart_upload(self, **kwargs):
+                self.guard = kwargs["ForbidOverwrite"]
+                return {"UploadId": "probe-id"}
+
+            def upload_part(self, **kwargs):
+                if self.fail:
+                    raise TimeoutError("simulated part stall")
+                return {"ETag": "example"}
+
+            def abort_multipart_upload(self, **kwargs):
+                self.aborted = True
+
+            def list_multipart_uploads(self, **kwargs):
+                return {"Upload": []}
+
+        for fail in (False, True):
+            with self.subTest(fail=fail), redirect_stdout(io.StringIO()):
+                client = FakeClient(fail)
+                if fail:
+                    with self.assertRaises(TimeoutError):
+                        probe(client, "releases/diagnostics/test.bin")
+                else:
+                    probe(client, "releases/diagnostics/test.bin")
+                self.assertEqual(client.guard, "true")
+                self.assertTrue(client.aborted)
 
     def test_actual_part_bytes_are_counted(self):
         class FakeSdkClient:
@@ -174,6 +207,13 @@ class TestB4CosUpload(unittest.TestCase):
         self.assertIn("--diagnose-network", diagnostic)
         self.assertNotIn("COS_SECRET", diagnostic)
         self.assertNotIn("upload-installer", diagnostic)
+        probe_workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github/workflows/cos-b4-part-probe.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", probe_workflow)
+        self.assertNotIn("windows-domestic-", probe_workflow)
+        self.assertNotIn("latest.json", probe_workflow)
 
 
 if __name__ == "__main__":
