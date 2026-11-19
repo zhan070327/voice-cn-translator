@@ -181,7 +181,7 @@ jobs:
           if head_or_none() is None:
               with exe.open("rb") as stream:
                   client.put_object(
-                      Bucket=bucket, Key=key, Body=stream, ContentLength=size,
+                      Bucket=bucket, Key=key, Body=stream, ContentLength=str(size),
                       ContentType="application/octet-stream",
                       ContentDisposition='attachment; filename="VoiceCNTranslator_Beta_Setup.exe"',
                       Metadata={"x-cos-meta-sha256": sha},
