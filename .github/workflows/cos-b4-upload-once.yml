@@ -7,6 +7,14 @@ on:
         description: 'Type UPLOAD 0.3.0b4 to upload or verify the pinned installer'
         required: true
         type: string
+      endpoint:
+        description: 'COS upload route; accelerate uses the bucket global acceleration feature'
+        required: true
+        type: choice
+        default: direct
+        options:
+          - direct
+          - accelerate
 
 permissions:
   actions: read
@@ -28,9 +36,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CONFIRMATION: ${{ inputs.confirmation }}
+          ENDPOINT: ${{ inputs.endpoint }}
         run: |
           set -euo pipefail
           test "$CONFIRMATION" = 'UPLOAD 0.3.0b4' || { echo 'Confirmation mismatch'; exit 1; }
+          [[ "$ENDPOINT" == 'direct' || "$ENDPOINT" == 'accelerate' ]] || { echo 'Invalid endpoint'; exit 1; }
           test "$GITHUB_REF" = 'refs/heads/main' || { echo 'Run this workflow from main after review'; exit 1; }
           run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/44478207822")
           jq -e --arg repo "$GITHUB_REPOSITORY" '
@@ -131,6 +141,7 @@ jobs:
           COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
           COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
           COS_SESSION_TOKEN: ${{ secrets.COS_SESSION_TOKEN }}
+          COS_UPLOAD_ENDPOINT: ${{ inputs.endpoint }}
           EXPECTED_SHA256: ${{ steps.installer.outputs.sha256 }}
           EXPECTED_SIZE: ${{ steps.installer.outputs.size }}
         run: python release-tools/scripts/upload_b4_cos.py
