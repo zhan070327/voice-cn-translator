@@ -69,3 +69,18 @@ def test_whisper_receives_game_term_hotwords():
     assert asr.model.last_kwargs["temperature"] == 0.0
     assert asr.model.last_kwargs["best_of"] == 1
     assert asr.model.last_kwargs["max_new_tokens"] == 64
+
+
+def test_chinese_microphone_hotwords_are_isolated_from_team_audio():
+    asr = LocalWhisper.__new__(LocalWhisper)
+    asr.glossary = Glossary()
+    asr.model = FakeModel("我们快攻 A 点", "zh", 0.95)
+    audio = np.zeros(16000, dtype=np.float32)
+    assert asr.transcribe_chinese_callout(audio).text == "我们快攻 A 点"
+    assert asr.model.last_kwargs["language"] == "zh"
+    assert "快攻" in asr.model.last_kwargs["hotwords"]
+    assert "A Main" not in asr.model.last_kwargs["hotwords"]
+
+    asr.model = FakeModel("Can you drop", "en", 0.95)
+    assert asr.transcribe(audio, "auto").text == "Can you drop"
+    assert asr.model.last_kwargs["hotwords"] == asr.glossary.hotwords

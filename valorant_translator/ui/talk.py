@@ -71,7 +71,7 @@ class PushToTalk:
                 else:
                     settings = self._settings
                     asr = LocalWhisper(settings.whisper_model, settings.compute_device, settings.fast_mode)
-                    recognized = asr.transcribe(audio, "zh", use_hotwords=False)
+                    recognized = asr.transcribe_chinese_callout(audio)
                     english = (LocalM2M(settings.compute_device, settings.fast_mode)
                                .translate_to_english(recognized.text)) if recognized else ""
                 if recognized and english and not self._closed:

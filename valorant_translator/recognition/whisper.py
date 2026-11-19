@@ -19,6 +19,10 @@ WHISPER_REPOS = {
     "small": "Systran/faster-whisper-small",
     "medium": "Systran/faster-whisper-medium",
 }
+_CHINESE_CALLOUT_HOTWORDS = (
+    "无畏契约 A点 B点 C点 A大 B大 中路 中门 水烟 "
+    "快攻 转点 集合 撤退 守住 封烟 扔闪 闪光 下包 拆包 队友"
+)
 
 
 @dataclass(frozen=True)
@@ -72,9 +76,16 @@ class LocalWhisper:
             self.model = WhisperModel(str(path), device="cpu", compute_type="int8",
                                       local_files_only=True, num_workers=1)
 
-    def transcribe(self, audio: np.ndarray, language: str, *, use_hotwords: bool = True) -> Recognition | None:
+    def transcribe_chinese_callout(self, audio: np.ndarray) -> Recognition | None:
+        return self.transcribe(audio, "zh", hotwords=_CHINESE_CALLOUT_HOTWORDS)
+
+    def transcribe(self, audio: np.ndarray, language: str, *, use_hotwords: bool = True,
+                   hotwords: str | None = None) -> Recognition | None:
+        options = {} if use_hotwords else {"use_hotwords": False}
+        if hotwords is not None:
+            options["hotwords"] = hotwords
         try:
-            return (self._transcribe(audio, language) if use_hotwords else self._transcribe(audio, language, use_hotwords=False))
+            return self._transcribe(audio, language, **options)
         except RuntimeError as exc:
             if self.device != "cuda":
                 raise
@@ -85,10 +96,13 @@ class LocalWhisper:
             self.device = "cpu"
             self.model = WhisperModel(str(self.path), device="cpu", compute_type="int8",
                                       local_files_only=True, num_workers=1)
-            return (self._transcribe(audio, language) if use_hotwords else self._transcribe(audio, language, use_hotwords=False))
+            return self._transcribe(audio, language, **options)
 
-    def _transcribe(self, audio: np.ndarray, language: str, *, use_hotwords: bool = True) -> Recognition | None:
+    def _transcribe(self, audio: np.ndarray, language: str, *, use_hotwords: bool = True,
+                    hotwords: str | None = None) -> Recognition | None:
         locked = None if language == "auto" else language
+        if hotwords is None and use_hotwords:
+            hotwords = getattr(getattr(self, "glossary", None), "hotwords", None)
         segments, info = self.model.transcribe(audio, language=locked,
                                                beam_size=2 if getattr(self, "fast_mode", True) else 3,
                                                best_of=1 if getattr(self, "fast_mode", True) else 3,
@@ -97,7 +111,7 @@ class LocalWhisper:
                                                vad_filter=False, condition_on_previous_text=False,
                                                without_timestamps=getattr(self, "fast_mode", True),
                                                no_speech_threshold=0.5, hallucination_silence_threshold=None,
-                                               hotwords=getattr(getattr(self, "glossary", None), "hotwords", None) if use_hotwords else None)
+                                               hotwords=hotwords)
         reliable = [s for s in segments if s.no_speech_prob < 0.55 and s.avg_logprob > -1.1]
         parts = [s.text.strip() for s in reliable]
         text = " ".join(p for p in parts if p).strip()

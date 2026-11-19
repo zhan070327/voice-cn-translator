@@ -125,7 +125,7 @@ class Pipeline:
             raise RuntimeError("翻译模型仍在加载，请稍后再试。")
         asr, translator = session
         with self.asr_lock:
-            recognized = asr.transcribe(audio, "zh", use_hotwords=False)
+            recognized = asr.transcribe_chinese_callout(audio)
         if not recognized:
             return None, ""
         with self.mt_lock:

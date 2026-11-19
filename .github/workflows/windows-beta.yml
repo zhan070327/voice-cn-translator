@@ -164,7 +164,7 @@ jobs:
           $version = & .\.venv\Scripts\python.exe -c "from valorant_translator.version import APP_VERSION; print(APP_VERSION)"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $sha = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Host "Installer edition=$env:BUILD_EDITION commit=$env:GITHUB_SHA bytes=$($setup.Length) sha256=$sha"
+          Write-Host "Installer version=$version edition=$env:BUILD_EDITION commit=$env:GITHUB_SHA bytes=$($setup.Length) sha256=$sha"
           if ($env:BUILD_CHANNEL -eq 'domestic') {
             $receipt = Get-Content 'dist/domestic_build.json' -Raw | ConvertFrom-Json
             if ($receipt.channel -ne 'domestic' -or $receipt.version -ne $version -or
