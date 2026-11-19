@@ -1,0 +1,207 @@
+name: One-time b4 installer upload to COS
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type UPLOAD 0.3.0b4 to upload or verify the pinned installer'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: voicecn-cos-b4-installer
+  cancel-in-progress: false
+
+jobs:
+  validate-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - name: Confirm exact b4 build and artifact
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRMATION" = 'UPLOAD 0.3.0b4' || { echo 'Confirmation mismatch'; exit 1; }
+          test "$GITHUB_REF" = 'refs/heads/main' || { echo 'Run this workflow from main after review'; exit 1; }
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/44478207822")
+          jq -e --arg repo "$GITHUB_REPOSITORY" '
+            .id == 44478207822 and .status == "completed" and .conclusion == "success"
+            and .event == "workflow_dispatch"
+            and .head_branch == "codex/windows-cloud-build"
+            and .head_repository.full_name == $repo
+            and .path == ".github/workflows/windows-beta.yml"
+            and .head_sha == "0571493f0c7eac412347635d7c3b74278923f7c0"
+            and .run_attempt == 1
+          ' <<<"$run" >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/44478207822/artifacts?name=windows-domestic-44478207822-1" |
+            jq -e 'any(.artifacts[];
+              .id == 14508612725
+              and .name == "windows-domestic-44478207822-1"
+              and (.expired | not)
+              and .digest == "sha256:9a644b34baa350ea32ea763e86b77732f1f8d72e1b67eb55509ca2234bf3bc13"
+            )' >/dev/null
+          echo 'commit=0571493f0c7eac412347635d7c3b74278923f7c0' >>"$GITHUB_OUTPUT"
+
+  upload-installer:
+    needs: validate-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: cos-b4-upload
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate-build.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-domestic-44478207822-1
+          run-id: 44478207822
+          github-token: ${{ github.token }}
+          path: dist
+      - name: Verify installer and both build receipts
+        id: installer
+        run: |
+          python - <<'PY'
+          import ast
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          version = "0.3.0b4"
+          commit = "0571493f0c7eac412347635d7c3b74278923f7c0"
+          exe = Path("dist/VoiceCNTranslator_Beta_Setup.exe")
+          assert exe.is_file(), "Installer missing from artifact"
+          domestic = json.loads(Path("dist/domestic_build.json").read_text(encoding="utf-8-sig"))
+          windows = json.loads(Path("dist/windows_build.json").read_text(encoding="utf-8-sig"))
+          tree = ast.parse(Path("valorant_translator/version.py").read_text(encoding="utf-8"))
+          source_version = next(
+              ast.literal_eval(node.value)
+              for node in tree.body
+              if isinstance(node, ast.Assign)
+              and any(isinstance(target, ast.Name) and target.id == "APP_VERSION" for target in node.targets)
+          )
+          assert source_version == version, "Source version mismatch"
+          size = exe.stat().st_size
+          assert 0 < size <= 5 * 1024**3, "Invalid installer size for single PUT"
+          digest = hashlib.sha256()
+          with exe.open("rb") as stream:
+              for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+                  digest.update(chunk)
+          sha = digest.hexdigest()
+          for receipt in (domestic, windows):
+              assert receipt.get("version") == version, "Receipt version mismatch"
+              assert receipt.get("sha256") == sha, "Receipt SHA-256 mismatch"
+              assert type(receipt.get("size")) is int and receipt["size"] == size, "Receipt size mismatch"
+              assert receipt.get("channel") == "domestic", "Receipt channel mismatch"
+          assert domestic.get("manifest_url") == (
+              "https://valorant-translator-update-1535709511.cos.ap-guangzhou.myqcloud.com/latest.json"
+          ), "Receipt COS bucket mismatch"
+          assert windows.get("commit") == commit, "Windows build commit mismatch"
+          assert str(windows.get("run_id")) == "44478207822", "Windows build run mismatch"
+          assert str(windows.get("run_attempt")) == "1", "Windows build attempt mismatch"
+          assert windows.get("install_self_test") == "passed", "Installer self-test was not passed"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"sha256={sha}\nsize={size}\n")
+          print(f"Verified installer: version={version}, size={size}, sha256={sha}")
+          PY
+      - name: Install pinned COS SDK
+        run: python -m pip install -r requirements_publish.txt
+      - name: Reuse or upload exact installer, then verify COS and public HTTPS
+        env:
+          COS_B4_SECRET_ID: ${{ secrets.COS_B4_SECRET_ID }}
+          COS_B4_SECRET_KEY: ${{ secrets.COS_B4_SECRET_KEY }}
+          COS_B4_SESSION_TOKEN: ${{ secrets.COS_B4_SESSION_TOKEN }}
+          EXPECTED_SHA256: ${{ steps.installer.outputs.sha256 }}
+          EXPECTED_SIZE: ${{ steps.installer.outputs.size }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import os
+          from contextlib import closing
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+
+          from qcloud_cos import CosConfig, CosS3Client
+          from qcloud_cos.cos_exception import CosServiceError
+
+          bucket = "valorant-translator-update-1535709511"
+          key = "releases/0.3.0b4/VoiceCNTranslator_Beta_Setup.exe"
+          url = f"https://{bucket}.cos.ap-guangzhou.myqcloud.com/{key}"
+          size = int(os.environ["EXPECTED_SIZE"])
+          sha = os.environ["EXPECTED_SHA256"]
+          exe = Path("dist/VoiceCNTranslator_Beta_Setup.exe")
+          secret_id = os.environ.get("COS_B4_SECRET_ID", "")
+          secret_key = os.environ.get("COS_B4_SECRET_KEY", "")
+          assert secret_id and secret_key, "Set COS_B4_SECRET_ID and COS_B4_SECRET_KEY in cos-b4-upload Environment Secrets"
+          client = CosS3Client(CosConfig(
+              Region="ap-guangzhou", SecretId=secret_id, SecretKey=secret_key,
+              Token=os.environ.get("COS_B4_SESSION_TOKEN") or None, Scheme="https",
+          ))
+          versioning = client.get_bucket_versioning(Bucket=bucket)
+          assert versioning.get("Status") in (None, ""), (
+              "Bucket versioning was enabled or suspended; COS forbid-overwrite cannot guarantee no overwrite"
+          )
+
+          def head_or_none():
+              try:
+                  return client.head_object(Bucket=bucket, Key=key)
+              except CosServiceError as exc:
+                  if exc.get_status_code() == 404:
+                      return None
+                  raise
+
+          def verify_remote():
+              head = head_or_none()
+              assert head is not None, "COS object missing"
+              assert int(head["Content-Length"]) == size, "COS object size mismatch"
+              digest = hashlib.sha256()
+              count = 0
+              body = client.get_object(Bucket=bucket, Key=key)["Body"]
+              with closing(body.get_raw_stream()) as stream:
+                  for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+                      count += len(chunk)
+                      digest.update(chunk)
+              assert count == size and digest.hexdigest() == sha, (
+                  "Existing COS object differs; refusing to overwrite"
+              )
+
+          if head_or_none() is None:
+              with exe.open("rb") as stream:
+                  client.put_object(
+                      Bucket=bucket, Key=key, Body=stream, ContentLength=size,
+                      ContentType="application/octet-stream",
+                      ContentDisposition='attachment; filename="VoiceCNTranslator_Beta_Setup.exe"',
+                      Metadata={"x-cos-meta-sha256": sha},
+                      ForbidOverwrite="true",
+                  )
+              outcome = "uploaded"
+          else:
+              outcome = "reused"
+          verify_remote()
+
+          request = Request(url, method="HEAD")
+          with urlopen(request, timeout=30) as response:
+              assert response.status == 200, "Public HTTPS URL is not reachable"
+              assert response.url.startswith("https://"), "Public URL redirected away from HTTPS"
+              assert int(response.headers["Content-Length"]) == size, "Public URL size mismatch"
+          print(f"COS object {outcome}: {url}")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(
+                  f"b4 installer {outcome}; size: {size} bytes; SHA-256: `{sha}`\n\n"
+                  f"Public HTTPS: {url}\n\n"
+                  "Only the installer object was uploaded. latest.json and model ZIP were untouched.\n"
+              )
+          PY
