@@ -1,0 +1,75 @@
+{
+  "model": "whisper-small",
+  "model_dir": "CN_model_bundle/whisper-small",
+  "devices": [
+    {
+      "device": "cuda",
+      "compute_type": "float16",
+      "runs": [],
+      "passed": false,
+      "verdict": "device_or_model_error",
+      "error": "ValueError: This CTranslate2 package was not compiled with CUDA support"
+    },
+    {
+      "device": "cpu",
+      "compute_type": "int8",
+      "runs": [
+        {
+          "mode": "app_hotwords",
+          "text": "Two A Main.",
+          "language": "en",
+          "confidence": 0.9055486917495728,
+          "inference_seconds": 2.354252709017601,
+          "accepted_text": "Two A Main.",
+          "accepted_language": "en",
+          "filter_rejections": [],
+          "raw_matches_reference": true,
+          "accepted_matches_reference": true,
+          "segments": [
+            {
+              "text": " Two A Main.",
+              "start": 0.0,
+              "end": 3.0,
+              "no_speech_prob": 0.002753867767751217,
+              "avg_logprob": -0.2657817840576172
+            }
+          ]
+        },
+        {
+          "mode": "no_hotwords",
+          "text": "to AMAIN.",
+          "language": "en",
+          "confidence": 0.9055486917495728,
+          "inference_seconds": 2.1607741250190884,
+          "accepted_text": "to AMAIN.",
+          "accepted_language": "en",
+          "filter_rejections": [],
+          "raw_matches_reference": false,
+          "accepted_matches_reference": false,
+          "segments": [
+            {
+              "text": " to AMAIN.",
+              "start": 0.0,
+              "end": 3.0,
+              "no_speech_prob": 0.16431871056556702,
+              "avg_logprob": -0.6003923217455546
+            }
+          ]
+        }
+      ],
+      "passed": true,
+      "load_seconds": 0.55487408398767,
+      "actual_device": "cpu",
+      "actual_compute_type": "int8_float32",
+      "verdict": "recognition_passed"
+    }
+  ],
+  "passed": false,
+  "audio": "macOS Samantha voice: Two A main, 16 kHz mono, padded to 3 s",
+  "audio_source": "macos_local_tts",
+  "reference": "Two A main",
+  "audio_seconds": 3.0,
+  "game": "valorant",
+  "fast_mode": true,
+  "environment": "macOS Apple M3"
+}
