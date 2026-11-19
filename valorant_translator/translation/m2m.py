@@ -55,9 +55,15 @@ class LocalM2M:
     def translate(self, source: str, language: str) -> str:
         if language not in SUPPORTED_LANGUAGES:
             raise ValueError("无法确认语种，不生成翻译。")
+        return self._translate_with_fallback(source, language, "zh")
+
+    def translate_to_english(self, source: str) -> str:
+        return self._translate_with_fallback(source, "zh", "en")
+
+    def _translate_with_fallback(self, source: str, language: str, target: str) -> str:
         self.tokenizer.src_lang = language
         try:
-            return self._translate(source)
+            return self._translate(source) if target == "zh" else self._translate(source, target)
         except RuntimeError as exc:
             if self.device != "cuda":
                 raise
@@ -70,16 +76,16 @@ class LocalM2M:
                 LOG.warning("Could not clear CUDA cache after inference failure")
             self.device = "cpu"
             self.model = self._load_model(self.model_type)
-            return self._translate(source)
+            return self._translate(source) if target == "zh" else self._translate(source, target)
 
-    def _translate(self, source: str) -> str:
+    def _translate(self, source: str, target: str = "zh") -> str:
         batch = self.tokenizer(source, return_tensors="pt", truncation=True,
                                max_length=128).to(self.device)
         with self.torch.inference_mode():
             tokens = self.model.generate(
                 **batch,
-                forced_bos_token_id=self.tokenizer.get_lang_id("zh"),
+                forced_bos_token_id=self.tokenizer.get_lang_id(target),
                 max_new_tokens=48 if self.fast_mode else 64,
                 num_beams=1 if self.fast_mode else 2)
         chinese = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)[0].strip()
-        return self.converter.convert(chinese)
+        return self.converter.convert(chinese) if target == "zh" else chinese

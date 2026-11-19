@@ -1,0 +1,44 @@
+name: Whisper COS model assets
+on:
+  push:
+    branches: [feature/ui-two-way]
+    paths: ['.github/workflows/whisper-model-assets.yml', 'scripts/package_whisper_models.py']
+  workflow_dispatch:
+    inputs:
+      publish_models:
+        description: Upload verified model ZIPs and model catalog when COS Secrets are present
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: whisper-cos-models
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'packaging>=24,<27' -r requirements_publish.txt
+      - name: Download, package and optionally upload models
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_SESSION_TOKEN: ${{ secrets.COS_SESSION_TOKEN }}
+          PUBLISH_MODELS: ${{ github.event_name == 'push' || inputs.publish_models }}
+        run: |
+          args=()
+          [[ "$PUBLISH_MODELS" != "true" ]] || args+=(--publish-if-configured)
+          python -m scripts.package_whisper_models "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: whisper-tiny-base-cos
+          path: dist/model-assets/
+          compression-level: 0
+          retention-days: 7

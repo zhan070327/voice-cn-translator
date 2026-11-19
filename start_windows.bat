@@ -26,6 +26,11 @@ if /I "%~1"=="--prepare-gpu" exit /b 0
 if errorlevel 1 pause
 exit /b %errorlevel%
 :prepare_gpu
+if "%VALORANT_CPU_PACKAGE%"=="1" (
+    ".venv\Scripts\python.exe" -m scripts.check_torch_cuda --cpu-package
+    if errorlevel 1 exit /b 1
+    exit /b 0
+)
 if "%VALORANT_PACKAGE_WITHOUT_GPU%"=="1" (
     ".venv\Scripts\python.exe" -m scripts.check_torch_cuda --package-only
     if errorlevel 1 exit /b 1

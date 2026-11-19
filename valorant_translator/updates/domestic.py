@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 from packaging.version import InvalidVersion, Version
 
-from valorant_translator.updates.github import (CHANNEL_FILE, INSTALLER_NAME,
+from valorant_translator.updates.github import (CHANNEL_FILE, INSTALLERS,
                                                 MAX_INSTALLER_BYTES, Release,
                                                 UpdateError)
 from valorant_translator.version import APP_VERSION
@@ -47,9 +47,11 @@ def load_channel(path: Path = CHANNEL_FILE) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise UpdateError("更新通道配置缺失或格式错误。") from exc
-    if not isinstance(data, dict) or data.get("channel") not in ("github", "domestic"):
+    if not isinstance(data, dict) or data.get("channel") not in ("github", "domestic", "dual"):
         raise UpdateError("更新通道必须是 github 或 domestic。")
-    if data["channel"] == "domestic":
+    if data.get("edition", "gpu") not in ("gpu", "cpu"):
+        raise UpdateError("安装包类型无效。")
+    if data["channel"] in ("domestic", "dual"):
         url, hosts = data.get("manifest_url"), data.get("download_hosts")
         if not isinstance(hosts, list) or not hosts or not all(
                 isinstance(host, str) and re.fullmatch(r"[a-z0-9.-]+", host)
@@ -62,19 +64,30 @@ def load_channel(path: Path = CHANNEL_FILE) -> dict:
             raise UpdateError("国内更新清单地址格式错误。") from exc
         validate_url(url, (manifest_host,) if manifest_host else ())
         data["download_hosts"] = allowed
-    else:
+    if data["channel"] in ("github", "dual"):
         from valorant_translator.updates.github import validate_repository
         data["github_repository"] = validate_repository(str(data.get("github_repository", "")))
     return data
 
 
-def parse_manifest(payload: bytes, hosts: tuple[str, ...], current: str = APP_VERSION) -> Release | None:
+def parse_manifest(payload: bytes, hosts: tuple[str, ...], current: str = APP_VERSION, *,
+                   edition: str = "gpu") -> Release | None:
     if len(payload) > MAX_MANIFEST_BYTES:
         raise UpdateError("国内更新清单过大。")
     try:
         data = json.loads(payload)
         if not isinstance(data, dict):
             raise ValueError("not an object")
+        if edition == "cpu":
+            editions = data.get("editions", {})
+            if not isinstance(editions, dict):
+                raise ValueError("安装包类型清单无效")
+            if edition not in editions:
+                return None
+            version_text = data["version"]
+            data = editions[edition]
+            if not isinstance(data, dict) or data.get("version") != version_text:
+                raise ValueError("安装包类型版本不一致")
         version = Version(data["version"])
         current_version = Version(current)
         url = validate_url(data["download_url"], hosts)
@@ -88,12 +101,12 @@ def parse_manifest(payload: bytes, hosts: tuple[str, ...], current: str = APP_VE
     if (type(size) is not int or not 0 < size <= MAX_INSTALLER_BYTES or
             not isinstance(digest, str) or not HASH.fullmatch(digest) or
             not isinstance(notes, str) or len(notes) > 4000 or
-            any(urlparse(item).path.rsplit("/", 1)[-1] != INSTALLER_NAME
+            any(urlparse(item).path.rsplit("/", 1)[-1] != INSTALLERS[edition]
                 for item in (url, *fallback))):
         raise UpdateError("国内更新清单的安装包信息无效。")
     if version <= current_version:
         return None
-    return Release(version, f"v{version}", notes[:800], url, digest.lower(), size, hosts, fallback)
+    return Release(version, f"v{version}", notes[:800], url, digest.lower(), size, hosts, fallback, installer_name=INSTALLERS[edition])
 
 
 def find_update(channel: dict, current: str = APP_VERSION) -> Release | None:
@@ -108,4 +121,4 @@ def find_update(channel: dict, current: str = APP_VERSION) -> Release | None:
         raise
     except Exception as exc:
         raise UpdateError(f"无法获取国内更新清单：{exc}") from exc
-    return parse_manifest(payload, channel["download_hosts"], current)
+    return parse_manifest(payload, channel["download_hosts"], current, edition=channel.get("edition", "gpu"))

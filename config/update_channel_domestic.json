@@ -6,6 +6,7 @@
     "valorant-translator-update-1535709511.cos.accelerate.myqcloud.com"
   ],
   "installer_fallback_hosts": [],
+  "model_manifest_url": "https://valorant-translator-update-1535709511.cos.ap-guangzhou.myqcloud.com/models/models.json",
   "model_bundle": {
     "urls": [
       "https://valorant-translator-update-1535709511.cos.ap-guangzhou.myqcloud.com/models/VoiceCNTranslator_Models_small_M2M100.zip",
@@ -13,6 +14,10 @@
     ],
     "size": 2428144996,
     "crc64_ecma": "14866050362790353774",
-    "sha256": "35e9f85fa60f1121c5bd035bdc6d3ad88fef5033a4a2aaf14bf4cf23fe7b8ba5"
+    "sha256": "35e9f85fa60f1121c5bd035bdc6d3ad88fef5033a4a2aaf14bf4cf23fe7b8ba5",
+    "component_compressed_bytes": {
+      "whisper-small": 486212372,
+      "m2m100_418M": 1941931012
+    }
   }
 }
