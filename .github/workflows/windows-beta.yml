@@ -86,7 +86,15 @@ jobs:
           if ($free -lt 5GB) { throw 'Need 5 GiB of free workspace disk after dependency installation.' }
 
       - name: Test source
-        run: .\.venv\Scripts\python.exe -m pytest -q tests
+        shell: pwsh
+        run: |
+          $python = '.\.venv\Scripts\python.exe'
+          $testDeps = Join-Path $env:RUNNER_TEMP 'release-test-deps'
+          & $python -m pip install --target $testDeps -r requirements_publish.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:PYTHONPATH = $testDeps
+          & $python -m pytest -q tests
+          exit $LASTEXITCODE
 
       - name: Configure GitHub channel for international build
         if: env.BUILD_CHANNEL == 'github'
