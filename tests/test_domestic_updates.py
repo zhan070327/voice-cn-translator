@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import hashlib
 import io
 import json
@@ -159,7 +160,10 @@ def test_installer_launch_failure_and_success(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(windows.subprocess, "Popen", lambda *a, **k: calls.append((a, k)))
     windows.start_silent_installer(installer, release)
-    assert calls and str(installer) in calls[0][0][0]
+    args, kwargs = calls[0]
+    assert args[0][:1] == ["powershell.exe"] and args[0][-2] == "-EncodedCommand"
+    assert kwargs["env"]["VOICECN_UPDATE_INSTALLER"] == str(installer)
+    assert kwargs["env"]["VOICECN_UPDATE_SCRIPT"] == str(script)
     monkeypatch.setattr(windows.subprocess, "Popen", lambda *a, **k: (_ for _ in ()).throw(OSError("blocked")))
     with pytest.raises(github.UpdateError, match="无法启动"):
         windows.start_silent_installer(installer, release)
@@ -191,6 +195,16 @@ def test_invalid_domestic_channel_config(tmp_path):
     assert loaded["channel"] == "domestic" and loaded["download_hosts"] == HOSTS
 
 
+def test_windows_updater_script_uses_utf8_bom():
+    contents = windows.SCRIPT.read_bytes()
+    assert contents.startswith(codecs.BOM_UTF8)
+    assert "更新失败" in contents.decode("utf-8-sig")
+
+
+def _powershell_diagnostics(run: subprocess.CompletedProcess) -> str:
+    return f"PowerShell returncode={run.returncode}\nstdout:\n{run.stdout}\nstderr:\n{run.stderr}"
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="需要 Windows PowerShell")
 def test_windows_updater_reports_installer_exit_failure(tmp_path):
     result = tmp_path / "result.txt"
@@ -200,6 +214,25 @@ def test_windows_updater_reports_installer_exit_failure(tmp_path):
         "-File", str(windows.SCRIPT), "-Installer", sys.executable,
         "-AppExe", str(missing_app), "-ParentPid", "99999999",
         "-ResultPath", str(result),
-    ], capture_output=True, text=True, timeout=30)
-    assert completed.returncode != 0
-    assert "更新失败" in result.read_text(encoding="utf-8-sig")
+    ], capture_output=True, text=True, errors="replace", timeout=30)
+    diagnostics = _powershell_diagnostics(completed)
+    assert completed.returncode == 1, diagnostics
+    assert result.is_file(), diagnostics
+    message = result.read_text(encoding="utf-8-sig")
+    assert "更新失败" in message and "安装器返回错误代码" in message, f"{message}\n{diagnostics}"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="需要 Windows PowerShell")
+def test_windows_updater_launcher_records_parse_failure(tmp_path, monkeypatch):
+    result = tmp_path / "result.txt"
+    broken = tmp_path / "invalid updater.ps1"
+    broken.write_text("param(\n", encoding="ascii")
+    monkeypatch.setattr(windows, "SCRIPT", broken)
+    monkeypatch.setattr(windows, "RESULT", result)
+    command, env = windows._powershell_invocation(tmp_path / "unused.exe", sys.executable, 99999999)
+    completed = subprocess.run(command, env=env, capture_output=True, text=True,
+                               errors="replace", timeout=30)
+    diagnostics = _powershell_diagnostics(completed)
+    assert completed.returncode == 1, diagnostics
+    assert result.is_file(), diagnostics
+    assert result.read_text(encoding="utf-8-sig").startswith("更新脚本无法运行："), diagnostics
