@@ -3,12 +3,17 @@ from __future__ import annotations
 import unittest
 import tempfile
 import inspect
+import io
+import time
+from contextlib import redirect_stdout
 from pathlib import Path
+from urllib.error import HTTPError
 
 from scripts.upload_b4_cos import (
-    local_crc64, protected_client_class, require_same_object, upload_or_reuse,
+    FIRST_PART_DEADLINE_SECONDS, Progress, diagnose_network, local_crc64, protected_client_class,
+    require_same_object, upload_or_reuse,
 )
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 class TestB4CosUpload(unittest.TestCase):
@@ -23,6 +28,62 @@ class TestB4CosUpload(unittest.TestCase):
             ForbidOverwrite="false",
         )
         self.assertEqual(result["ForbidOverwrite"], "true")
+
+    def test_phase_logs_and_multipart_initialization_guard(self):
+        class FakeSdkClient:
+            def create_multipart_upload(self, **kwargs):
+                return kwargs
+
+            def upload_part(self, *args, **kwargs):
+                return {"ETag": "test"}
+
+            def complete_multipart_upload(self, **kwargs):
+                return kwargs
+
+        client = protected_client_class(FakeSdkClient)()
+        output = io.StringIO()
+        with redirect_stdout(output):
+            initiated = client.create_multipart_upload(ForbidOverwrite="false")
+            client.upload_part("bucket", "key", b"12345", 1, "id")
+            completed = client.complete_multipart_upload(ForbidOverwrite="false")
+        self.assertEqual(initiated["ForbidOverwrite"], "true")
+        self.assertEqual(completed["ForbidOverwrite"], "true")
+        for phase in ("initialize multipart upload", "upload part 1", "complete multipart upload"):
+            self.assertIn(f"{phase}: start", output.getvalue())
+            self.assertIn(f"{phase}: success in", output.getvalue())
+
+    def test_stalled_upload_exits_after_five_minutes_without_progress(self):
+        progress = Progress(100)
+        now = time.monotonic()
+        with progress.lock:
+            progress.last_activity = now - FIRST_PART_DEADLINE_SECONDS
+        self.assertTrue(progress.stalled(now))
+        with patch.object(progress.stop_event, "wait", return_value=False), \
+             patch("scripts.upload_b4_cos.os._exit", side_effect=RuntimeError("watchdog exit")) as exit_process, \
+             redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, "watchdog exit"):
+                progress._heartbeat()
+        exit_process.assert_called_once_with(124)
+        progress.transferred_callback(5)
+        self.assertFalse(progress.stalled(time.monotonic()))
+
+    def test_read_only_network_probe_accepts_missing_object(self):
+        connection = MagicMock()
+        tls = MagicMock()
+        tls.version.return_value = "TLSv1.3"
+        context = MagicMock()
+        context.wrap_socket.return_value = tls
+        with patch("scripts.upload_b4_cos.socket.getaddrinfo", return_value=[object()]), \
+             patch("scripts.upload_b4_cos.socket.create_connection", return_value=connection), \
+             patch("scripts.upload_b4_cos.ssl.create_default_context", return_value=context), \
+             patch("scripts.upload_b4_cos.urlopen", side_effect=HTTPError("url", 404, "absent", {}, None)):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                diagnose_network()
+        self.assertIn("DNS: success", output.getvalue())
+        self.assertIn("TCP 443: success", output.getvalue())
+        self.assertIn("TLS handshake: success", output.getvalue())
+        self.assertIn("HTTPS HEAD: HTTP 404", output.getvalue())
 
     def test_actual_part_bytes_are_counted(self):
         class FakeSdkClient:
@@ -105,6 +166,14 @@ class TestB4CosUpload(unittest.TestCase):
         self.assertNotIn("scripts.publish_cos --upload", workflow)
         upload_code = (Path(__file__).resolve().parents[1] / "scripts/upload_b4_cos.py").read_text()
         self.assertNotIn("get_object(", upload_code)
+        diagnostic = (
+            Path(__file__).resolve().parents[1]
+            / ".github/workflows/cos-b4-network-diagnostic.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", diagnostic)
+        self.assertIn("--diagnose-network", diagnostic)
+        self.assertNotIn("COS_SECRET", diagnostic)
+        self.assertNotIn("upload-installer", diagnostic)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,27 @@
+name: Diagnose GitHub runner to Guangzhou COS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  network-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: DNS, TCP, TLS and HTTPS HEAD (no credentials or upload)
+        shell: bash
+        run: |
+          set -uo pipefail
+          failed=0
+          for attempt in 1 2 3; do
+            echo "COS network probe $attempt/3 started at $(date -u +%FT%TZ)"
+            timeout --signal=TERM --kill-after=5s 65s \
+              python3 scripts/upload_b4_cos.py --diagnose-network || failed=1
+          done
+          exit "$failed"
