@@ -4,7 +4,7 @@ cd /d "%~dp0"
 set "CI_MODE=0"
 if /I "%~1"=="--ci" set "CI_MODE=1"
 if not exist ".venv\Scripts\python.exe" (
-    echo 请先运行 start_windows.bat 安装依赖，再运行本脚本。
+    echo ERROR: Missing .venv Python. Run start_windows.bat first.
     if "%CI_MODE%"=="0" pause
     exit /b 1
 )
@@ -19,6 +19,7 @@ if errorlevel 1 goto fail
   --icon "assets\app_icon.ico" ^
   --add-data "config\glossary.json;config" ^
   --add-data "config\update_channel.json;config" ^
+  --add-data "scripts\windows_updater.ps1;scripts" ^
   --add-data "assets\app_icon.ico;assets" ^
   --add-data "THIRD_PARTY_NOTICES_CN.md;." ^
   --collect-all soundcard --collect-all faster_whisper --collect-all ctranslate2 ^
@@ -29,15 +30,18 @@ if errorlevel 1 goto fail
 if errorlevel 1 goto fail
 "dist\ValorantTranslator\ValorantTranslator.exe" --self-test
 if errorlevel 1 (
-    echo 打包后的启动检查失败，请查看运行日志。
+    echo ERROR: Packaged EXE self-test failed. See build log.
     goto fail
 )
+".venv\Scripts\python.exe" -m scripts.audit_cuda_bundle "dist\ValorantTranslator"
+if errorlevel 1 goto fail
+if "%VALORANT_SKIP_PORTABLE%"=="1" exit /b 0
 powershell -NoProfile -Command "Compress-Archive -Path 'dist\ValorantTranslator' -DestinationPath 'dist\ValorantTranslator_Portable.zip' -Force"
 if errorlevel 1 goto fail
-echo 打包完成：dist\ValorantTranslator_Portable.zip
+echo Portable package ready: dist\ValorantTranslator_Portable.zip
 if "%CI_MODE%"=="0" pause
 exit /b 0
 :fail
-echo 打包失败，请保留上面的错误信息。
+echo ERROR: Portable package build failed. See build log.
 if "%CI_MODE%"=="0" pause
 exit /b 1

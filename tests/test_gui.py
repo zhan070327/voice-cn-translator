@@ -65,6 +65,7 @@ def test_main_window_starts_without_models(qapp, monkeypatch, tmp_path):
     assert window.history_table.item(0, 1).text() == "Go rush A"
     assert window.fast_check.isChecked()
     assert window.update_button.text() == "检查更新"
+    assert window.settings_update_button.text() == "检查更新"
     assert "当前版本" in window.update_label.text()
     window._runtime("识别 CUDA · 翻译 CPU · 低延迟模式")
     assert "翻译 CPU" in window.runtime_label.text()
@@ -77,6 +78,9 @@ def test_main_window_starts_without_models(qapp, monkeypatch, tmp_path):
     monkeypatch.setattr(ui.QMessageBox, "warning", lambda *args: warnings.append(args))
     window.start_translation()
     assert warnings and "下载模型" in warnings[0][1]
+    window.bridge.model_download_progress.emit(2_200_000_000, 2_428_144_996, 1_000_000.0)
+    assert window.model_progress.value() == 90
+    assert "剩余" in window.model_transfer.text()
     window.overlay.add_subtitle("测试", "test")
     assert "测试" in window.overlay.label.text()
     window.overlay.show()

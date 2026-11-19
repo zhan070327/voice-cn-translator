@@ -2,12 +2,23 @@
 
 这是一款 Windows 10/11 64 位的本地测试软件，**尚未完成目标 Windows 环境的安装包验证**。先用自己的 Windows 电脑验证构建产物，再提供给测试者。不要把源代码压缩包当作普通用户的下载包。
 
+**版本提示：**GPU 兼容修复版 `v0.3.0b2` 已在 [GitHub Releases](https://github.com/zhan070327/voice-cn-translator/releases/tag/v0.3.0b2) 发布；现有 QQ 闪传与百度网盘文件夹仍是旧安装包 `v0.3.0b1`，直到重新上传前不要把它们称为 GPU 修复版。离线模型 ZIP 可继续使用，无需重下。
+
 ## 给测试者的最短步骤
 
-1. 国内测试者从开发者私聊提供的网盘链接下载 `VoiceCNTranslator_Beta_Setup.exe` 和 `VoiceCNTranslator_Models_small_M2M100.zip`。双击 EXE 安装，从桌面快捷方式打开；不需要安装 Python。GitHub 可访问时也能使用[安装包直链](https://github.com/zhan070327/voice-cn-translator/releases/download/v0.3.0b1/VoiceCNTranslator_Beta_Setup.exe)。网盘分享链接尚需实际上传后生成。
+1. GPU 修复版安装包从 [GitHub 直链](https://github.com/zhan070327/voice-cn-translator/releases/download/v0.3.0b2/VoiceCNTranslator_Beta_Setup.exe) 下载。原来的 [QQ 闪传文件夹](https://qfile.qq.com/q/E6R6LgAwrQ) 和[百度网盘备用链接](https://pan.baidu.com/s/1hN8dXZoCHIIR6w2K7SsNcw?pwd=r9mw)（提取码 `r9mw`）中，模型 ZIP 仍可使用，但安装包尚未替换为 `v0.3.0b2`。双击新版 EXE 安装，从桌面快捷方式打开；不需要安装 Python。国内访问 GitHub 可能失败，需等待新版安装包重新上传 QQ 闪传。
 2. 将模型 ZIP “全部解压”，确认解压目录里有 `whisper-small` 和 `m2m100_418M` 两个文件夹。在软件中点击“从文件夹导入”，选择包含这两个文件夹的上级目录，不要选择 ZIP 或只选其中一个子文件夹。当前“一键下载模型”直接连接 Hugging Face，国内网络不保证可用；导入完整模型后可离线运行，软件运行时不上传语音或字幕。
 3. 选择自己听游戏声音的“系统声音：耳机/扬声器”，先点“测试字幕（20 秒）”，确认能看到字幕窗口，再点“开始翻译”。
+   使用 GPU 修复版测试时，确认首页版本为 `0.3.0b2`，并在开始后查看“实际运行设备”：目标是“识别 CUDA · 翻译 CUDA”。若其中一项显示 CPU 或再次出现 CUDA 错误，请发送截图和“复制反馈信息”；不能仅凭模型已导入就判断 GPU 正常。
 4. 遇到问题时点“复制反馈信息”，打开抖音私信开发者，粘贴并发送，再补充队友实际说的话、软件翻译结果和期望译文；报错时可附截图。按钮只复制到剪贴板，**不会自动发送反馈**。也可以在“翻译历史”里修正译文、导出 CSV。发送前请检查是否包含不想公开的对话文字。
+
+如果状态显示 `CUDA error: no kernel image is available for execution on the device`，模型已经加载，失败发生在显卡识别或翻译阶段。现有安装版请先点“停止翻译”，到“详细设置”把“运行设备”改为“CPU”，再点“开始翻译”；CPU 会更慢。源码已补充识别和翻译的 CUDA 运行失败时自动重载到 CPU 的处理，但需要发布新版安装包后测试者才能用到。
+
+## 旧版 QQ 闪传说明（仅适用于 v0.3.0b1，暂勿发给 GPU 故障测试者）
+
+> 下载链接：https://qfile.qq.com/q/E6R6LgAwrQ  
+> 请下载里面的两个文件：`VoiceCNTranslator_Beta_Setup.exe`（安装包）和 `VoiceCNTranslator_Models_small_M2M100.zip`（离线模型）。先双击 EXE 安装软件，不用安装 Python；再把模型 ZIP 全部解压。打开软件，点“从文件夹导入”，选择同时包含 `whisper-small` 和 `m2m100_418M` 两个文件夹的上级文件夹。选择耳机/扬声器的“系统声音”，先点“测试字幕（20 秒）”，再点“开始翻译”。有问题请点“复制反馈信息”，在抖音私信发给我，并附截图和正确译文。游戏内覆盖有 Riot 政策及反作弊风险，建议先在桌面或第二屏测试。  
+> 如果 QQ 闪传链接失效，备用百度网盘：https://pan.baidu.com/s/1hN8dXZoCHIIR6w2K7SsNcw?pwd=r9mw ，提取码：r9mw。
 
 你可以在抖音只征集自愿测试者，私聊发送安装包直链，不在视频或简介里放下载链接。GitHub Releases 更新通道已经配置；以后发布更高版本时可按[更新发布指南](UPDATE_RELEASE_GUIDE_CN.md)操作。公开仓库虽然不在抖音宣传，知道地址的人仍可下载；不要把这种方式描述成仅受邀者可访问。更新按钮只在用户点击时联网，不影响模型下载完成后的离线翻译。
 
@@ -17,7 +28,7 @@
 
 在自己的 Windows 项目目录双击 `make_public_installer_windows.bat`。它会安装缺少的 Python 依赖、用 PyInstaller 构建程序、执行打包后的启动自检，并生成 `dist\ValorantTranslator_Portable.zip`。若本机有 `winget`，脚本还会尝试安装 Inno Setup 6，编译单文件 `dist\VoiceCNTranslator_Beta_Setup.exe`。**制作安装包的人仍需要 Python 3.11/3.12 和网络；下载安装包的测试者不需要 Python。** 如果自动安装 Inno Setup 失败，按脚本显示的官方链接安装 Inno Setup 6，再双击脚本。不要给测试者发送源码 ZIP 或制作脚本。
 
-公开 GitHub 仓库 [zhan070327/voice-cn-translator](https://github.com/zhan070327/voice-cn-translator) 已上传源码。`.github/workflows/windows-beta.yml` 的 Windows 构建已通过 33 项自动测试、打包后启动自检和安装器编译；预览版 Release `v0.3.0b1` 已附上[可免登录下载的安装包](https://github.com/zhan070327/voice-cn-translator/releases/download/v0.3.0b1/VoiceCNTranslator_Beta_Setup.exe)。真实 Windows 安装及游戏音频尚未在用户电脑上验证。
+公开 GitHub 仓库 [zhan070327/voice-cn-translator](https://github.com/zhan070327/voice-cn-translator) 已上传源码。`.github/workflows/windows-beta.yml` 的 Windows 构建已通过 35 项自动测试、打包后启动自检和安装器编译；预览版 Release `v0.3.0b2` 已附上[可免登录下载的安装包](https://github.com/zhan070327/voice-cn-translator/releases/download/v0.3.0b2/VoiceCNTranslator_Beta_Setup.exe)。真实 Windows 安装、游戏音频和测试者显卡 GPU 运行尚未验证。
 
 正式对外推广前请在一台干净的 Windows 10/11 电脑验证：安装、首次模型下载或导入、系统声音设备选择、字幕预览、真实语音、断网重启、卸载和再次安装。已有 Windows CI 构建结果和安装包，但这些用户电脑上的步骤尚未验证，不能说成已通过。
 

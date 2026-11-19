@@ -8,7 +8,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from packaging.version import Version
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, Qt, Signal, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout, QFrame,
                                QGroupBox, QHBoxLayout, QLabel, QLineEdit,
@@ -21,13 +21,17 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout, 
 from valorant_translator.audio.capture import list_devices
 from valorant_translator.config import APP_DIR, MODEL_DIR, Settings
 from valorant_translator.history import HistoryStore
+from valorant_translator.models.cos import Bundle, ModelPaused, install_models
 from valorant_translator.models.download import (download_models, import_models,
                                                  model_ready, WHISPER_FILES, M2M_FILES)
 from valorant_translator.pipeline import Pipeline, SubtitleResult
 from valorant_translator.recognition.whisper import LANGUAGES
 from valorant_translator.ui.overlay import SubtitleOverlay
-from valorant_translator.updates.github import (download_installer, find_update,
-                                                load_repository, start_installer)
+from valorant_translator.updates.channel import check_for_update
+from valorant_translator.updates.domestic import load_channel
+from valorant_translator.updates.github import (UpdateCancelled, download_installer,
+                                                start_installer)
+from valorant_translator.updates.windows import RESULT, start_silent_installer
 from valorant_translator.version import APP_VERSION
 
 LOG = logging.getLogger(__name__)
@@ -39,6 +43,7 @@ class Bridge(QObject):
     result = Signal(object)
     toggle = Signal()
     download_done = Signal()
+    model_download_progress = Signal(object, object, float)
     stopped = Signal()
     diagnostic = Signal(str)
     runtime = Signal(str)
@@ -46,6 +51,8 @@ class Bridge(QObject):
     update_progress = Signal(int)
     update_ready = Signal(object)
     update_error = Signal(str)
+    update_speed = Signal(float)
+    update_cancelled = Signal()
 
 
 class MainWindow(QMainWindow):
@@ -63,6 +70,15 @@ class MainWindow(QMainWindow):
         self._stop_thread: threading.Thread | None = None
         self._restart_after_stop = False
         self._update_busy = False
+        self._update_cancel_event = threading.Event()
+        self._domestic_update = False
+        self._model_busy = False
+        self._model_pause = threading.Event()
+        try:
+            self._model_channel = load_channel()
+        except Exception:
+            LOG.exception("Could not read the model download channel")
+            self._model_channel = None
         self.hotkey_listener = None
         self.bridge = Bridge()
         self.bridge.status.connect(self._status)
@@ -70,6 +86,7 @@ class MainWindow(QMainWindow):
         self.bridge.result.connect(self._result)
         self.bridge.toggle.connect(self._toggle_overlay)
         self.bridge.download_done.connect(self._download_done)
+        self.bridge.model_download_progress.connect(self._model_download_progress)
         self.bridge.stopped.connect(self._on_stopped)
         self.bridge.diagnostic.connect(self._diagnostic)
         self.bridge.runtime.connect(self._runtime)
@@ -77,6 +94,8 @@ class MainWindow(QMainWindow):
         self.bridge.update_progress.connect(self._update_progress)
         self.bridge.update_ready.connect(self._update_ready)
         self.bridge.update_error.connect(self._update_error)
+        self.bridge.update_speed.connect(self._update_speed)
+        self.bridge.update_cancelled.connect(self._update_cancelled)
         self.setWindowTitle("VALORANT AI 实时语音翻译器")
         self.setWindowIcon(QIcon(str(Path(__file__).resolve().parents[2] / "assets" / "app_icon.ico")))
         self.resize(1060, 840)
@@ -91,6 +110,7 @@ class MainWindow(QMainWindow):
         self.refresh_devices()
         self._refresh_model_status()
         self._update_mode_hint()
+        QTimer.singleShot(0, self._show_update_result)
 
     def _build(self) -> None:
         self.tabs = QTabWidget()
@@ -120,12 +140,16 @@ class MainWindow(QMainWindow):
         intro.setObjectName("muted")
         intro.setWordWrap(True)
         hero_layout.addWidget(intro)
-        self.update_label = self._hint(f"当前版本：{APP_VERSION}。仅点击检查更新时访问 GitHub。")
+        self.update_label = self._hint(f"当前版本：{APP_VERSION}。仅点击检查更新时联网。")
         hero_layout.addWidget(self.update_label)
         self.update_bar = QProgressBar()
         self.update_bar.setRange(0, 100)
         self.update_bar.hide()
         hero_layout.addWidget(self.update_bar)
+        self.update_cancel_button = QPushButton("取消下载")
+        self.update_cancel_button.clicked.connect(self._cancel_update)
+        self.update_cancel_button.hide()
+        hero_layout.addWidget(self.update_cancel_button)
         main_layout.addWidget(hero)
         warning = QLabel("⚠ 游戏内实时字幕有 Riot 政策和反作弊风险；本工具未经 Riot 批准。请先在桌面或第二屏测试。")
         warning.setObjectName("warning")
@@ -152,6 +176,10 @@ class MainWindow(QMainWindow):
         self.import_button.clicked.connect(self._import_models)
         model_row.addWidget(self.download_button)
         model_row.addWidget(self.import_button)
+        self.model_pause_button = QPushButton("暂停下载")
+        self.model_pause_button.clicked.connect(self._pause_model_download)
+        self.model_pause_button.hide()
+        model_row.addWidget(self.model_pause_button)
         model_row.addStretch()
         model_layout.addLayout(model_row)
         self.model_progress = QProgressBar()
@@ -159,7 +187,12 @@ class MainWindow(QMainWindow):
         self.model_progress.setTextVisible(False)
         self.model_progress.hide()
         model_layout.addWidget(self.model_progress)
-        model_layout.addWidget(self._hint("下载约 2.5 GB，可中断后重试；有模型文件夹时可直接导入。之后可离线使用。"))
+        self.model_transfer = QLabel()
+        self.model_transfer.hide()
+        model_layout.addWidget(self.model_transfer)
+        model_layout.addWidget(self._hint("国内模型包约 2.43 GB，包含 Small 和中文翻译模型。已有模型可导入。下载后可离线使用。"
+                                          if self._uses_cos_models() else
+                                          "下载约 2.5 GB，可中断后重试；有模型文件夹时可直接导入。之后可离线使用。"))
         left_column.addWidget(model_group)
 
         audio_group, audio_layout = self._group("② 选择要听的声音")
@@ -248,6 +281,13 @@ class MainWindow(QMainWindow):
         form = QFormLayout(settings_page)
         form.setContentsMargins(22, 22, 22, 22)
         form.setSpacing(13)
+        self.settings_update_button = QPushButton("检查更新")
+        self.settings_update_button.clicked.connect(self._check_update)
+        form.addRow("软件更新", self.settings_update_button)
+        self.update_version_label = self._hint(f"当前版本：{APP_VERSION}；最新版本：尚未检查")
+        form.addRow(self.update_version_label)
+        self.update_notes_label = self._hint("更新日志：检查后显示")
+        form.addRow(self.update_notes_label)
         self.language_combo = self._combo([("自动检测五种外语及中文", "auto"),
                                             *[(name, code) for code, name in LANGUAGES.items()]], self.settings.language)
         form.addRow("识别语言", self.language_combo)
@@ -432,6 +472,7 @@ class MainWindow(QMainWindow):
             f"识别模型 {size}：{'已下载' if whisper else '未下载'}  ·  中文翻译模型：{'已下载' if m2m else '未下载'}"
             + ("  ·  PyTorch 需更新至 2.6 以上" if not self._torch_version_ok() else "")
         )
+        self.download_button.setEnabled(not self._model_busy and not (whisper and m2m))
         stopping = self._stop_thread is not None and self._stop_thread.is_alive()
         if (hasattr(self, "start_button") and self.pipeline is None and not stopping
                 and not getattr(self, "_model_busy", False)):
@@ -667,11 +708,17 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "仅安装版支持", "请在 Windows 安装版 EXE 中检查更新。源码版需重新打包。")
             return
         self._set_update_busy(True)
-        self.update_label.setText("正在检查 GitHub Releases…")
+        try:
+            channel = load_channel()
+        except Exception as exc:
+            self._update_error(str(exc))
+            return
+        self._domestic_update = channel["channel"] == "domestic"
+        self._set_update_status("正在检查国内更新清单…" if self._domestic_update else "正在检查 GitHub Releases…")
 
         def task():
             try:
-                self.bridge.update_checked.emit(find_update(load_repository()))
+                self.bridge.update_checked.emit(check_for_update(channel))
             except Exception as exc:
                 LOG.exception("Update check failed")
                 self.bridge.update_error.emit(str(exc))
@@ -681,27 +728,38 @@ class MainWindow(QMainWindow):
     def _update_checked(self, release) -> None:
         if release is None:
             self._set_update_busy(False)
-            self.update_label.setText(f"当前版本 {APP_VERSION} 已是最新可用版本。")
+            self.update_version_label.setText(f"当前版本：{APP_VERSION}；最新版本：{APP_VERSION}")
+            self._set_update_status(f"当前版本 {APP_VERSION} 已是最新可用版本。")
             return
-        self.update_label.setText(f"发现新版 {release.version}，等待你选择是否安装。")
+        self.update_version_label.setText(f"当前版本：{APP_VERSION}；最新版本：{release.version}")
+        self.update_notes_label.setText(f"更新日志：{release.notes[:600] or '发布者没有填写更新说明。'}")
+        self._set_update_status(f"发现新版 {release.version}，等待你选择是否安装。")
         box = QMessageBox(self)
         box.setWindowTitle("发现新版")
         box.setTextFormat(Qt.TextFormat.PlainText)
+        install_hint = ("安装后程序会自动重新启动。" if self._domestic_update else
+                        "程序会关闭并打开 Windows 安装程序。")
         box.setText(f"当前版本：{APP_VERSION}\n新版：{release.version}\n\n"
                     f"更新说明：\n{release.notes[:600] or '发布者没有填写更新说明。'}\n\n"
-                    "是否下载并安装？下载后程序会关闭并打开 Windows 安装程序。")
+                    f"是否下载并安装？{install_hint}")
         box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if box.exec() != QMessageBox.StandardButton.Yes:
             self._set_update_busy(False)
             return
-        self.update_label.setText(f"正在下载并校验 {release.version}…")
+        self._set_update_status(f"正在下载并校验 {release.version}…")
         self.update_bar.setValue(0)
         self.update_bar.show()
+        self.update_cancel_button.show()
+        self._update_cancel_event.clear()
 
         def task():
             try:
-                path = download_installer(release, self.bridge.update_progress.emit)
+                path = download_installer(release, self.bridge.update_progress.emit,
+                                          cancel=self._update_cancel_event,
+                                          speed=self.bridge.update_speed.emit)
                 self.bridge.update_ready.emit((path, release))
+            except UpdateCancelled:
+                self.bridge.update_cancelled.emit()
             except Exception as exc:
                 LOG.exception("Update download failed")
                 self.bridge.update_error.emit(str(exc))
@@ -711,27 +769,59 @@ class MainWindow(QMainWindow):
     def _update_progress(self, value: int) -> None:
         self.update_bar.setValue(value)
 
+    def _update_speed(self, bytes_per_second: float) -> None:
+        self._set_update_status(
+            f"下载进度 {self.update_bar.value()}% · {bytes_per_second / 1024**2:.1f} MB/s")
+
+    def _cancel_update(self) -> None:
+        self._update_cancel_event.set()
+        self.update_cancel_button.setEnabled(False)
+        self._set_update_status("正在取消下载…")
+
+    def _update_cancelled(self) -> None:
+        self._set_update_busy(False)
+        self._set_update_status("下载已取消；点击“检查更新”可重试。")
+
     def _update_ready(self, payload: tuple[Path, object]) -> None:
         path, release = payload
         try:
-            start_installer(path, release)
+            if self._domestic_update:
+                start_silent_installer(path, release)
+            else:
+                start_installer(path, release)
         except Exception as exc:
             self._update_error(f"无法启动安装程序：{exc}")
             return
-        self.update_label.setText("安装包已校验，正在关闭软件并启动安装程序…")
+        self._set_update_status("安装包已校验，正在关闭软件并启动安装程序…")
         self.close()
         QApplication.quit()
 
     def _update_error(self, message: str) -> None:
         self._set_update_busy(False)
-        self.update_label.setText(f"更新失败：{message}")
+        self._set_update_status(f"更新失败：{message}；点击“检查更新”可重试。")
         QMessageBox.warning(self, "更新失败", message)
 
     def _set_update_busy(self, busy: bool) -> None:
         self._update_busy = busy
         self.update_button.setEnabled(not busy)
+        self.settings_update_button.setEnabled(not busy)
         if not busy:
             self.update_bar.hide()
+            self.update_cancel_button.hide()
+            self.update_cancel_button.setEnabled(True)
+
+    def _set_update_status(self, text: str) -> None:
+        self.update_label.setText(text)
+
+    def _show_update_result(self) -> None:
+        try:
+            message = RESULT.read_text(encoding="utf-8-sig").strip()
+            RESULT.unlink(missing_ok=True)
+        except OSError:
+            return
+        if message:
+            self._set_update_status(message)
+            QMessageBox.warning(self, "更新结果", message)
 
     def _refresh_history(self) -> None:
         if self.history is None or not hasattr(self, "history_table"):
@@ -821,16 +911,36 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "删除失败", str(exc))
 
     def _download(self) -> None:
+        if self._model_busy or self._models_ready():
+            return
         self._save_settings()
         if self.pipeline is not None:
             QMessageBox.information(self, "先停止翻译", "请先停止翻译，再下载或导入模型。")
             return
+        if self._model_channel is None:
+            self._status("模型下载配置缺失。请重新安装软件或导入本地模型。")
+            return
+        uses_cos = self._uses_cos_models()
+        size = self.model_combo.currentData()
+        if uses_cos and size != "small" and not model_ready(MODEL_DIR / f"whisper-{size}", WHISPER_FILES):
+            self.model_combo.setCurrentIndex(self.model_combo.findData("small"))
+            size = "small"
+        self._model_pause.clear()
         self._set_model_busy(True)
-        size = self.settings.whisper_model
+        self.model_pause_button.setEnabled(True)
+        self.model_pause_button.setVisible(uses_cos)
+        self.download_button.setText("一键下载模型")
 
         def task():
             try:
-                download_models(size, self.bridge.status.emit)
+                if uses_cos:
+                    bundle = Bundle.from_channel(self._model_channel)
+                    install_models(bundle, MODEL_DIR, self.bridge.status.emit,
+                                   self.bridge.model_download_progress.emit, self._model_pause)
+                else:
+                    download_models(size, self.bridge.status.emit)
+            except ModelPaused:
+                self.bridge.status.emit("已暂停，点击下载可从上次位置继续。")
             except Exception as exc:
                 LOG.exception("Model download failed")
                 self.bridge.status.emit(f"模型下载失败：{exc}")
@@ -839,7 +949,26 @@ class MainWindow(QMainWindow):
 
         threading.Thread(target=task, name="model-download", daemon=True).start()
 
+    def _uses_cos_models(self) -> bool:
+        return self._model_channel is not None and self._model_channel["channel"] == "domestic"
+
+    def _pause_model_download(self) -> None:
+        self._model_pause.set()
+        self.model_pause_button.setEnabled(False)
+        self.model_transfer.setText("正在暂停…")
+        self.model_transfer.show()
+
+    def _model_download_progress(self, received: int, total: int, speed: float) -> None:
+        self.model_progress.setRange(0, 100)
+        self.model_progress.setValue(int(100 * received / total))
+        mib = 1024**2
+        self.model_transfer.setText(f"{received / mib:,.1f} / {total / mib:,.1f} MiB"
+                                    f"  ·  {speed / mib:,.1f} MiB/s  ·  剩余 {(total - received) / mib:,.1f} MiB")
+        self.model_transfer.show()
+
     def _import_models(self) -> None:
+        if self._model_busy:
+            return
         if self.pipeline is not None:
             QMessageBox.information(self, "先停止翻译", "请先停止翻译，再下载或导入模型。")
             return
@@ -866,8 +995,11 @@ class MainWindow(QMainWindow):
         self.import_button.setEnabled(not busy)
         self.model_progress.setVisible(busy)
         if busy:
+            self.model_progress.setRange(0, 0)
             self.start_button.setEnabled(False)
         else:
+            self.model_pause_button.hide()
+            self.model_transfer.hide()
             self._refresh_model_status()
 
     def _download_done(self) -> None:
@@ -885,6 +1017,7 @@ class MainWindow(QMainWindow):
             LOG.warning("Global hotkey unavailable: %s", exc)
 
     def closeEvent(self, event) -> None:
+        self._model_pause.set()
         if self.pipeline:
             self.pipeline.stop()
             self.pipeline = None

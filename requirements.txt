@@ -5,11 +5,13 @@ SoundCard>=0.4.3,<1
 webrtcvad-wheels>=2.0.14,<3
 faster-whisper>=1.1,<2
 transformers>=4.44,<5
+# 现有 2.6.0+cu124 可复用；构建前另做真实 CUDA FP16 运算检查。
 torch>=2.6,<3
 packaging>=24,<27
 sentencepiece>=0.2,<1
 opencc-python-reimplemented==0.1.7
 huggingface-hub>=0.25,<1
+filelock>=3,<5
 pynput>=1.7,<2
 psutil>=6,<8
 pytest>=8,<10
