@@ -42,12 +42,19 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--package-only", action="store_true",
                         help="Require a CUDA wheel without executing GPU kernels on the build runner.")
+    parser.add_argument("--cpu-package", action="store_true", help="Require the CPU wheel.")
     args = parser.parse_args()
     try:
         import torch
     except Exception as exc:
         print(f"PyTorch 未安装或无法导入：{exc}")
         return 2
+    if args.cpu_package:
+        if torch.version.cuda or not re.fullmatch(r"2\.(?:[6-9]|[1-9][0-9]+)\.\d+(?:\+cpu)?", torch.__version__):
+            print("A supported CPU-only PyTorch wheel is required.")
+            return 2
+        print(f"CPU wheel OK: {torch.__version__}")
+        return 0
     code, message = check(torch, package_only=args.package_only)
     print(message)
     return code

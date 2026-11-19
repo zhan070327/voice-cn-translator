@@ -52,19 +52,24 @@ class Bundle:
     urls: tuple[str, ...]
     size: int
     sha256: str
+    directories: tuple[str, ...] = tuple(REQUIRED)
 
     @classmethod
     def from_channel(cls, channel: dict) -> Bundle:
         data = channel.get("model_bundle")
         if not isinstance(data, dict):
             raise ValueError("国内更新通道缺少模型下载配置。")
+        return cls.from_entry(data, channel["download_hosts"])
+
+    @classmethod
+    def from_entry(cls, data: dict, allowed: tuple[str, ...],
+                   directories: tuple[str, ...] = tuple(REQUIRED)) -> Bundle:
         urls, size, digest = data.get("urls"), data.get("size"), data.get("sha256")
         if (not isinstance(urls, list) or not 1 <= len(urls) <= 3
                 or type(size) is not int or not 0 < size <= MAX_BUNDLE_BYTES
                 or not isinstance(digest, str) or not HASH.fullmatch(digest)):
             raise ValueError("国内模型下载配置无效。")
-        allowed = channel["download_hosts"]
-        return cls(tuple(validate_url(url, allowed) for url in urls), size, digest.lower())
+        return cls(tuple(validate_url(url, allowed) for url in urls), size, digest.lower(), directories)
 
 
 def _check_pause(pause: Event) -> None:
@@ -126,17 +131,22 @@ def _download(bundle: Bundle, partial: Path, pause: Event,
     raise DownloadError("模型下载失败，已保留进度。可点击重试：" + " / ".join(errors))
 
 
-def _extract(archive: Path, staging: Path, missing: set[str], pause: Event) -> None:
+def required_files(directory: str) -> tuple[str, ...]:
+    return REQUIRED.get(directory, (*WHISPER_FILES, "vocabulary.txt"))
+
+
+def _extract(archive: Path, staging: Path, missing: set[str], pause: Event,
+             directories: tuple[str, ...] = tuple(REQUIRED)) -> None:
     with ZipFile(archive) as bundle:
-        allowed = {f"{folder}/{name}" for folder in REQUIRED
-                   for name in (*REQUIRED[folder], *OPTIONAL[folder])}
-        required = {f"{folder}/{name}" for folder, names in REQUIRED.items() for name in names}
+        allowed = {f"{folder}/{name}" for folder in directories
+                   for name in (*required_files(folder), *OPTIONAL.get(folder, ()))}
+        required = {f"{folder}/{name}" for folder in directories for name in required_files(folder)}
         seen = set()
         entries = []
         for member in bundle.infolist():
             name = member.filename
             kind = stat.S_IFMT(member.external_attr >> 16)
-            if member.is_dir() and name in {f"{folder}/" for folder in REQUIRED}:
+            if member.is_dir() and name in {f"{folder}/" for folder in directories}:
                 if kind not in (0, stat.S_IFDIR) or name in seen:
                     raise ValueError(f"模型 ZIP 包含异常目录：{name}")
                 seen.add(name)
@@ -159,18 +169,21 @@ def _extract(archive: Path, staging: Path, missing: set[str], pause: Event) -> N
 
 
 def install_models(bundle: Bundle, folder: Path, status: Callable[[str], None],
-                   progress: Callable[[int, int, float], None], pause: Event) -> None:
+                   progress: Callable[[int, int, float], None], pause: Event,
+                   *, selected: tuple[str, ...] | None = None) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     try:
         with FileLock(folder / ".cos-models.lock", timeout=0):
-            _install_models(bundle, folder, status, progress, pause)
+            _install_models(bundle, folder, status, progress, pause, selected or bundle.directories)
     except Timeout as exc:
         raise DownloadError("另一个软件窗口正在安装模型，请稍后重试。") from exc
 
 
 def _install_models(bundle: Bundle, folder: Path, status: Callable[[str], None],
-                    progress: Callable[[int, int, float], None], pause: Event) -> None:
-    missing = {name for name, files in REQUIRED.items() if not model_ready(folder / name, files)}
+                    progress: Callable[[int, int, float], None], pause: Event, selected: tuple[str, ...]) -> None:
+    if not set(selected) <= set(bundle.directories):
+        raise ValueError("所选模型与 ZIP 不匹配。")
+    missing = {name for name in selected if not model_ready(folder / name, required_files(name))}
     if not missing:
         status("本地模型已齐全，可离线使用。")
         return
@@ -188,16 +201,16 @@ def _install_models(bundle: Bundle, folder: Path, status: Callable[[str], None],
     status("正在解压安装模型…")
     with TemporaryDirectory(prefix=".cos-stage-", dir=folder) as temporary:
         stage = Path(temporary)
-        _extract(partial, stage, missing, pause)
+        _extract(partial, stage, missing, pause, bundle.directories)
         for name in missing:
             model = stage / name
-            sizes = {file: (model / file).stat().st_size for file in REQUIRED[name]}
+            sizes = {file: (model / file).stat().st_size for file in required_files(name)}
             (model / MODEL_INVENTORY).write_text(json.dumps(sizes), encoding="utf-8")
             shutil.copyfile(NOTICE, model / "MODEL_LICENSES.md")
         _check_pause(pause)
         for name in sorted(missing):
             destination = folder / name
-            if model_ready(destination, REQUIRED[name]):
+            if model_ready(destination, required_files(name)):
                 continue
             # Preserve incomplete folders for recovery rather than mixing their contents.
             backup = stage / f"{name}.previous"

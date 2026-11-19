@@ -1,8 +1,84 @@
 {
   "recognition_hotwords": [
-    "A Main", "B Main", "A Short", "A Long", "Heaven", "Hell", "Mid",
-    "Spike", "One HP", "Smoke A", "Smoke B", "They smoke B",
-    "They smoked B", "Can you drop", "Drop"
+    "A Main",
+    "B Main",
+    "A Short",
+    "A Long",
+    "Heaven",
+    "Hell",
+    "Mid",
+    "Spike",
+    "One HP",
+    "Smoke A",
+    "Smoke B",
+    "They smoke B",
+    "They smoked B",
+    "Can you drop",
+    "Drop",
+    "Blinding",
+    "Blind",
+    "Blinded",
+    "Paranoia",
+    "Flashed",
+    "Smoked",
+    "Smoke C",
+    "Smoke Mid",
+    "Flash A",
+    "Flash B",
+    "Flash Mid",
+    "Rotate A",
+    "Rotate B",
+    "Rotate C",
+    "Rush A",
+    "Rush B",
+    "Retake A",
+    "Retake B",
+    "Hold A",
+    "Hold B",
+    "Plant",
+    "Defuse",
+    "Clutch",
+    "Ult",
+    "Eco",
+    "One Tap",
+    "Low HP",
+    "Heal",
+    "Rez",
+    "Drone",
+    "Turret",
+    "Wall",
+    "Orb",
+    "C Main",
+    "B Short",
+    "Spawn",
+    "A Site",
+    "B Site",
+    "C Site",
+    "One Enemy Left",
+    "Spike Planted",
+    "Spike Down",
+    "Defusing",
+    "Planting",
+    "Crosscut",
+    "Chokehold",
+    "Interceptor",
+    "Evolution",
+    "Flashbulb",
+    "Displacement",
+    "Suspension",
+    "M-pulse",
+    "Harmonize",
+    "Waveform",
+    "Bassquake",
+    "Saturate",
+    "Refract",
+    "Armageddon",
+    "Hindered",
+    "Hinder",
+    "Hookah",
+    "Showers",
+    "Garage",
+    "Waterfall"
   ],
   "exact_phrases": {
     "two a main": "A 大两个。",
@@ -79,78 +155,1712 @@
     "reloading": "换弹中。",
     "cover me": "掩护我一下。",
     "i need to heal": "我得回血。",
-    "heal me": "帮我回血。"
+    "heal me": "帮我回血。",
+    "blinding": "致盲。",
+    "blind": "致盲。",
+    "blinded": "被致盲了。",
+    "im blind": "我被致盲了。",
+    "im blinded": "我被致盲了。",
+    "i am blind": "我被致盲了。",
+    "i am blinded": "我被致盲了。",
+    "blind them": "致盲他们。",
+    "blinding them": "致盲他们。",
+    "finding": "致盲。",
+    "finding them": "致盲他们。",
+    "omen finding": "Omen 在致盲。",
+    "omen blind": "Omen 在致盲。",
+    "omen blinding": "Omen 在致盲。",
+    "omen flash": "Omen 给闪。",
+    "paranoia": "偏执致盲。",
+    "omen paranoia": "Omen 偏执致盲。",
+    "reyna blind": "Reyna 致盲。",
+    "reyna leer": "Reyna 放眼致盲。",
+    "skye flash": "Skye 给闪。",
+    "kayo flash": "KAY/O 给闪。",
+    "breach flash": "Breach 给闪。",
+    "yoru flash": "Yoru 给闪。",
+    "phoenix flash": "Phoenix 给闪。",
+    "flashing": "给闪。",
+    "flash a": "A 点给闪。",
+    "flash b": "B 点给闪。",
+    "flash c": "C 点给闪。",
+    "flash mid": "中路给闪。",
+    "flash out": "闪出去。",
+    "flash in": "闪进去。",
+    "pop flash": "瞬爆闪。",
+    "im flashed": "我被闪了。",
+    "flashed": "被闪了。",
+    "smoke a": "A 点封烟。",
+    "smoke b": "B 点封烟。",
+    "smoke c": "C 点封烟。",
+    "smoke mid": "中路封烟。",
+    "smoking mid": "中路封烟。",
+    "smoke heaven": "天台封烟。",
+    "smoke hell": "地狱封烟。",
+    "smoke ct": "CT 封烟。",
+    "smoke spawn": "出生点封烟。",
+    "wall up": "墙起来了。",
+    "sage wall": "Sage 起墙。",
+    "harbor wall": "Harbor 起墙。",
+    "viper wall": "Viper 起墙。",
+    "astra smoke": "Astra 封烟。",
+    "brim smoke": "Brimstone 封烟。",
+    "omen smoke": "Omen 封烟。",
+    "smoked": "封烟了。",
+    "plant a": "A 点下包。",
+    "plant b": "B 点下包。",
+    "plant c": "C 点下包。",
+    "plant the spike": "下包。",
+    "spike planted": "包已经下了。",
+    "spike dropped": "包掉了。",
+    "defuse the spike": "拆包。",
+    "stick the defuse": "坚持拆包。",
+    "stick it": "坚持拆。",
+    "half": "拆一半。",
+    "defusing": "正在拆包。",
+    "planting": "正在下包。",
+    "spike on a": "包在 A。",
+    "spike on b": "包在 B。",
+    "spike on c": "包在 C。",
+    "rotate a": "转点去 A。",
+    "rotate c": "转点去 C。",
+    "rotate mid": "转点去中路。",
+    "rush c": "快攻 C。",
+    "rush mid": "快攻中路。",
+    "push mid": "压中路。",
+    "go mid": "去中路。",
+    "go c": "去 C。",
+    "flank mid": "绕中路。",
+    "fake a": "佯攻 A。",
+    "fake b": "佯攻 B。",
+    "fake mid": "佯攻中路。",
+    "default": "默认站位。",
+    "play default": "默认打法。",
+    "split a": "分推 A。",
+    "split b": "分推 B。",
+    "exec a": "爆弹 A。",
+    "exec b": "爆弹 B。",
+    "hit a": "打 A。",
+    "hit b": "打 B。",
+    "hit mid": "打中路。",
+    "hold c": "守 C。",
+    "retake c": "重夺 C 点。",
+    "retake mid": "重夺中路。",
+    "hold site": "守包点。",
+    "play time": "拖时间。",
+    "rotating": "正在转点。",
+    "flanking": "正在绕后。",
+    "pushing": "正在前压。",
+    "peeking": "正在拉枪线。",
+    "two low": "有两个残血。",
+    "three low": "有三个残血。",
+    "one enemy left": "剩一个敌人。",
+    "last one": "最后一个。",
+    "last player": "最后一个人。",
+    "one left": "剩一个。",
+    "two left": "剩两个。",
+    "three left": "剩三个。",
+    "one tapped": "被一枪头了。",
+    "tagged": "打中了。",
+    "hit 100": "打中 100 血。",
+    "lit": "打残了。",
+    "vulnerable": "易伤。",
+    "decayed": "衰减了。",
+    "detained": "被拘留了。",
+    "concussed": "被震晕了。",
+    "suppressed": "被抑制了。",
+    "slowed": "被减速了。",
+    "healed": "回上血了。",
+    "clutch": "残局。",
+    "ace": "五杀。",
+    "1v1": "一打一。",
+    "1v2": "一打二。",
+    "1v3": "一打三。",
+    "1v4": "一打四。",
+    "1v5": "一打五。",
+    "low": "残血。",
+    "he is low": "他残血。",
+    "she is low": "她残血。",
+    "they are low": "他们残血。",
+    "theyre low": "他们残血。",
+    "hes low": "他残血。",
+    "shes low": "她残血。",
+    "lets eco": "这把经济局。",
+    "force buy": "强起。",
+    "full buy": "全起。",
+    "light buy": "轻起。",
+    "half buy": "半起。",
+    "save ult": "留大招。",
+    "use ult": "开大。",
+    "ult ready": "大招好了。",
+    "my ult is ready": "我的大招好了。",
+    "can you heal me": "能给我奶一口吗？",
+    "rez me": "拉我一下。",
+    "revive me": "拉我一下。",
+    "i need a rez": "我需要复活。",
+    "drop me a vandal": "给我发把狂徒。",
+    "drop me a phantom": "给我发把幻影。",
+    "drop me an op": "给我发把大狙。",
+    "can i get a drop": "能给我发把枪吗？",
+    "need a drop": "需要发枪。",
+    "buy me": "帮我买一把。",
+    "im broke": "我没钱了。",
+    "no money": "没钱。",
+    "save money": "存钱。",
+    "enemy spotted": "发现敌人。",
+    "theyre coming": "他们来了。",
+    "theyre rushing": "他们在快攻。",
+    "theyre pushing": "他们在前压。",
+    "watch flank": "注意绕后。",
+    "behind us": "在我们后面。",
+    "above": "在上面。",
+    "below": "在下面。",
+    "on site": "在包点。",
+    "off site": "不在包点。",
+    "clear": "安全。",
+    "site clear": "包点安全。",
+    "a clear": "A 点安全。",
+    "b clear": "B 点安全。",
+    "c clear": "C 点安全。",
+    "all clear": "都安全。",
+    "nice": "漂亮。",
+    "nice shot": "打得漂亮。",
+    "good job": "打得好。",
+    "well played": "打得好。",
+    "nice try": "尽力了。",
+    "nt": "尽力了。",
+    "gg": "打得好。",
+    "thanks": "谢谢。",
+    "thank you": "谢谢。",
+    "good luck": "祝好运。",
+    "have fun": "玩得开心。",
+    "lets go": "走。",
+    "go go go": "冲冲冲。",
+    "wait": "等一下。",
+    "be quiet": "安静。",
+    "quiet": "安静。",
+    "shh": "嘘。",
+    "listen": "听脚步。",
+    "footsteps": "脚步声。",
+    "i hear them": "我听到他们了。",
+    "i hear footsteps": "我听到脚步声了。",
+    "no sound": "没声音。",
+    "all quiet": "没动静。",
+    "repeek": "再拉一次。",
+    "wide peek": "大拉。",
+    "jump peek": "跳拉。",
+    "jiggle peek": "小身位拉。",
+    "shoulder peek": "肩拉。",
+    "off angle": "非常规点位。",
+    "spray": "扫射。",
+    "burst": "点射。",
+    "tap fire": "单点。",
+    "hold angle": "架枪。",
+    "hold this angle": "架住这个角度。",
+    "cross": "过点。",
+    "crossing": "正在过点。",
+    "walk": "静步走。",
+    "shift": "静步。",
+    "run": "跑。",
+    "jett dash": "Jett 冲刺。",
+    "jett ult": "Jett 开大了。",
+    "jett knives": "Jett 亮刀了。",
+    "omen tp": "Omen 传送。",
+    "omen ult": "Omen 开大了。",
+    "sova dart": "Sova 侦查箭。",
+    "sova drone": "Sova 无人机。",
+    "sova ult": "Sova 开大了。",
+    "sage heal": "Sage 治疗。",
+    "sage rez": "Sage 复活。",
+    "sage ult": "Sage 开大了。",
+    "raze nade": "Raze 手雷。",
+    "raze satchel": "Raze 炸药包。",
+    "raze ult": "Raze 开大了。",
+    "raze bot": "Raze 机器人。",
+    "phoenix ult": "Phoenix 开大了。",
+    "phoenix wall": "Phoenix 火墙。",
+    "killjoy turret": "Killjoy 炮塔。",
+    "killjoy ult": "Killjoy 开大了。",
+    "killjoy swarm": "Killjoy 蜂群。",
+    "killjoy bot": "Killjoy 机器人。",
+    "cypher cam": "Cypher 摄像头。",
+    "cypher trip": "Cypher 绊线。",
+    "cypher cage": "Cypher 牢笼。",
+    "cypher ult": "Cypher 开大了。",
+    "breach stun": "Breach 震荡。",
+    "breach ult": "Breach 开大了。",
+    "skye dog": "Skye 放狗。",
+    "skye heal": "Skye 治疗。",
+    "skye ult": "Skye 开大了。",
+    "yoru tp": "Yoru 传送。",
+    "yoru ult": "Yoru 开大了。",
+    "yoru clone": "Yoru 假身。",
+    "astra ult": "Astra 开大了。",
+    "kayo knife": "KAY/O 飞刀。",
+    "kayo ult": "KAY/O 开大了。",
+    "chamber tp": "Chamber 传送。",
+    "chamber ult": "Chamber 开大了。",
+    "neon ult": "Neon 开大了。",
+    "neon wall": "Neon 火墙。",
+    "fade eye": "Fade 放眼。",
+    "fade ult": "Fade 开大了。",
+    "fade dog": "Fade 放狗。",
+    "harbor ult": "Harbor 开大了。",
+    "gekko ult": "Gekko 开大了。",
+    "gekko wingman": "Gekko 小伙伴。",
+    "deadlock ult": "Deadlock 开大了。",
+    "deadlock wall": "Deadlock 起墙。",
+    "iso ult": "Iso 开大了。",
+    "iso shield": "Iso 护盾。",
+    "clove ult": "Clove 开大了。",
+    "clove smoke": "Clove 封烟。",
+    "clove heal": "Clove 回血。",
+    "vyse ult": "Vyse 开大了。",
+    "vyse flash": "Vyse 给闪。",
+    "tejo ult": "Tejo 开大了。",
+    "tejo drone": "Tejo 无人机。",
+    "viper ult": "Viper 开大了。",
+    "viper orb": "Viper 毒球。",
+    "viper molly": "Viper 毒液。",
+    "brim ult": "Brimstone 开大了。",
+    "brim molly": "Brimstone 燃烧弹。",
+    "brim stim": "Brimstone 强化信标。",
+    "waylay ult": "Waylay 开大了。",
+    "buy vandal": "买狂徒。",
+    "buy phantom": "买幻影。",
+    "buy op": "买大狙。",
+    "buy sheriff": "买正义。",
+    "buy spectre": "买幽灵。",
+    "buy bulldog": "买斗牛犬。",
+    "buy guardian": "买卫士。",
+    "buy marshal": "买神话。",
+    "buy odin": "买奥丁。",
+    "buy ares": "买战神。",
+    "buy judge": "买法官。",
+    "buy bucky": "买重炮。",
+    "buy stinger": "买毒刺。",
+    "buy frenzy": "买狂怒。",
+    "buy ghost": "买鬼魅。",
+    "buy classic": "买经典。",
+    "need shield": "需要甲。",
+    "heavy shield": "重甲。",
+    "light shield": "轻甲。",
+    "half shield": "半甲。",
+    "no shield": "没甲。",
+    "full shield": "满甲。",
+    "veto ult": "Veto 开大了。",
+    "veto tp": "Veto 传送。",
+    "veto trap": "Veto 陷阱。",
+    "veto interceptor": "Veto 拦截。",
+    "veto chokehold": "Veto 锁喉。",
+    "hush ult": "Hush 开大了。",
+    "hush flash": "Hush 给闪。",
+    "hush dash": "Hush 位移。",
+    "hush pull": "Hush 拉人。",
+    "hush lift": "Hush 悬浮。",
+    "miks ult": "Miks 开大了。",
+    "miks smoke": "Miks 封烟。",
+    "miks heal": "Miks 治疗。",
+    "miks stim": "Miks 强化。",
+    "miks pulse": "Miks 脉冲。",
+    "waylay refract": "Waylay 回标。",
+    "waylay dash": "Waylay 冲刺。",
+    "waylay saturate": "Waylay 减速。",
+    "waylay lightspeed": "Waylay 加速。",
+    "tejo salvo": "Tejo 导弹。",
+    "tejo delivery": "Tejo 震荡弹。",
+    "recon bolt": "侦查箭。",
+    "shock bolt": "电箭。",
+    "owl drone": "猫头鹰无人机。",
+    "hunters fury": "猎手之怒。",
+    "barrier orb": "屏障。",
+    "slow orb": "减速。",
+    "healing orb": "治疗。",
+    "resurrection": "复活。",
+    "cloudburst": "烟雾弹。",
+    "updraft": "上升气流。",
+    "tailwind": "顺风。",
+    "blade storm": "刀阵。",
+    "curveball": "闪光。",
+    "blaze": "火墙。",
+    "hot hands": "火球。",
+    "run it back": "复活。",
+    "boom bot": "爆破机器人。",
+    "blast pack": "炸药包。",
+    "paint shells": "手雷。",
+    "showstopper": "火箭筒。",
+    "leer": "致盲眼。",
+    "devour": "吞噬。",
+    "dismiss": "消散。",
+    "empress": "女帝。",
+    "flashpoint": "闪光。",
+    "fault line": "震荡。",
+    "aftershock": "余震。",
+    "rolling thunder": "雷霆。",
+    "alarmbot": "警报机器人。",
+    "turret": "炮塔。",
+    "nanoswarm": "纳米蜂群。",
+    "lockdown": "封锁。",
+    "trapwire": "绊线。",
+    "cyber cage": "牢笼。",
+    "spycam": "摄像头。",
+    "neural theft": "窃取。",
+    "nova pulse": "脉冲。",
+    "nebula": "星云。",
+    "gravity well": "重力井。",
+    "cosmic divide": "星体分隔。",
+    "zero point": "抑制刀。",
+    "frag ment": "手雷。",
+    "null cmd": "抑制。",
+    "trademark": "陷阱。",
+    "headhunter": "手枪。",
+    "rendezvous": "传送。",
+    "tour de force": "狙击。",
+    "high gear": "加速。",
+    "relay bolt": "电能。",
+    "fast lane": "火墙。",
+    "overdrive": "超载。",
+    "seize": "禁锢。",
+    "haunt": "梦魇。",
+    "prowler": "徘徊者。",
+    "nightfall": "夜幕。",
+    "cove": "水墙。",
+    "high tide": "水墙。",
+    "cascade": "瀑布。",
+    "reckoning": "审判。",
+    "wingman": "小伙伴。",
+    "dizzy": "眩晕。",
+    "mosh pit": "爆炸。",
+    "thrash": "鞭挞。",
+    "sonic sensor": "声波感应器。",
+    "barrier mesh": "屏障网。",
+    "gravnet": "重力网。",
+    "annihilation": "歼灭。",
+    "contingency": "屏障。",
+    "undercut": "脆弱。",
+    "double tap": "双击。",
+    "kill contract": "决斗。",
+    "pick me up": "回血。",
+    "meddle": "干扰。",
+    "ruse": "烟雾。",
+    "not dead yet": "复活。",
+    "razorvine": "荆棘。",
+    "shear": "剪切。",
+    "arc rose": "闪光。",
+    "steel garden": "钢铁花园。",
+    "special delivery": "震荡弹。",
+    "stealth drone": "隐形无人机。",
+    "guided salvo": "导弹。",
+    "armageddon": "末日。",
+    "saturate": "减速。",
+    "lightspeed": "加速。",
+    "refract": "回标。",
+    "convergent paths": "聚合。",
+    "m pulse": "脉冲。",
+    "harmonize": "强化。",
+    "waveform": "烟雾。",
+    "bassquake": "音爆。",
+    "telekinesis": "念力。",
+    "flow": "位移。",
+    "flashbulb": "闪光。",
+    "displacement": "拉扯。",
+    "suspension": "悬浮。",
+    "crosscut": "传送。",
+    "chokehold": "锁喉。",
+    "interceptor": "拦截。",
+    "evolution": "进化。",
+    "thrifty": "省钱局赢了。",
+    "flawless": "无伤拿下。",
+    "team ace": "团灭。",
+    "diff": "差距。",
+    "gg go next": "打得好，下一把。",
+    "ff": "投降。",
+    "surrender": "投降。",
+    "remake": "重开。",
+    "afk": "挂机。",
+    "throwing": "在送。",
+    "tilted": "心态崩了。",
+    "dry peek": "干拉。",
+    "wide swing": "大拉。",
+    "contact": "接触。",
+    "lurk": "绕后偷人。",
+    "anchor": "守点。",
+    "entry": "突破。",
+    "trade": "补枪。",
+    "refrag": "补枪。",
+    "bait": "卖队友。",
+    "swing": "拉出来。",
+    "pre fire": "预瞄开火。",
+    "pre aim": "预瞄。",
+    "wallbang": "穿墙。",
+    "spray transfer": "压枪转移。",
+    "headshot": "爆头。",
+    "body shot": "打身体。",
+    "whiff": "空枪。",
+    "out aimed": "枪法被压制。",
+    "counter strafe": "急停。",
+    "crouch": "蹲下。",
+    "jump": "跳。",
+    "post plant": "下包后。",
+    "pre plant": "下包前。",
+    "fake defuse": "假拆。",
+    "ninja defuse": "偷拆。",
+    "execute": "爆弹。",
+    "exec": "爆弹。",
+    "entry fragger": "突破手。",
+    "support": "辅助。",
+    "igl": "指挥。",
+    "instalock": "秒锁。",
+    "dodge": "秒退。",
+    "comms": "报点。",
+    "info": "信息。",
+    "timing": "时机。",
+    "utility": "技能。",
+    "util": "技能。",
+    "mollies": "燃烧弹。",
+    "nades": "手雷。",
+    "trap": "陷阱。",
+    "cam": "摄像头。",
+    "dart": "箭。",
+    "arrow": "箭。",
+    "bolt": "箭。",
+    "star": "星体。",
+    "pit": "毒坑。",
+    "screen": "毒墙。",
+    "cloud": "毒雾。",
+    "cage": "牢笼。",
+    "trip": "绊线。",
+    "wire": "绊线。",
+    "buy bandit": "买 Bandit。",
+    "buy warden": "买 Warden。",
+    "bandit": "Bandit。",
+    "warden": "Warden。",
+    "hindered": "被减速了。",
+    "hinder": "减速。",
+    "deafened": "被致聋了。",
+    "deafen": "致聋。",
+    "knocked back": "被击退了。",
+    "knockback": "击退。",
+    "revealed": "被发现了。"
   },
   "contextual_rewrites": [
     {
       "source": "give me a moment",
-      "literal": ["给我一瞬间", "给我一个瞬间", "给我片刻", "给我一个时刻"],
+      "literal": [
+        "给我一瞬间",
+        "给我一个瞬间",
+        "给我片刻",
+        "给我一个时刻"
+      ],
       "natural": "等我一下"
     },
     {
       "source": "give me a second",
-      "literal": ["给我一秒钟", "给我一个第二"],
+      "literal": [
+        "给我一秒钟",
+        "给我一个第二"
+      ],
       "natural": "等我一下"
     },
     {
       "source": "im reloading",
-      "literal": ["我正在重新加载", "我在重新加载", "我正在重新装载"],
+      "literal": [
+        "我正在重新加载",
+        "我在重新加载",
+        "我正在重新装载"
+      ],
       "natural": "我在换弹"
+    },
+    {
+      "source": "im blinded",
+      "literal": [
+        "我失明了",
+        "我看不见了",
+        "我瞎了"
+      ],
+      "natural": "我被致盲了"
+    },
+    {
+      "source": "one tap",
+      "literal": [
+        "一敲",
+        "一次轻敲",
+        "一按"
+      ],
+      "natural": "一枪头"
+    },
+    {
+      "source": "spike down",
+      "literal": [
+        "尖峰向下",
+        "尖刺向下",
+        "钉子掉了",
+        "尖峰掉了"
+      ],
+      "natural": "包掉了"
+    },
+    {
+      "source": "plant the spike",
+      "literal": [
+        "种尖刺",
+        "种下尖峰",
+        "种植尖峰",
+        "种下钉子"
+      ],
+      "natural": "下包"
+    },
+    {
+      "source": "defuse the spike",
+      "literal": [
+        "拆除尖峰",
+        "解除尖刺",
+        "拆除钉子"
+      ],
+      "natural": "拆包"
+    },
+    {
+      "source": "they are rushing",
+      "literal": [
+        "他们正在冲",
+        "他们匆忙"
+      ],
+      "natural": "他们在快攻"
+    },
+    {
+      "source": "im flashing",
+      "literal": [
+        "我正在闪烁",
+        "我闪烁"
+      ],
+      "natural": "我在给闪"
+    },
+    {
+      "source": "im hindered",
+      "literal": [
+        "我被阻碍了",
+        "我被妨碍了"
+      ],
+      "natural": "我被减速了"
+    },
+    {
+      "source": "they are pushing",
+      "literal": [
+        "他们正在推",
+        "他们正在推动"
+      ],
+      "natural": "他们在前压"
+    },
+    {
+      "source": "spike is down",
+      "literal": [
+        "尖峰倒下了",
+        "尖刺倒下了"
+      ],
+      "natural": "包掉了"
+    },
+    {
+      "source": "nice shot",
+      "literal": [
+        "好枪",
+        "好射击",
+        "漂亮的射击"
+      ],
+      "natural": "打得漂亮"
     }
   ],
   "location_aliases": {
-    "A 大": ["a main", "a-main"],
-    "B 大": ["b main", "b-main"],
-    "A 小": ["a short", "a-short"],
-    "A 长": ["a long", "a-long"],
-    "B 长": ["b long", "b-long"],
-    "天堂": ["heaven"],
-    "地狱": ["hell"],
-    "中路": ["mid", "middle"],
-    "A 点": ["a site", "site a"],
-    "B 点": ["b site", "site b"],
-    "C 点": ["c site", "site c"]
+    "A 大": [
+      "a main",
+      "a-main"
+    ],
+    "B 大": [
+      "b main",
+      "b-main"
+    ],
+    "A 小": [
+      "a short",
+      "a-short"
+    ],
+    "A 长": [
+      "a long",
+      "a-long"
+    ],
+    "B 长": [
+      "b long",
+      "b-long"
+    ],
+    "地狱": [
+      "hell"
+    ],
+    "中路": [
+      "mid",
+      "middle"
+    ],
+    "A 点": [
+      "a site",
+      "site a"
+    ],
+    "B 点": [
+      "b site",
+      "site b"
+    ],
+    "C 点": [
+      "c site",
+      "site c"
+    ],
+    "天台": [
+      "heaven"
+    ],
+    "C 大": [
+      "c main",
+      "c-main"
+    ],
+    "B 小": [
+      "b short",
+      "b-short"
+    ],
+    "出生点": [
+      "spawn",
+      "attacker spawn",
+      "defender spawn",
+      "t spawn",
+      "ct spawn"
+    ],
+    "窗户": [
+      "window",
+      "a window",
+      "b window",
+      "c window",
+      "mid window"
+    ],
+    "双门": [
+      "double doors",
+      "double door"
+    ],
+    "绳索": [
+      "ropes",
+      "rope",
+      "a rope"
+    ],
+    "滑索": [
+      "zipline",
+      "zip line"
+    ],
+    "大厅": [
+      "lobby",
+      "a lobby",
+      "b lobby",
+      "a hall",
+      "b hall",
+      "c hall",
+      "mid hall",
+      "hall"
+    ],
+    "市场": [
+      "market",
+      "mid market",
+      "b market"
+    ],
+    "花园": [
+      "garden",
+      "a garden",
+      "b garden"
+    ],
+    "神庙": [
+      "temple"
+    ],
+    "遗迹": [
+      "ruins"
+    ],
+    "走廊": [
+      "hall",
+      "halls",
+      "hallway"
+    ],
+    "楼梯": [
+      "stairs",
+      "staircase",
+      "mid stairs"
+    ],
+    "斜坡": [
+      "ramp"
+    ],
+    "二楼": [
+      "second floor",
+      "upstairs",
+      "top floor"
+    ],
+    "一楼": [
+      "first floor",
+      "ground floor",
+      "downstairs"
+    ],
+    "包点后": [
+      "back site",
+      "back of site"
+    ],
+    "包点前": [
+      "front site"
+    ],
+    "管道": [
+      "pipes",
+      "pipe",
+      "a pipes"
+    ],
+    "下水道": [
+      "sewers",
+      "sewer",
+      "a sewer"
+    ],
+    "灯": [
+      "lamps",
+      "lamp"
+    ],
+    "CT": [
+      "ct",
+      "ct spawn"
+    ],
+    "连接处": [
+      "link",
+      "connector"
+    ],
+    "A 连接处": [
+      "a link"
+    ],
+    "B 连接处": [
+      "b link"
+    ],
+    "C 连接处": [
+      "c link"
+    ],
+    "中路连接处": [
+      "mid link",
+      "mid connector"
+    ],
+    "塔": [
+      "tower"
+    ],
+    "A 塔": [
+      "a tower"
+    ],
+    "B 塔": [
+      "b tower"
+    ],
+    "门": [
+      "door",
+      "doors"
+    ],
+    "A 门": [
+      "a door",
+      "a gate"
+    ],
+    "C 门": [
+      "c door"
+    ],
+    "中路门": [
+      "mid door",
+      "mid doors"
+    ],
+    "顶部": [
+      "top"
+    ],
+    "A 顶部": [
+      "a top"
+    ],
+    "底部": [
+      "bottom"
+    ],
+    "中路底部": [
+      "mid bottom",
+      "bottom mid",
+      "bot mid"
+    ],
+    "中路顶部": [
+      "mid top",
+      "top mid"
+    ],
+    "通风口": [
+      "vent",
+      "vents",
+      "a vent",
+      "mid vent"
+    ],
+    "小隔间": [
+      "cubby"
+    ],
+    "A 小隔间": [
+      "a cubby"
+    ],
+    "B 小隔间": [
+      "b cubby"
+    ],
+    "C 小隔间": [
+      "c cubby"
+    ],
+    "中路小隔间": [
+      "mid cubby"
+    ],
+    "小屋": [
+      "hut"
+    ],
+    "A 小屋": [
+      "a hut"
+    ],
+    "B 小屋": [
+      "b hut"
+    ],
+    "拐角": [
+      "elbow"
+    ],
+    "A 拐角": [
+      "a elbow"
+    ],
+    "B 拐角": [
+      "b elbow"
+    ],
+    "小巷": [
+      "alley"
+    ],
+    "A 小巷": [
+      "a alley"
+    ],
+    "B 小巷": [
+      "b alley"
+    ],
+    "隧道": [
+      "tunnel"
+    ],
+    "B 隧道": [
+      "b tunnel"
+    ],
+    "墙": [
+      "wall"
+    ],
+    "B 墙": [
+      "b wall"
+    ],
+    "桥": [
+      "bridge"
+    ],
+    "A 桥": [
+      "a bridge"
+    ],
+    "进攻方桥": [
+      "attacker side bridge"
+    ],
+    "屏幕": [
+      "screen",
+      "screens"
+    ],
+    "A 屏幕": [
+      "a screen",
+      "a screens"
+    ],
+    "B 屏幕": [
+      "b screen"
+    ],
+    "落点": [
+      "drop"
+    ],
+    "A 落点": [
+      "a drop"
+    ],
+    "B 落点": [
+      "b drop"
+    ],
+    "秘密": [
+      "secret"
+    ],
+    "A 秘密": [
+      "a secret"
+    ],
+    "弯道": [
+      "bend"
+    ],
+    "C 弯道": [
+      "c bend"
+    ],
+    "中路弯道": [
+      "mid bend"
+    ],
+    "车库": [
+      "garage",
+      "b garage"
+    ],
+    "C 车库": [
+      "c garage"
+    ],
+    "发电机": [
+      "generator",
+      "a generator",
+      "b generator"
+    ],
+    "A 后点": [
+      "a back"
+    ],
+    "B 后点": [
+      "b back"
+    ],
+    "A 树": [
+      "a tree",
+      "tree"
+    ],
+    "B 树": [
+      "b tree"
+    ],
+    "A 酒窖": [
+      "a wine",
+      "wine"
+    ],
+    "A 横梁": [
+      "a rafters",
+      "rafters"
+    ],
+    "B 横梁": [
+      "b rafters"
+    ],
+    "中路天桥": [
+      "mid catwalk",
+      "catwalk"
+    ],
+    "中路庭院": [
+      "mid courtyard",
+      "courtyard"
+    ],
+    "中路披萨": [
+      "mid pizza",
+      "pizza"
+    ],
+    "B 船屋": [
+      "b boat house",
+      "boat house",
+      "boathouse"
+    ],
+    "B 原木": [
+      "b logs",
+      "logs"
+    ],
+    "A 浴室": [
+      "a bath",
+      "showers",
+      "bath",
+      "a showers"
+    ],
+    "A 灯": [
+      "a lamps",
+      "lamps",
+      "u hall",
+      "u haul",
+      "uhaul"
+    ],
+    "A 传送门": [
+      "a teleporter",
+      "teleporter",
+      "tp"
+    ],
+    "A 出口": [
+      "a exit"
+    ],
+    "B 出口": [
+      "b exit"
+    ],
+    "出口": [
+      "exit"
+    ],
+    "B 水烟": [
+      "hookah",
+      "b hookah",
+      "hook"
+    ],
+    "A 卡车": [
+      "truck",
+      "a truck"
+    ],
+    "进攻方洞穴": [
+      "attacker side cave",
+      "cave"
+    ],
+    "A 院子": [
+      "a yard",
+      "yard"
+    ],
+    "A 口袋": [
+      "a pocket",
+      "pocket"
+    ],
+    "A 起重机": [
+      "a crane",
+      "crane"
+    ],
+    "B 拱门": [
+      "b arch",
+      "arch"
+    ],
+    "中路楼梯": [
+      "mid stairs"
+    ],
+    "中路窗户": [
+      "mid window"
+    ],
+    "A 瓦砾": [
+      "a rubble",
+      "rubble"
+    ],
+    "A 树根": [
+      "a root",
+      "root"
+    ],
+    "A 楼梯": [
+      "a stairs"
+    ],
+    "B 楼梯": [
+      "b stairs"
+    ],
+    "B 柱子": [
+      "b pillars",
+      "pillars"
+    ],
+    "B 上层": [
+      "b upper",
+      "upper"
+    ],
+    "C 土丘": [
+      "c mound",
+      "mound"
+    ],
+    "C 瀑布": [
+      "c waterfall",
+      "waterfall"
+    ],
+    "C 砾石": [
+      "c gravel",
+      "gravel"
+    ],
+    "A 洞穴": [
+      "a cave"
+    ],
+    "A 艺术": [
+      "a art",
+      "art"
+    ],
+    "中路喷泉": [
+      "mid fountain",
+      "fountain"
+    ],
+    "中路瓷砖": [
+      "mid tiles",
+      "tiles"
+    ],
+    "B 奖杯": [
+      "b trophy",
+      "trophy"
+    ],
+    "B 健身房": [
+      "b gym",
+      "gym"
+    ],
+    "B 市场": [
+      "b market"
+    ],
+    "B 珍珠奶茶": [
+      "b boba",
+      "boba"
+    ],
+    "A 商店": [
+      "a shop",
+      "shop"
+    ],
+    "A 金字塔": [
+      "a pyramids",
+      "pyramids"
+    ],
+    "A 斜坡": [
+      "a ramps",
+      "ramps"
+    ],
+    "B 斜坡": [
+      "b ramp"
+    ],
+    "中路大炮": [
+      "mid cannon",
+      "cannon"
+    ],
+    "中路柱子": [
+      "mid pillar",
+      "pillar"
+    ],
+    "中路木门": [
+      "mid wood doors",
+      "wood doors"
+    ],
+    "巢穴": [
+      "nest"
+    ],
+    "A 巢穴": [
+      "a nest"
+    ],
+    "中路巢穴": [
+      "mid nest"
+    ],
+    "B 巢穴": [
+      "b nest"
+    ],
+    "B 窗户": [
+      "b window"
+    ],
+    "防守方拱门": [
+      "defender side arches",
+      "arches"
+    ],
+    "A 绳索": [
+      "a rope"
+    ],
+    "A 碟": [
+      "a dish",
+      "dish"
+    ],
+    "B 食堂": [
+      "b canteen",
+      "canteen"
+    ],
+    "B 街机": [
+      "b arcade",
+      "arcade"
+    ],
+    "B 长椅": [
+      "b bench",
+      "bench"
+    ],
+    "A 传送带": [
+      "a belt",
+      "belt"
+    ],
+    "A 管道": [
+      "a pipes"
+    ],
+    "中路蓝色": [
+      "mid blue",
+      "blue"
+    ],
+    "中路托盘": [
+      "mid pallet",
+      "pallet"
+    ],
+    "中路锅炉": [
+      "mid boiler",
+      "boiler"
+    ],
+    "B 绿色": [
+      "b green",
+      "green"
+    ],
+    "B 黄色": [
+      "b yellow",
+      "yellow"
+    ],
+    "B 管道": [
+      "b tube",
+      "tube"
+    ],
+    "B 橙色": [
+      "b orange",
+      "orange"
+    ],
+    "B 雪堆": [
+      "b snow pile",
+      "snow pile"
+    ],
+    "B 厨房": [
+      "b kitchen",
+      "kitchen"
+    ],
+    "B 围栏": [
+      "b fence",
+      "fence"
+    ],
+    "B 雪人": [
+      "b snowman",
+      "snowman"
+    ],
+    "A 地堡": [
+      "a dugout",
+      "dugout"
+    ],
+    "A 花": [
+      "a flowers",
+      "flowers"
+    ],
+    "中路商店": [
+      "mid shops",
+      "shops"
+    ],
+    "B 俱乐部": [
+      "b club",
+      "club"
+    ],
+    "B 广场": [
+      "b plaza",
+      "plaza"
+    ],
+    "防守方水域": [
+      "defender side water",
+      "water"
+    ],
+    "防守方档案": [
+      "defender side records",
+      "records"
+    ],
+    "中路邮箱": [
+      "mid mail",
+      "mail"
+    ],
+    "A 安保": [
+      "a security",
+      "security"
+    ],
+    "B 危险": [
+      "b danger",
+      "danger"
+    ],
+    "中路图书馆": [
+      "mid library",
+      "library"
+    ]
   },
   "weapon_names": [
-    "Bandit", "Classic", "Shorty", "Frenzy", "Ghost", "Sheriff",
-    "Stinger", "Spectre", "Bucky", "Judge", "Bulldog", "Guardian",
-    "Warden", "Phantom", "Vandal", "Marshal", "Outlaw", "Operator",
-    "Ares", "Odin", "Tactical Knife"
+    "Bandit",
+    "Classic",
+    "Shorty",
+    "Frenzy",
+    "Ghost",
+    "Sheriff",
+    "Stinger",
+    "Spectre",
+    "Bucky",
+    "Judge",
+    "Bulldog",
+    "Guardian",
+    "Warden",
+    "Phantom",
+    "Vandal",
+    "Marshal",
+    "Outlaw",
+    "Operator",
+    "Ares",
+    "Odin",
+    "Tactical Knife"
   ],
   "agent_names": [
-    "Astra", "Breach", "Brimstone", "Chamber", "Clove", "Cypher",
-    "Deadlock", "Fade", "Gekko", "Harbor", "Hush", "Iso", "Jett",
-    "KAY/O", "Killjoy", "Miks", "Neon", "Omen", "Phoenix", "Raze",
-    "Reyna", "Sage", "Skye", "Sova", "Tejo", "Veto", "Viper",
-    "Vyse", "Waylay", "Yoru"
+    "Astra",
+    "Breach",
+    "Brimstone",
+    "Chamber",
+    "Clove",
+    "Cypher",
+    "Deadlock",
+    "Fade",
+    "Gekko",
+    "Harbor",
+    "Hush",
+    "Iso",
+    "Jett",
+    "KAY/O",
+    "Killjoy",
+    "Miks",
+    "Neon",
+    "Omen",
+    "Phoenix",
+    "Raze",
+    "Reyna",
+    "Sage",
+    "Skye",
+    "Sova",
+    "Tejo",
+    "Veto",
+    "Viper",
+    "Vyse",
+    "Waylay",
+    "Yoru"
   ],
   "entity_aliases": {
-    "Operator": ["Op", "AWP"],
-    "Marshal": ["Marshall"],
-    "KAY/O": ["Kayo", "Kay O"],
-    "Jett": ["Jet"],
-    "Reyna": ["Raina", "Rayna"]
+    "Operator": [
+      "Op",
+      "AWP"
+    ],
+    "Marshal": [
+      "Marshall"
+    ],
+    "KAY/O": [
+      "Kayo",
+      "Kay O"
+    ],
+    "Jett": [
+      "Jet"
+    ],
+    "Reyna": [
+      "Raina",
+      "Rayna"
+    ],
+    "Sova": [
+      "Sofa"
+    ],
+    "Viper": [
+      "Vyper"
+    ],
+    "Raze": [
+      "Raise"
+    ],
+    "Sage": [
+      "Seige"
+    ],
+    "Cypher": [
+      "Cipher"
+    ],
+    "Breach": [
+      "Breech"
+    ],
+    "Fade": [
+      "Faid"
+    ],
+    "Neon": [
+      "Nean"
+    ],
+    "Iso": [
+      "Isso"
+    ],
+    "Clove": [
+      "Cloves"
+    ],
+    "Gekko": [
+      "Gecko"
+    ],
+    "Deadlock": [
+      "Dead Lock"
+    ],
+    "Harbor": [
+      "Harbour"
+    ],
+    "Astra": [
+      "Astro"
+    ],
+    "Chamber": [
+      "Chambers"
+    ],
+    "Phoenix": [
+      "Pheonix"
+    ],
+    "Killjoy": [
+      "Kill Joy"
+    ],
+    "Brimstone": [
+      "Brim"
+    ],
+    "Tejo": [
+      "Teho"
+    ],
+    "Vyse": [
+      "Vice"
+    ],
+    "Waylay": [
+      "Way Lay"
+    ],
+    "Omen": [
+      "Oman"
+    ],
+    "Odin": [
+      "Oden"
+    ],
+    "Ares": [
+      "Aris"
+    ],
+    "Judge": [
+      "Jug"
+    ],
+    "Bucky": [
+      "Buky"
+    ],
+    "Bulldog": [
+      "Bull Dog"
+    ],
+    "Guardian": [
+      "Guard"
+    ],
+    "Spectre": [
+      "Specter"
+    ],
+    "Sheriff": [
+      "Sherif"
+    ],
+    "Vandal": [
+      "Vandle"
+    ],
+    "Phantom": [
+      "Fantom"
+    ],
+    "Miks": [
+      "Mix",
+      "Micks"
+    ],
+    "Veto": [
+      "Vito"
+    ],
+    "Bandit": [
+      "Bandet"
+    ],
+    "Warden": [
+      "Wardon"
+    ]
   },
-  "uncertain_recognition_fragments": ["they wont be"],
+  "uncertain_recognition_fragments": [
+    "they wont be"
+  ],
   "translated_name_aliases": {
-    "Jett": ["飞机", "天空", "杰特"],
-    "Sage": ["智慧", "圣人", "贤者"],
-    "Reyna": ["雷娜", "瑞娜"],
-    "Operator": ["运营商", "操作员"],
-    "Vandal": ["瓦达尔", "破坏者"],
-    "Phantom": ["幻影", "幽灵"],
-    "Ghost": ["幽灵"],
-    "Judge": ["法官"],
-    "Sheriff": ["警长"],
-    "Omen": ["预兆", "奥门"]
+    "Jett": [
+      "飞机",
+      "天空",
+      "杰特"
+    ],
+    "Sage": [
+      "智慧",
+      "圣人",
+      "贤者"
+    ],
+    "Reyna": [
+      "雷娜",
+      "瑞娜"
+    ],
+    "Operator": [
+      "运营商",
+      "操作员"
+    ],
+    "Vandal": [
+      "瓦达尔",
+      "破坏者"
+    ],
+    "Phantom": [
+      "幻影",
+      "幽灵"
+    ],
+    "Ghost": [
+      "幽灵"
+    ],
+    "Judge": [
+      "法官"
+    ],
+    "Sheriff": [
+      "警长"
+    ],
+    "Omen": [
+      "预兆",
+      "奥门"
+    ],
+    "Viper": [
+      "毒蛇",
+      "蝰蛇",
+      "毒液"
+    ],
+    "Sova": [
+      "索瓦",
+      "苏瓦"
+    ],
+    "Raze": [
+      "雷兹",
+      "拉兹"
+    ],
+    "Phoenix": [
+      "凤凰",
+      "菲尼克斯"
+    ],
+    "Killjoy": [
+      "奇乐",
+      "凯乔"
+    ],
+    "Cypher": [
+      "塞弗",
+      "密码",
+      "暗号"
+    ],
+    "Breach": [
+      "布雷奇",
+      "突破"
+    ],
+    "Skye": [
+      "斯凯",
+      "天空"
+    ],
+    "Yoru": [
+      "夜露",
+      "夜晚"
+    ],
+    "Astra": [
+      "星礈",
+      "阿斯特拉",
+      "星体"
+    ],
+    "KAY/O": [
+      "凯欧",
+      "凯奥"
+    ],
+    "Chamber": [
+      "尚勃勒",
+      "钱伯尔"
+    ],
+    "Neon": [
+      "霓虹",
+      "妮虹",
+      "霓虹灯"
+    ],
+    "Fade": [
+      "菲德",
+      "褪色",
+      "消退"
+    ],
+    "Harbor": [
+      "哈伯",
+      "港口",
+      "海港"
+    ],
+    "Gekko": [
+      "盖可",
+      "壁虎"
+    ],
+    "Deadlock": [
+      "死锁",
+      "僵局"
+    ],
+    "Iso": [
+      "艾索",
+      "伊佐"
+    ],
+    "Clove": [
+      "克洛夫",
+      "丁香"
+    ],
+    "Vyse": [
+      "薇丝",
+      "维斯"
+    ],
+    "Tejo": [
+      "泰霍",
+      "特霍"
+    ],
+    "Brimstone": [
+      "布里姆斯通",
+      "硫磺"
+    ],
+    "Bandit": [
+      "强盗",
+      "土匪"
+    ],
+    "Warden": [
+      "典狱长",
+      "看守"
+    ],
+    "Hush": [
+      "安静",
+      "嘘"
+    ],
+    "Miks": [
+      "米克斯",
+      "混合"
+    ],
+    "Veto": [
+      "维托",
+      "否决"
+    ],
+    "Waylay": [
+      "薇来",
+      "埋伏"
+    ]
   },
   "target_replacements": {
+    "Go Go Go": "冲冲冲",
+    "One Enemy Left": "剩一个敌人",
+    "Run It Back": "复活",
+    "Tour De Force": "狙击",
+    "Pick Me Up": "回血",
+    "Not Dead Yet": "复活",
     "A Main": "A 大",
     "B Main": "B 大",
     "A Short": "A 小",
     "A Long": "A 长",
     "B Long": "B 长",
-    "Heaven": "天堂",
+    "One HP": "残血",
+    "Low HP": "残血",
+    "One Tap": "一枪头",
+    "Fall Back": "撤退",
+    "Play Slow": "慢打",
+    "Last One": "最后一个",
+    "One Left": "剩一个",
+    "Two Left": "剩两个",
+    "Three Left": "剩三个",
+    "Good Job": "打得好",
+    "Well Played": "打得好",
+    "Nice Try": "尽力了",
+    "My Bad": "我的锅",
+    "Thank You": "谢谢",
+    "Lets Go": "冲",
+    "Hold On": "等一下",
+    "Be Quiet": "安静",
+    "Wide Peek": "大拉",
+    "Jump Peek": "跳拉",
+    "Off Angle": "非常规点位",
+    "Tap Fire": "单点",
+    "No Money": "没钱",
+    "Full Shield": "重甲",
+    "Heavy Shield": "重甲",
+    "Light Shield": "轻甲",
+    "Half Shield": "半甲",
+    "No Shield": "没甲",
+    "Spike Down": "包掉了",
+    "Spike Planted": "包已下",
+    "Last Player": "最后一个人",
+    "Enemy Spotted": "发现敌人",
+    "Theyre Coming": "他们来了",
+    "Theyre Rushing": "他们在快攻",
+    "Hold Site": "守包点",
+    "Play Time": "拖时间",
+    "Fake Defuse": "假拆",
+    "Ninja Defuse": "偷拆",
+    "Recon Bolt": "侦查箭",
+    "Shock Bolt": "电箭",
+    "Owl Drone": "猫头鹰无人机",
+    "Hunters Fury": "猎手之怒",
+    "Barrier Orb": "屏障",
+    "Slow Orb": "减速",
+    "Healing Orb": "治疗",
+    "Blade Storm": "刀阵",
+    "Hot Hands": "火球",
+    "Boom Bot": "爆破机器人",
+    "Blast Pack": "炸药包",
+    "Paint Shells": "手雷",
+    "Fault Line": "震荡",
+    "Rolling Thunder": "雷霆",
+    "Cyber Cage": "牢笼",
+    "Neural Theft": "窃取",
+    "Nova Pulse": "脉冲",
+    "Gravity Well": "重力井",
+    "Cosmic Divide": "星体分隔",
+    "Zero Point": "抑制刀",
+    "Frag Ment": "手雷",
+    "Null Cmd": "抑制",
+    "High Gear": "加速",
+    "Relay Bolt": "电能",
+    "Fast Lane": "火墙",
+    "High Tide": "水墙",
+    "Mosh Pit": "爆炸",
+    "Sonic Sensor": "声波感应器",
+    "Barrier Mesh": "屏障网",
+    "Double Tap": "双击",
+    "Kill Contract": "决斗",
+    "Arc Rose": "闪光",
+    "Steel Garden": "钢铁花园",
+    "Special Delivery": "震荡弹",
+    "Stealth Drone": "隐形无人机",
+    "Guided Salvo": "导弹",
+    "Convergent Paths": "聚合",
+    "M Pulse": "脉冲",
+    "Heaven": "天台",
     "Hell": "地狱",
     "Mid": "中路",
     "Site": "包点",
@@ -158,8 +1868,6 @@
     "Flank": "绕后",
     "Push": "前压",
     "Peek": "拉出去对枪",
-    "One HP": "残血",
-    "Low HP": "残血",
     "Save": "保枪",
     "Eco": "经济局",
     "Spike": "爆能器",
@@ -168,6 +1876,171 @@
     "Ult": "大招",
     "Smoke": "烟",
     "Flash": "闪",
-    "One Tap": "一枪头"
+    "Blind": "致盲",
+    "Blinding": "致盲",
+    "Blinded": "被致盲",
+    "Paranoia": "偏执",
+    "Retake": "重夺",
+    "Clutch": "残局",
+    "Ultimate": "大招",
+    "Rush": "快攻",
+    "Hold": "守",
+    "Heal": "治疗",
+    "Rez": "复活",
+    "Revive": "复活",
+    "Drone": "无人机",
+    "Turret": "炮塔",
+    "Wall": "墙",
+    "Orb": "法球",
+    "Tagged": "打中了",
+    "Vulnerable": "易伤",
+    "Detained": "拘留",
+    "Concussed": "震晕",
+    "Suppressed": "抑制",
+    "Slowed": "减速",
+    "Decayed": "衰减",
+    "Flashed": "被闪了",
+    "Smoked": "封烟了",
+    "Planted": "已下包",
+    "Defusing": "正在拆包",
+    "Planting": "正在下包",
+    "Rotating": "正在转点",
+    "Flanking": "正在绕后",
+    "Pushing": "正在前压",
+    "Peeking": "正在拉枪线",
+    "Enemy": "敌人",
+    "Nice": "漂亮",
+    "Thanks": "谢谢",
+    "Wait": "等一下",
+    "Shift": "静步",
+    "Walk": "静步走",
+    "Run": "跑",
+    "Repeek": "再拉",
+    "Crosshair": "准星",
+    "Spray": "扫射",
+    "Burst": "点射",
+    "Vandal": "狂徒",
+    "Phantom": "幻影",
+    "Sheriff": "正义",
+    "Ghost": "鬼魅",
+    "Spectre": "幽灵",
+    "Bulldog": "斗牛犬",
+    "Guardian": "卫士",
+    "Marshal": "神话",
+    "Operator": "冥驹",
+    "Odin": "奥丁",
+    "Ares": "战神",
+    "Judge": "法官",
+    "Bucky": "重炮",
+    "Stinger": "毒刺",
+    "Frenzy": "狂怒",
+    "Classic": "经典",
+    "Shorty": "短管",
+    "Outlaw": "亡命",
+    "Broke": "没钱",
+    "Rich": "有钱",
+    "Ability": "技能",
+    "Stick": "坚持拆",
+    "Half": "拆一半",
+    "Ace": "五杀",
+    "Hindered": "被减速",
+    "Hinder": "减速",
+    "Deafened": "被致聋",
+    "Deafen": "致聋",
+    "Knockback": "击退",
+    "Revealed": "被发现",
+    "Thrifty": "省钱局",
+    "Flawless": "无伤",
+    "Diff": "差距",
+    "Lurk": "绕后",
+    "Anchor": "守点",
+    "Entry": "突破",
+    "Trade": "补枪",
+    "Refrag": "补枪",
+    "Bait": "卖",
+    "Swing": "拉出来",
+    "Pre-fire": "预瞄开火",
+    "Pre-aim": "预瞄",
+    "Wallbang": "穿墙",
+    "Headshot": "爆头",
+    "Whiff": "空枪",
+    "Counter-strafe": "急停",
+    "Post-plant": "下包后",
+    "Execute": "爆弹",
+    "Exec": "爆弹",
+    "IGL": "指挥",
+    "Instalock": "秒锁",
+    "Comms": "报点",
+    "Info": "信息",
+    "Timing": "时机",
+    "Utility": "技能",
+    "Util": "技能",
+    "Trap": "陷阱",
+    "Cam": "摄像头",
+    "Dart": "箭",
+    "Star": "星体",
+    "Pit": "毒坑",
+    "Screen": "毒墙",
+    "Cloud": "毒雾",
+    "Cage": "牢笼",
+    "Trip": "绊线",
+    "Wire": "绊线",
+    "Resurrection": "复活",
+    "Cloudburst": "烟雾弹",
+    "Updraft": "上升气流",
+    "Tailwind": "顺风",
+    "Curveball": "闪光",
+    "Blaze": "火墙",
+    "Showstopper": "火箭筒",
+    "Leer": "致盲眼",
+    "Devour": "吞噬",
+    "Dismiss": "消散",
+    "Empress": "女帝",
+    "Flashpoint": "闪光",
+    "Aftershock": "余震",
+    "Alarmbot": "警报机器人",
+    "Nanoswarm": "纳米蜂群",
+    "Lockdown": "封锁",
+    "Trapwire": "绊线",
+    "Spycam": "摄像头",
+    "Nebula": "星云",
+    "Trademark": "陷阱",
+    "Headhunter": "手枪",
+    "Rendezvous": "传送",
+    "Overdrive": "超载",
+    "Seize": "禁锢",
+    "Haunt": "梦魇",
+    "Prowler": "徘徊者",
+    "Nightfall": "夜幕",
+    "Cove": "水墙",
+    "Cascade": "瀑布",
+    "Reckoning": "审判",
+    "Wingman": "小伙伴",
+    "Dizzy": "眩晕",
+    "Thrash": "鞭挞",
+    "Gravnet": "重力网",
+    "Annihilation": "歼灭",
+    "Contingency": "屏障",
+    "Undercut": "脆弱",
+    "Meddle": "干扰",
+    "Ruse": "烟雾",
+    "Razorvine": "荆棘",
+    "Shear": "剪切",
+    "Armageddon": "末日",
+    "Saturate": "减速",
+    "Lightspeed": "加速",
+    "Refract": "回标",
+    "Harmonize": "强化",
+    "Waveform": "烟雾",
+    "Bassquake": "音爆",
+    "Telekinesis": "念力",
+    "Flow": "位移",
+    "Flashbulb": "闪光",
+    "Displacement": "拉扯",
+    "Suspension": "悬浮",
+    "Crosscut": "传送",
+    "Chokehold": "锁喉",
+    "Interceptor": "拦截",
+    "Evolution": "进化"
   }
 }

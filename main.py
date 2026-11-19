@@ -17,7 +17,9 @@ def self_test() -> int:
         from valorant_translator.updates.domestic import load_channel
 
         channel = load_channel()
-        if channel["channel"] == "domestic":
+        if channel.get("edition") == "cpu":
+            assert torch.version.cuda is None, "CPU installer contains CUDA PyTorch"
+        if channel["channel"] in ("domestic", "dual"):
             Bundle.from_channel(channel)
             assert NOTICE.is_file(), "Bundled model license notice is missing"
 

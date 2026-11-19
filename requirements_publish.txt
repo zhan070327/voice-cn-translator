@@ -1,1 +1,2 @@
 cos-python-sdk-v5==1.9.45
+crcmod==1.7

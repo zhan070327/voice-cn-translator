@@ -14,7 +14,7 @@ from valorant_translator.audio.capture import AudioCapture
 from valorant_translator.audio.segmenter import SpeechChunk, SpeechSegmenter
 from valorant_translator.config import Settings
 from valorant_translator.recognition.whisper import LocalWhisper, Recognition
-from valorant_translator.translation.glossary import Glossary
+from valorant_translator.translation.glossary import Glossary, game_glossary
 from valorant_translator.translation.m2m import LocalM2M
 
 LOG = logging.getLogger(__name__)
@@ -28,6 +28,7 @@ class SubtitleResult:
     asr_seconds: float
     translation_seconds: float
     total_seconds: float
+    confidence: float | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,9 @@ class Pipeline:
                  on_runtime: Callable[[str], None] | None = None,
                  history=None):
         self.settings = settings
+        self.asr_lock = threading.Lock()
+        self.mt_lock = threading.Lock()
+        self.model_session = None
         self.on_status = on_status
         self.on_level = on_level
         self.on_result = on_result
@@ -109,6 +113,24 @@ class Pipeline:
         except queue.Full:
             pass
 
+    def _report_runtime(self, asr, translator) -> None:
+        mode = "低延迟模式" if self.settings.fast_mode else "准确优先模式"
+        path = getattr(asr, "path", None)
+        model = f" · Whisper {path.name.removeprefix('whisper-')}" if path else ""
+        self.on_runtime(f"识别 {asr.device.upper()} · 翻译 {translator.device.upper()} · {mode}{model}")
+
+    def translate_microphone(self, audio):
+        session = self.model_session
+        if session is None:
+            raise RuntimeError("翻译模型仍在加载，请稍后再试。")
+        asr, translator = session
+        with self.asr_lock:
+            recognized = asr.transcribe(audio, "zh", use_hotwords=False)
+        if not recognized:
+            return None, ""
+        with self.mt_lock:
+            return recognized, translator.translate_to_english(recognized.text)
+
     def _work(self) -> None:
         try:
             self.on_status("加载本地识别模型…")
@@ -116,9 +138,10 @@ class Pipeline:
                                self.settings.fast_mode)
             self.on_status("加载本地翻译模型…")
             translator = LocalM2M(self.settings.compute_device, self.settings.fast_mode)
-            self.on_runtime(f"识别 {asr.device.upper()} · 翻译 {translator.device.upper()}"
-                            + (" · 低延迟模式" if self.settings.fast_mode else " · 准确优先模式"))
-            glossary = Glossary()
+            self._report_runtime(asr, translator)
+            glossary = game_glossary(self.settings.game)
+            asr.glossary = glossary
+            self.model_session = (asr, translator)
             if self.stop_event.is_set():
                 return
             self.translation_worker = threading.Thread(
@@ -151,12 +174,12 @@ class Pipeline:
                     watchdog.daemon = True
                     watchdog.start()
                     try:
-                        recognized = asr.transcribe(chunk.audio, self.settings.language)
+                        with self.asr_lock:
+                            recognized = asr.transcribe(chunk.audio, self.settings.language)
                     finally:
                         self.asr_busy.clear()
                         watchdog.cancel()
-                    self.on_runtime(f"识别 {asr.device.upper()} · 翻译 {translator.device.upper()}"
-                                    + (" · 低延迟模式" if self.settings.fast_mode else " · 准确优先模式"))
+                    self._report_runtime(asr, translator)
                     t1 = time.monotonic()
                     if not recognized:
                         self.on_diagnostic(
@@ -190,6 +213,7 @@ class Pipeline:
             self.on_status(f"运行失败：{exc}")
             self.stop_event.set()
         finally:
+            self.model_session = None
             self.asr_busy.clear()
             if self.capture:
                 self.capture.stop()
@@ -225,9 +249,9 @@ class Pipeline:
                                   if recognized.language == "zh" else
                                   glossary.callout(recognized.text, recognized.language))
                 if translated is None:
-                    translated = translator.translate(recognized.text, recognized.language)
-                self.on_runtime(f"识别 {asr.device.upper()} · 翻译 {translator.device.upper()}"
-                                + (" · 低延迟模式" if self.settings.fast_mode else " · 准确优先模式"))
+                    with self.mt_lock:
+                        translated = translator.translate(recognized.text, recognized.language)
+                self._report_runtime(asr, translator)
                 finished = time.monotonic()
                 translation_seconds = finished - started
                 if (translation_seconds > self.settings.translation_timeout
@@ -249,7 +273,8 @@ class Pipeline:
                     continue
                 result = SubtitleResult(recognized.text, translated, recognized.language,
                                         task.asr_seconds, translation_seconds,
-                                        finished - chunk.end_time)
+                                        finished - chunk.end_time,
+                                        recognized.probability if self.settings.language == "auto" else None)
                 self.last_text = normalized
                 self.last_result_time = finished
                 if self.history is not None and self.settings.save_history:
