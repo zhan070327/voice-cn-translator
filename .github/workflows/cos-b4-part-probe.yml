@@ -2,6 +2,15 @@ name: Probe Guangzhou COS multipart writes
 
 on:
   workflow_dispatch:
+    inputs:
+      endpoint:
+        description: 'UploadPart route; bucket configuration and cleanup stay regional'
+        required: true
+        type: choice
+        default: direct
+        options:
+          - direct
+          - accelerate
 
 permissions:
   contents: read
@@ -24,4 +33,5 @@ jobs:
         env:
           COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
           COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_UPLOAD_ENDPOINT: ${{ inputs.endpoint }}
         run: python -m scripts.probe_b4_cos_part
