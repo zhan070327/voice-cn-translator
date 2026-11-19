@@ -1,9 +1,9 @@
 import psutil
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout
 
-from valorant_translator.ui.glass import GlassSurface, glass_styles
+from valorant_translator.ui.glass import GlassButton, GlassSurface, glass_styles
 
 
 class Onboarding(QDialog):
@@ -12,11 +12,14 @@ class Onboarding(QDialog):
         self.window = window
         self.step = 0
         self.test_started = False
+        self._loading = False
+        self._device_refresh_failed = False
+        window.devices_refreshed.connect(self._devices_refreshed)
         self.setWindowTitle("首次使用 · VoiceTrans")
         self.setMinimumSize(525, 325)
         container = QVBoxLayout(self)
         container.setContentsMargins(0, 0, 0, 0)
-        surface = GlassSurface(window.settings.accent)
+        surface = GlassSurface()
         container.addWidget(surface)
         self.setStyleSheet(glass_styles(window.settings.accent))
         layout = QVBoxLayout(surface)
@@ -34,14 +37,14 @@ class Onboarding(QDialog):
         card.addWidget(self.details)
         self.progress = QProgressBar()
         card.addWidget(self.progress)
-        self.action = QPushButton()
+        self.action = GlassButton()
         self.action.setObjectName("primary")
         self.action.clicked.connect(self._action)
         card.addWidget(self.action)
-        self.finish = QPushButton("完成")
+        self.finish = GlassButton("完成")
         self.finish.clicked.connect(self.accept)
         buttons = QHBoxLayout()
-        later = QPushButton("稍后")
+        later = GlassButton("稍后")
         later.clicked.connect(self.reject)
         buttons.addWidget(later)
         buttons.addStretch()
@@ -53,6 +56,8 @@ class Onboarding(QDialog):
         self._refresh()
 
     def _refresh(self):
+        if self._loading:
+            return
         w = self.window
         self.progress.setVisible(self.step == 1 and w._model_busy)
         self.finish.setVisible(self.step == 2)
@@ -60,7 +65,8 @@ class Onboarding(QDialog):
             self.title.setText("1 / 3 检测设备")
             self.details.setText(f"输入：{w.device_combo.currentText() or '未检测到设备'}\n"
                                  f"麦克风：{w.mic_combo.currentText() or '未检测到麦克风'}\n"
-                                 f"推荐 Whisper {self._recommendation()}，可在详细设置更改。")
+                                 f"推荐 Whisper {self._recommendation()}，可在详细设置更改。"
+                                 + ("\n设备检测失败，可重试。" if self._device_refresh_failed else ""))
             self.action.setText("下一步")
             self.action.setEnabled(True)
         elif self.step == 1:
@@ -94,11 +100,14 @@ class Onboarding(QDialog):
 
     def _action(self):
         if self.step == 0:
-            self.window.refresh_devices()
-            self.step = 1
+            self._set_loading()
+            self.window._request_devices()
+            return
         elif self.step == 1:
             if self.window._models_ready():
-                self.step = 2
+                self._set_loading()
+                QTimer.singleShot(0, self, self._show_test)
+                return
             elif self.window._model_busy:
                 self.window._pause_model_download()
             else:
@@ -108,7 +117,27 @@ class Onboarding(QDialog):
             QTimer.singleShot(4000, self.window.talk.end)
         self._refresh()
 
+    def _set_loading(self):
+        self._loading = True
+        self.action.setText("加载中…")
+        self.action.setEnabled(False)
+
+    def _devices_refreshed(self, success):
+        if self.step == 0 and self._loading:
+            self._loading = False
+            self._device_refresh_failed = not success
+            if success:
+                self.step = 1
+            self._refresh()
+
+    def _show_test(self):
+        if self._loading:
+            self._loading = False
+            self.step = 2
+            self._refresh()
+
     def done(self, result):
+        self._loading = False
         self.timer.stop()
         if self.step == 2:
             self.window.talk.end()

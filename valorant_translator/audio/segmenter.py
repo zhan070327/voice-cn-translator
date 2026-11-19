@@ -14,6 +14,8 @@ class SpeechChunk:
     audio: np.ndarray
     start_time: float
     end_time: float
+    task_id: int = 0
+    queued_at: float = 0.0
 
 
 class SpeechSegmenter:
@@ -64,7 +66,7 @@ class SpeechSegmenter:
             chunk = SpeechChunk(np.concatenate(self.frames), self.started, end_time or time.monotonic())
             self.on_chunk(chunk)
         elif self.active:
-            self.on_event("检测到的语音过短，已过滤")
+            self.on_event(f"检测到的语音过短，已过滤（语音 {self.speech_frames * 0.02:.2f} 秒，至少 0.10 秒）")
         self.frames.clear()
         self.active = False
         self.speech_frames = 0

@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (QApplication, QFrame, QGraphicsOpacityEffect, QHBoxLayout,
-                               QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget)
+                               QLabel, QSizePolicy, QVBoxLayout, QWidget)
 
 from valorant_translator.config import Settings
+from valorant_translator.ui.glass import GlassButton
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,7 @@ class SubtitleOverlay(QWidget):
         badge.setStyleSheet("color:#b9e5ea; font-size:11px;")
         header.addWidget(badge)
         header.addStretch()
-        copy = QPushButton("复制英文")
+        copy = GlassButton("复制英文")
         copy.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         copy.setMaximumHeight(22)
         copy.clicked.connect(lambda: QApplication.clipboard().setText(copy.property("textToCopy") or ""))

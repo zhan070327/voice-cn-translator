@@ -5,7 +5,9 @@ import queue
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+from datetime import datetime
+from itertools import count
 from typing import Callable
 
 from opencc import OpenCC
@@ -29,6 +31,8 @@ class SubtitleResult:
     translation_seconds: float
     total_seconds: float
     confidence: float | None = None
+    task_id: int | None = None
+    audio_end_time: float | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,20 @@ class RecognizedTask:
     chunk: SpeechChunk
     recognized: Recognition
     asr_seconds: float
+    queued_at: float
+
+
+@dataclass(frozen=True)
+class TaskTrace:
+    task_id: int
+    stage: str
+    detail: str
+    discarded: bool = False
+    timings: dict[str, float] = field(default_factory=dict)
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat(timespec="milliseconds"))
+
+    def line(self) -> str:
+        return f"{self.timestamp} #{self.task_id} {self.stage}：{self.detail}"
 
 
 class Pipeline:
@@ -43,7 +61,7 @@ class Pipeline:
                  on_level: Callable[[float], None], on_result: Callable[[SubtitleResult], None],
                  on_diagnostic: Callable[[str], None] | None = None,
                  on_runtime: Callable[[str], None] | None = None,
-                 history=None):
+                 history=None, *, on_trace: Callable[[TaskTrace], None] | None = None):
         self.settings = settings
         self.asr_lock = threading.Lock()
         self.mt_lock = threading.Lock()
@@ -53,6 +71,8 @@ class Pipeline:
         self.on_result = on_result
         self.on_diagnostic = on_diagnostic or (lambda _: None)
         self.on_runtime = on_runtime or (lambda _: None)
+        self.on_trace = on_trace or (lambda _: None)
+        self.task_ids = count(1)
         self.history = history
         self.chinese_converter = OpenCC("t2s")
         self.jobs: queue.Queue[SpeechChunk] = queue.Queue(maxsize=4)
@@ -95,23 +115,83 @@ class Pipeline:
     def enqueue(self, chunk: SpeechChunk) -> None:
         if self.stop_event.is_set():
             return
+        chunk = replace(chunk, task_id=next(self.task_ids), queued_at=time.monotonic())
+        duration = len(chunk.audio) / 16000
+        self._trace(chunk, "VAD 分段完成", f"片段 {duration:.2f} 秒")
         if self.jobs.full():
             try:
-                self.jobs.get_nowait()
-                self.on_diagnostic("处理跟不上语音，已丢弃排队中最旧的一句")
+                oldest = self.jobs.get_nowait()
+                self._discard(oldest, f"识别队列已满（上限 {self.jobs.maxsize} 句），丢弃最旧的一句",
+                              识别排队=time.monotonic() - oldest.queued_at)
             except queue.Empty:
                 pass
         try:
             self.jobs.put_nowait(chunk)
+            self._trace(chunk, "识别入队", f"音频 {duration:.2f} 秒，队列约 {self.jobs.qsize()} 句")
             if self.asr_busy.is_set():
                 self.on_diagnostic(
-                    f"已收到 {len(chunk.audio) / 16000:.1f} 秒疑似语音；"
+                    f"已收到 {duration:.1f} 秒疑似语音；"
                     f"正在识别上一句，队列约 {self.jobs.qsize()} 句。"
                 )
             else:
-                self.on_diagnostic(f"已收到 {len(chunk.audio) / 16000:.1f} 秒疑似语音，等待识别…")
+                self.on_diagnostic(f"已收到 {duration:.1f} 秒疑似语音，等待识别…")
         except queue.Full:
-            pass
+            self._discard(chunk, f"识别队列已满（上限 {self.jobs.maxsize} 句），本句未入队")
+
+    def _trace(self, chunk, stage, detail, discarded=False, **timings):
+        self.on_trace(TaskTrace(chunk.task_id, stage, detail, discarded, timings))
+
+    def _discard(self, chunk, reason, **timings):
+        age = time.monotonic() - chunk.end_time
+        self._trace(chunk, "结果丢弃", f"{reason}；距音频结束 {age:.2f} 秒", True, **timings)
+        self.on_diagnostic(reason)
+
+    def _recognize(self, chunk, asr):
+        t0 = time.monotonic()
+        decoding = threading.Event()
+        self.asr_busy.set()
+        self.on_diagnostic(f"正在识别 {len(chunk.audio) / 16000:.1f} 秒音频片段…")
+        self._trace(chunk, "等待识别锁", "等待识别模型")
+        rejection = None
+
+        def rejected(reason, detail):
+            nonlocal rejection
+            rejection = reason
+            self._trace(chunk, "结果过滤", f"{reason}；{detail}")
+
+        def overdue():
+            if self.asr_busy.is_set() and not self.stop_event.is_set():
+                phase = "Whisper 推理" if decoding.is_set() else "等待识别锁"
+                message = f"{phase}已超过 {time.monotonic() - t0:.1f} 秒，仍在等待返回"
+                self._trace(chunk, "5 秒看门狗", message)
+                self.on_diagnostic(message)
+
+        watchdog = threading.Timer(5.0, overdue)
+        watchdog.daemon = True
+        watchdog.start()
+        try:
+            with self.asr_lock:
+                started = time.monotonic()
+                decoding.set()
+                self._trace(chunk, "推理开始", f"{asr.device.upper()}，等锁 {started - t0:.3f} 秒",
+                            识别等锁=started - t0)
+                asr.on_rejection = rejected
+                try:
+                    result = asr.transcribe(chunk.audio, self.settings.language)
+                except Exception as exc:
+                    elapsed = time.monotonic() - started
+                    self._trace(chunk, "推理结束", f"耗时 {elapsed:.3f} 秒，异常 {exc}", 识别=elapsed)
+                    raise
+                finally:
+                    asr.on_rejection = None
+                elapsed = time.monotonic() - started
+                detail = f"耗时 {elapsed:.3f} 秒，{result.language} {result.text[:160]!r}" if result \
+                    else f"耗时 {elapsed:.3f} 秒，无可用识别结果"
+                self._trace(chunk, "推理结束", detail, 识别=elapsed)
+                return result, rejection, elapsed
+        finally:
+            self.asr_busy.clear()
+            watchdog.cancel()
 
     def _report_runtime(self, asr, translator) -> None:
         mode = "低延迟模式" if self.settings.fast_mode else "准确优先模式"
@@ -158,58 +238,49 @@ class Pipeline:
                     chunk = self.jobs.get(timeout=0.2)
                 except queue.Empty:
                     continue
-                if time.monotonic() - chunk.end_time > self.settings.max_task_age:
-                    self.on_diagnostic("语音排队过久，已丢弃旧字幕")
+                now = time.monotonic()
+                age = now - chunk.end_time
+                waited = now - chunk.queued_at
+                self._trace(chunk, "识别出队", f"排队 {waited:.2f} 秒，距音频结束 {age:.2f} 秒", 识别排队=waited)
+                if age > self.settings.max_task_age:
+                    self._discard(chunk, f"识别排队过期：距音频结束 {age:.2f} 秒 / 上限 {self.settings.max_task_age:.1f} 秒")
                     continue
                 try:
-                    t0 = time.monotonic()
-                    self.on_diagnostic(f"正在识别 {len(chunk.audio) / 16000:.1f} 秒音频片段…")
-                    self.asr_busy.set()
-                    watchdog = threading.Timer(
-                        5.0,
-                        lambda: self.on_diagnostic(
-                            "识别已超过 5 秒；音频可能过长或含有游戏音效，正在等待模型返回。"
-                        ) if self.asr_busy.is_set() and not self.stop_event.is_set() else None,
-                    )
-                    watchdog.daemon = True
-                    watchdog.start()
-                    try:
-                        with self.asr_lock:
-                            recognized = asr.transcribe(chunk.audio, self.settings.language)
-                    finally:
-                        self.asr_busy.clear()
-                        watchdog.cancel()
+                    recognized, rejection, elapsed = self._recognize(chunk, asr)
                     self._report_runtime(asr, translator)
-                    t1 = time.monotonic()
+                    finished = time.monotonic()
+                    age = finished - chunk.end_time
                     if not recognized:
-                        self.on_diagnostic(
-                            f"识别耗时 {t1 - t0:.1f} 秒，未得到可靠文字；游戏音效也可能触发语音检测。"
-                            "请用清楚的完整句测试，必要时锁定主要语言。"
-                        )
+                        self._discard(chunk, f"识别 {elapsed:.2f} 秒后丢弃：{rejection or '无可靠文字'}")
                         continue
-                    if time.monotonic() - chunk.end_time > self.settings.max_task_age:
-                        self.on_diagnostic("识别完成时字幕已经过期；请检查 GPU/CPU 运行状态")
+                    if age > self.settings.max_task_age:
+                        self._discard(chunk, f"识别完成已过期：距音频结束 {age:.2f} 秒 / 上限 {self.settings.max_task_age:.1f} 秒")
                         continue
-                    task = RecognizedTask(chunk, recognized, t1 - t0)
+                    task = RecognizedTask(chunk, recognized, elapsed, finished)
                     if self.translation_jobs.full():
                         try:
-                            self.translation_jobs.get_nowait()
-                            self.on_diagnostic("翻译队列已满，丢弃最旧的待翻译语音")
+                            oldest = self.translation_jobs.get_nowait()
+                            self._discard(
+                                oldest.chunk, f"翻译队列已满（上限 {self.translation_jobs.maxsize} 句），丢弃最旧的一句",
+                                翻译排队=time.monotonic() - oldest.queued_at,
+                            )
                         except queue.Empty:
                             pass
                     try:
                         self.translation_jobs.put_nowait(task)
+                        self._trace(chunk, "翻译入队", f"队列约 {self.translation_jobs.qsize()} 句")
                         self.on_diagnostic(f"识别到：{recognized.text[:45]}；等待翻译…")
                     except queue.Full:
-                        self.on_diagnostic("翻译队列已满，本句未入队")
+                        self._discard(chunk, f"翻译队列已满（上限 {self.translation_jobs.maxsize} 句），本句未入队")
                 except Exception as exc:
                     self.failures += 1
                     LOG.exception("Speech task failed")
-                    self.on_status(f"该句翻译失败，继续监听：{exc}")
-                    self.on_diagnostic(f"该句处理出错：{exc}")
+                    self.on_status(f"该句识别失败，继续监听：{exc}")
+                    self._discard(chunk, f"识别异常：{exc}")
         except Exception as exc:
             self.failures += 1
             LOG.exception("Pipeline failed")
+            self.on_trace(TaskTrace(0, "启动失败", str(exc)))
             self.on_status(f"运行失败：{exc}")
             self.stop_event.set()
         finally:
@@ -229,13 +300,19 @@ class Pipeline:
             except queue.Empty:
                 continue
             chunk, recognized = task.chunk, task.recognized
-            if time.monotonic() - chunk.end_time > self.settings.max_task_age:
-                self.on_diagnostic("翻译排队过久，已丢弃旧字幕")
+            now = time.monotonic()
+            age = now - chunk.end_time
+            waited = now - task.queued_at
+            self._trace(chunk, "翻译出队", f"排队 {waited:.2f} 秒，距音频结束 {age:.2f} 秒", 翻译排队=waited)
+            if age > self.settings.max_task_age:
+                self._discard(chunk, f"翻译排队过期：距音频结束 {age:.2f} 秒 / 上限 {self.settings.max_task_age:.1f} 秒")
                 continue
+            started = now
             try:
                 normalized = glossary.normalize(recognized.text)
-                if normalized == self.last_text and time.monotonic() - self.last_result_time < 1.5:
-                    self.on_diagnostic("与刚显示的报点重复，已合并")
+                duplicate_age = time.monotonic() - self.last_result_time
+                if normalized == self.last_text and duplicate_age < 1.5:
+                    self._discard(chunk, f"重复报点已合并（距上次 {duplicate_age:.2f} 秒 / 窗口 1.5 秒）")
                     continue
                 started = time.monotonic()
                 translated = None
@@ -254,27 +331,30 @@ class Pipeline:
                 self._report_runtime(asr, translator)
                 finished = time.monotonic()
                 translation_seconds = finished - started
-                if (translation_seconds > self.settings.translation_timeout
-                        or finished - chunk.end_time > self.settings.max_task_age):
+                age = finished - chunk.end_time
+                self._trace(chunk, "翻译结束", f"翻译 {translation_seconds:.2f} 秒，距音频结束 {age:.2f} 秒",
+                            翻译=translation_seconds)
+                if translation_seconds > self.settings.translation_timeout or age > self.settings.max_task_age:
                     self.failures += 1
-                    LOG.warning("Discarded stale translation")
-                    self.on_diagnostic(
-                        f"翻译耗时 {translation_seconds:.1f} 秒，字幕已过期；可在详细设置调整超时或检查 GPU"
-                    )
+                    self._discard(chunk, f"字幕已过期：翻译 {translation_seconds:.2f} 秒 / 上限 "
+                                  f"{self.settings.translation_timeout:.1f} 秒，距音频结束 {age:.2f} 秒 / 上限 "
+                                  f"{self.settings.max_task_age:.1f} 秒")
                     continue
                 translated = glossary.postprocess(translated, recognized.text)
                 if not translated:
+                    self._discard(chunk, f"翻译结果为空（翻译 {translation_seconds:.2f} 秒）")
                     continue
                 if not re.search(r"[\u4e00-\u9fff]", translated):
                     self.failures += 1
-                    self.on_diagnostic("翻译未生成中文，已过滤；可在详细设置锁定语言后重试")
+                    self._discard(chunk, f"翻译未生成中文（翻译 {translation_seconds:.2f} 秒），已过滤")
                     continue
                 if self.stop_event.is_set():
                     continue
                 result = SubtitleResult(recognized.text, translated, recognized.language,
                                         task.asr_seconds, translation_seconds,
                                         finished - chunk.end_time,
-                                        recognized.probability if self.settings.language == "auto" else None)
+                                        recognized.probability if self.settings.language == "auto" else None,
+                                        task_id=chunk.task_id, audio_end_time=chunk.end_time)
                 self.last_text = normalized
                 self.last_result_time = finished
                 if self.history is not None and self.settings.save_history:
@@ -288,4 +368,4 @@ class Pipeline:
                 self.failures += 1
                 LOG.exception("Translation task failed")
                 self.on_status(f"该句翻译失败，继续监听：{exc}")
-                self.on_diagnostic(f"该句处理出错：{exc}")
+                self._discard(chunk, f"翻译异常：{exc}", 翻译=time.monotonic() - started)
