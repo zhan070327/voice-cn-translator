@@ -53,6 +53,25 @@ class TestB4CosUpload(unittest.TestCase):
             self.assertIn(f"{phase}: start", output.getvalue())
             self.assertIn(f"{phase}: success in", output.getvalue())
 
+    def test_resume_listing_uses_regional_control_client(self):
+        class FakeSdkClient:
+            def list_multipart_uploads(self, **kwargs):
+                raise AssertionError("accelerated listing used")
+
+            def list_parts(self, **kwargs):
+                raise AssertionError("accelerated parts listing used")
+
+        class RegionalControl:
+            def list_multipart_uploads(self, **kwargs):
+                return {"route": "regional"}
+
+            def list_parts(self, **kwargs):
+                return {"route": "regional"}
+
+        client = protected_client_class(FakeSdkClient, RegionalControl())()
+        self.assertEqual(client.list_multipart_uploads(Bucket="bucket")["route"], "regional")
+        self.assertEqual(client.list_parts(Bucket="bucket")["route"], "regional")
+
     def test_stalled_upload_exits_after_five_minutes_without_progress(self):
         progress = Progress(100)
         now = time.monotonic()
@@ -185,6 +204,26 @@ class TestB4CosUpload(unittest.TestCase):
         self.assertEqual(client.kwargs["PartSize"], 16)
         self.assertEqual(client.kwargs["MAXThread"], 6)
 
+    def test_upload_uses_regional_head_and_preflight_with_accelerated_data_client(self):
+        class RegionalControl:
+            def __init__(self):
+                self.listed = False
+
+            def list_multipart_uploads(self, **kwargs):
+                self.listed = True
+                return {}
+
+        class DataClient:
+            def upload_file(self, **kwargs):
+                return {"x-cos-hash-crc64ecma": "123"}
+
+        control = RegionalControl()
+        with patch("scripts.upload_b4_cos.head_or_none", side_effect=lambda client: None if client is control else 1):
+            outcome, _ = upload_or_reuse(DataClient(), 17 * 1024**2,
+                                         "a" * 64, "123", control)
+        self.assertEqual(outcome, "uploaded")
+        self.assertTrue(control.listed)
+
     def test_crc64_matches_tencent_reference_vector(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "vector.txt"
@@ -209,6 +248,8 @@ class TestB4CosUpload(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertNotIn("\n  push:", workflow)
         self.assertIn("windows-domestic-44478207822-1", workflow)
+        self.assertIn("- accelerate", workflow)
+        self.assertIn("COS_UPLOAD_ENDPOINT: ${{ inputs.endpoint }}", workflow)
         self.assertIn("python release-tools/scripts/upload_b4_cos.py", workflow)
         self.assertNotIn("scripts.publish_cos --upload", workflow)
         upload_code = (Path(__file__).resolve().parents[1] / "scripts/upload_b4_cos.py").read_text()
