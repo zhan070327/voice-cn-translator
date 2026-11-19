@@ -7,9 +7,7 @@ import signal
 import time
 from uuid import uuid4
 
-from scripts.upload_b4_cos import BUCKET, log, timed_call
-
-ACCELERATE_ENDPOINT = "cos.accelerate.myqcloud.com"
+from scripts.upload_b4_cos import ACCELERATE_ENDPOINT, BUCKET, log, timed_call
 
 
 def bounded(label, seconds, operation, *args, **kwargs):

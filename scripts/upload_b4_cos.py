@@ -14,6 +14,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 BUCKET = "valorant-translator-update-1535709511"
+ACCELERATE_ENDPOINT = "cos.accelerate.myqcloud.com"
 KEY = "releases/0.3.0b4/VoiceCNTranslator_Beta_Setup.exe"
 URL = f"https://{BUCKET}.cos.ap-guangzhou.myqcloud.com/{KEY}"
 INSTALLER = Path("dist/VoiceCNTranslator_Beta_Setup.exe")
@@ -106,10 +107,20 @@ def local_crc64(path: Path) -> str:
     return str(checksum.crcValue)
 
 
-def protected_client_class(base):
+def protected_client_class(base, control_client=None):
     """The SDK's upload_file() omits ForbidOverwrite at multipart completion."""
 
     class ProtectedClient(base):
+        def list_multipart_uploads(self, *args, **kwargs):
+            if control_client is not None:
+                return control_client.list_multipart_uploads(*args, **kwargs)
+            return super().list_multipart_uploads(*args, **kwargs)
+
+        def list_parts(self, *args, **kwargs):
+            if control_client is not None:
+                return control_client.list_parts(*args, **kwargs)
+            return super().list_parts(*args, **kwargs)
+
         def _get_resumable_uploadid(self, *args, **kwargs):
             return timed_call("find resumable multipart upload", super()._get_resumable_uploadid, *args, **kwargs)
 
@@ -211,12 +222,13 @@ def verify_public(size: int) -> None:
             raise RuntimeError("Public HTTPS file size differs")
 
 
-def upload_or_reuse(client, size: int, sha: str, crc: str) -> tuple[str, float]:
+def upload_or_reuse(client, size: int, sha: str, crc: str, control_client=None) -> tuple[str, float]:
     from qcloud_cos.cos_exception import CosClientError, CosServiceError
 
     started = time.monotonic()
+    control_client = control_client or client
     log("checking COS target with HEAD")
-    existing = head_or_none(client)
+    existing = head_or_none(control_client)
     if existing is not None:
         require_same_object(existing, size, sha, crc)
         log("existing COS object matches size, SHA-256 metadata and CRC64; reusing")
@@ -225,14 +237,14 @@ def upload_or_reuse(client, size: int, sha: str, crc: str) -> tuple[str, float]:
 
     # Required for SDK resume; fail before transfer if the scoped CAM key lacks it.
     preflight = time.monotonic()
-    timed_call("list unfinished multipart uploads", client.list_multipart_uploads,
+    timed_call("list unfinished multipart uploads", control_client.list_multipart_uploads,
                Bucket=BUCKET, Prefix=KEY, MaxUploads=1)
     log(f"multipart resume permission checked in {time.monotonic() - preflight:.1f}s")
     if size <= PART_MIB * 1024**2:
         raise RuntimeError("Unexpected small installer; refusing to use single PUT")
 
     for attempt in range(1, 4):
-        existing = head_or_none(client)
+        existing = head_or_none(control_client)
         if existing is not None:
             require_same_object(existing, size, sha, crc)
             return "reused", time.monotonic() - started
@@ -257,7 +269,7 @@ def upload_or_reuse(client, size: int, sha: str, crc: str) -> tuple[str, float]:
             return "uploaded", time.monotonic() - started
         except (CosClientError, CosServiceError) as exc:
             # A lost completion response may still have created the object.
-            existing = head_or_none(client)
+            existing = head_or_none(control_client)
             if existing is not None:
                 require_same_object(existing, size, sha, crc)
                 log("object completed despite a lost response; reusing")
@@ -285,28 +297,34 @@ def main() -> None:
     secret_key = os.environ.get("COS_SECRET_KEY", "")
     if not secret_id or not secret_key:
         raise RuntimeError("COS Environment Secrets are missing")
+    endpoint = os.environ.get("COS_UPLOAD_ENDPOINT", "direct")
+    if endpoint not in {"direct", "accelerate"}:
+        raise ValueError("COS_UPLOAD_ENDPOINT must be direct or accelerate")
 
     diagnose_network()
 
     log("local CRC64 calculation started; source SHA-256 was validated earlier")
     crc = local_crc64(INSTALLER)
     log(f"local CRC64 ready in {time.monotonic() - started:.1f}s")
-    Client = protected_client_class(CosS3Client)
+    common = dict(Region="ap-guangzhou", SecretId=secret_id, SecretKey=secret_key,
+                  Token=os.environ.get("COS_SESSION_TOKEN") or None, Scheme="https")
+    control_client = CosS3Client(CosConfig(**common, Timeout=(10, 60)), retry=1)
+    Client = protected_client_class(CosS3Client, control_client)
     client = Client(CosConfig(
-        Region="ap-guangzhou", SecretId=secret_id, SecretKey=secret_key,
-        Token=os.environ.get("COS_SESSION_TOKEN") or None,
-        Scheme="https", Timeout=(10, 60),
+        **common, Endpoint=ACCELERATE_ENDPOINT if endpoint == "accelerate" else None,
+        Timeout=(10, 60),
     ), retry=1)
-    log("COS SDK: connect timeout 10s, socket read timeout 60s, one internal retry")
+    log(f"COS SDK upload endpoint={endpoint}; bucket checks/resume listing/verification "
+        "use regional endpoint; connect timeout 10s, socket read timeout 60s, one internal retry")
     checked = time.monotonic()
-    versioning = client.get_bucket_versioning(Bucket=BUCKET)
+    versioning = control_client.get_bucket_versioning(Bucket=BUCKET)
     if versioning.get("Status") not in (None, ""):
         raise RuntimeError("Bucket versioning prevents reliable server-side no-overwrite")
     log(f"bucket versioning checked in {time.monotonic() - checked:.1f}s")
 
-    outcome, upload_seconds = upload_or_reuse(client, size, sha, crc)
+    outcome, upload_seconds = upload_or_reuse(client, size, sha, crc, control_client)
     checked = time.monotonic()
-    require_same_object(head_or_none(client) or {}, size, sha, crc)
+    require_same_object(head_or_none(control_client) or {}, size, sha, crc)
     log(f"COS HEAD size/SHA-256 metadata/CRC64 verified in {time.monotonic() - checked:.1f}s")
     checked = time.monotonic()
     verify_public(size)
