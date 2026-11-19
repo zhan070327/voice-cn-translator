@@ -21,6 +21,7 @@ INSTALLER = Path("dist/VoiceCNTranslator_Beta_Setup.exe")
 PART_MIB = 16
 THREADS = 6
 FIRST_PART_DEADLINE_SECONDS = 300
+UPLOAD_SOCKET_TIMEOUT_SECONDS = 60
 
 
 def log(message: str) -> None:
@@ -146,6 +147,15 @@ def protected_client_class(base, control_client=None):
             return result
 
     return ProtectedClient
+
+
+def make_upload_config(common: dict, endpoint: str):
+    from qcloud_cos import CosConfig
+
+    return CosConfig(
+        **common, Endpoint=ACCELERATE_ENDPOINT if endpoint == "accelerate" else None,
+        Timeout=(UPLOAD_SOCKET_TIMEOUT_SECONDS, 60),
+    )
 
 
 class Progress:
@@ -310,12 +320,9 @@ def main() -> None:
                   Token=os.environ.get("COS_SESSION_TOKEN") or None, Scheme="https")
     control_client = CosS3Client(CosConfig(**common, Timeout=(10, 60)), retry=1)
     Client = protected_client_class(CosS3Client, control_client)
-    client = Client(CosConfig(
-        **common, Endpoint=ACCELERATE_ENDPOINT if endpoint == "accelerate" else None,
-        Timeout=(10, 60),
-    ), retry=1)
+    client = Client(make_upload_config(common, endpoint), retry=1)
     log(f"COS SDK upload endpoint={endpoint}; bucket checks/resume listing/verification "
-        "use regional endpoint; connect timeout 10s, socket read timeout 60s, one internal retry")
+        "use regional endpoint; upload socket timeout 60s, one internal retry")
     checked = time.monotonic()
     versioning = control_client.get_bucket_versioning(Bucket=BUCKET)
     if versioning.get("Status") not in (None, ""):

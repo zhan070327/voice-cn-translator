@@ -10,7 +10,8 @@ from pathlib import Path
 from urllib.error import HTTPError
 
 from scripts.upload_b4_cos import (
-    FIRST_PART_DEADLINE_SECONDS, Progress, diagnose_network, local_crc64, protected_client_class,
+    FIRST_PART_DEADLINE_SECONDS, Progress, diagnose_network, local_crc64, make_upload_config,
+    protected_client_class,
     require_same_object, upload_or_reuse,
 )
 from scripts.probe_b4_cos_part import ACCELERATE_ENDPOINT, probe
@@ -150,6 +151,17 @@ class TestB4CosUpload(unittest.TestCase):
         self.assertEqual(accelerated.uri(bucket=BUCKET, path="releases/probe.bin"),
                          f"https://{BUCKET}.cos.accelerate.myqcloud.com/releases/probe.bin")
         self.assertEqual(accelerated._region, regional._region)
+
+    def test_formal_accelerated_config_allows_large_part_socket_write(self):
+        from scripts.upload_b4_cos import BUCKET
+
+        config = make_upload_config(
+            {"Region": "ap-guangzhou", "SecretId": "id", "SecretKey": "key", "Scheme": "https"},
+            "accelerate",
+        )
+        self.assertEqual(config.uri(bucket=BUCKET, path="releases/test.bin"),
+                         f"https://{BUCKET}.cos.accelerate.myqcloud.com/releases/test.bin")
+        self.assertGreaterEqual(config._timeout[0], 60)
 
     def test_actual_part_bytes_are_counted(self):
         class FakeSdkClient:
