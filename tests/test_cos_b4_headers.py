@@ -13,7 +13,7 @@ from scripts.upload_b4_cos import (
     FIRST_PART_DEADLINE_SECONDS, Progress, diagnose_network, local_crc64, protected_client_class,
     require_same_object, upload_or_reuse,
 )
-from scripts.probe_b4_cos_part import probe
+from scripts.probe_b4_cos_part import ACCELERATE_ENDPOINT, probe
 from unittest.mock import MagicMock, patch
 
 
@@ -110,13 +110,27 @@ class TestB4CosUpload(unittest.TestCase):
         for fail in (False, True):
             with self.subTest(fail=fail), redirect_stdout(io.StringIO()):
                 client = FakeClient(fail)
+                control = FakeClient()
                 if fail:
                     with self.assertRaises(TimeoutError):
-                        probe(client, "releases/diagnostics/test.bin")
+                        probe(client, "releases/diagnostics/test.bin", control)
                 else:
-                    probe(client, "releases/diagnostics/test.bin")
+                    self.assertGreater(probe(client, "releases/diagnostics/test.bin", control), 0)
                 self.assertEqual(client.guard, "true")
-                self.assertTrue(client.aborted)
+                self.assertTrue(control.aborted)
+
+    def test_accelerate_endpoint_preserves_bucket_and_region(self):
+        from qcloud_cos import CosConfig
+        from scripts.upload_b4_cos import BUCKET
+
+        regional = CosConfig(Region="ap-guangzhou", SecretId="id", SecretKey="key", Scheme="https")
+        accelerated = CosConfig(Region="ap-guangzhou", SecretId="id", SecretKey="key",
+                                Scheme="https", Endpoint=ACCELERATE_ENDPOINT)
+        self.assertEqual(regional.uri(bucket=BUCKET, path="releases/probe.bin"),
+                         f"https://{BUCKET}.cos.ap-guangzhou.myqcloud.com/releases/probe.bin")
+        self.assertEqual(accelerated.uri(bucket=BUCKET, path="releases/probe.bin"),
+                         f"https://{BUCKET}.cos.accelerate.myqcloud.com/releases/probe.bin")
+        self.assertEqual(accelerated._region, regional._region)
 
     def test_actual_part_bytes_are_counted(self):
         class FakeSdkClient:
@@ -212,6 +226,8 @@ class TestB4CosUpload(unittest.TestCase):
             / ".github/workflows/cos-b4-part-probe.yml"
         ).read_text(encoding="utf-8")
         self.assertIn("workflow_dispatch:", probe_workflow)
+        self.assertIn("- accelerate", probe_workflow)
+        self.assertIn("COS_UPLOAD_ENDPOINT: ${{ inputs.endpoint }}", probe_workflow)
         self.assertNotIn("windows-domestic-", probe_workflow)
         self.assertNotIn("latest.json", probe_workflow)
 
