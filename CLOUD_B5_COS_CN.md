@@ -2,7 +2,7 @@
 
 ## 先验证和合并
 
-1. 合并集成分支前，看 **Verify and publish b5 CPU and GPU** 的 verify 作业和 `b5-verified-manifest-preview`。该作业只读下载 Windows Run **44491479079** 的 GPU 和 CPU Artifacts，复算两件安装包的哈希/大小，读取原 b4 解析器验证预览清单。适用构建提交 **c1fe4168bbf6011bc1d0db35ba2c332d55fe3d8a**、尝试 1。预览不会写入 COS 或 GitHub Release。
+1. 合并集成分支前，看 **Verify and publish b5 CPU and GPU** 的 verify 作业和 `b5-verified-manifest-preview`。该作业只读下载 Windows Run **44600127347** 的整合版 GPU 和 CPU Artifacts（分别为 `windows-dual-gpu-44600127347-1`、`windows-dual-cpu-44600127347-1`），复算两件安装包的哈希/大小，读取原 b4 解析器验证预览清单。适用构建提交 **8cddb5c3c1796ca6685946add7614311d1852259**、尝试 1。预览不会写入 COS 或 GitHub Release。
 2. 与实机测试者共用同一批 Artifacts。确认测试和审核后，可合并到 `main`。默认分支已有关键的 b4 上传修复，保留独立的一次性 b4 工作流。旧的单渠道发布流程不用于 b5。
 3. 这批 EXE 的 GitHub Artifacts 默认只保留 3 天，过期后 Actions 无法直接取回。需要重新构建 `dual / both` 并在 `.github/actions/load-b5-build/action.yml` 更新核准的 run、attempt、提交和两个 Artifact ID，再做验证。发布 workflow 的约束不会自动改用其他安装包。
 
