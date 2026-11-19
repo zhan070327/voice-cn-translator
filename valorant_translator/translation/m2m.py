@@ -5,6 +5,7 @@ import gc
 import logging
 
 from valorant_translator.config import MODEL_DIR
+from valorant_translator.translation.reverse_callouts import translate_callout
 
 LOG = logging.getLogger(__name__)
 M2M_REPO = "facebook/m2m100_418M"
@@ -58,6 +59,9 @@ class LocalM2M:
         return self._translate_with_fallback(source, language, "zh")
 
     def translate_to_english(self, source: str) -> str:
+        callout = translate_callout(self.converter.convert(source))
+        if callout is not None:
+            return callout
         return self._translate_with_fallback(source, "zh", "en")
 
     def _translate_with_fallback(self, source: str, language: str, target: str) -> str:
@@ -81,11 +85,14 @@ class LocalM2M:
     def _translate(self, source: str, target: str = "zh") -> str:
         batch = self.tokenizer(source, return_tensors="pt", truncation=True,
                                max_length=128).to(self.device)
+        generation = {"num_beams": 1 if self.fast_mode else 2}
+        if target == "en":
+            generation.update(num_beams=3, no_repeat_ngram_size=3)
         with self.torch.inference_mode():
             tokens = self.model.generate(
                 **batch,
                 forced_bos_token_id=self.tokenizer.get_lang_id(target),
                 max_new_tokens=48 if self.fast_mode else 64,
-                num_beams=1 if self.fast_mode else 2)
-        chinese = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)[0].strip()
-        return self.converter.convert(chinese) if target == "zh" else chinese
+                **generation)
+        translated = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)[0].strip()
+        return self.converter.convert(translated) if target == "zh" else translated
