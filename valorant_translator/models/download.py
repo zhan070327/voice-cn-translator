@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 from typing import Callable
@@ -9,11 +10,19 @@ from valorant_translator.recognition.whisper import WHISPER_REPOS
 from valorant_translator.translation.m2m import M2M_REPO, M2M_FILES
 
 WHISPER_FILES = ("model.bin", "config.json", "tokenizer.json")
+MODEL_INVENTORY = ".cos-files.json"
 
 
 def model_ready(folder: Path, required: tuple[str, ...]) -> bool:
-    return all((folder / name).is_file() and (folder / name).stat().st_size > 0
-               for name in required)
+    try:
+        sizes = {name: (folder / name).stat().st_size
+                 for name in required if (folder / name).is_file()}
+        if len(sizes) != len(required) or not all(sizes.values()):
+            return False
+        inventory = folder / MODEL_INVENTORY
+        return not inventory.exists() or json.loads(inventory.read_text(encoding="utf-8")) == sizes
+    except (OSError, ValueError):
+        return False
 
 
 def models_ready(whisper_size: str) -> bool:
@@ -31,6 +40,7 @@ def download_models(whisper_size: str, on_status: Callable[[str], None]) -> None
     whisper_dir = MODEL_DIR / f"whisper-{whisper_size}"
     snapshot_download(repo_id=WHISPER_REPOS[whisper_size], local_dir=whisper_dir,
                       allow_patterns=[*WHISPER_FILES, "vocabulary.txt"])
+    (whisper_dir / MODEL_INVENTORY).unlink(missing_ok=True)
     if not model_ready(whisper_dir, WHISPER_FILES):
         raise RuntimeError("识别模型下载不完整；再次点击下载可续传。")
     on_status("正在下载 M2M100 翻译模型（约 2 GB）…")
@@ -38,6 +48,7 @@ def download_models(whisper_size: str, on_status: Callable[[str], None]) -> None
     snapshot_download(repo_id=M2M_REPO, local_dir=m2m_dir,
                       allow_patterns=[*M2M_FILES, "special_tokens_map.json",
                                       "generation_config.json"])
+    (m2m_dir / MODEL_INVENTORY).unlink(missing_ok=True)
     if not model_ready(m2m_dir, M2M_FILES):
         raise RuntimeError("翻译模型下载不完整；再次点击下载可续传。")
     on_status("模型下载完成。现在可以断网运行。")
@@ -65,6 +76,8 @@ def import_models(source: Path, whisper_size: str, on_status: Callable[[str], No
             continue
         on_status(f"正在导入 {dst.name}；请勿关闭软件…")
         shutil.copytree(src, dst, dirs_exist_ok=True)
+        if not (src / MODEL_INVENTORY).is_file():
+            (dst / MODEL_INVENTORY).unlink(missing_ok=True)
         if not model_ready(dst, files):
             raise RuntimeError(f"{dst.name} 导入不完整，请检查磁盘空间后重试。")
     on_status("模型导入完成。")

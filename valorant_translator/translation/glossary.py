@@ -4,12 +4,28 @@ import json
 import re
 from pathlib import Path
 
+from valorant_translator.config import APP_DIR
+
 GLOSSARY_FILE = Path(__file__).resolve().parents[2] / "config" / "glossary.json"
+CUSTOM_GLOSSARY_FILE = APP_DIR / "glossary_custom.json"
 
 
 class Glossary:
     def __init__(self, path: Path = GLOSSARY_FILE):
         self.data = json.loads(path.read_text(encoding="utf-8"))
+        if path == GLOSSARY_FILE and CUSTOM_GLOSSARY_FILE.is_file():
+            try:
+                custom = json.loads(CUSTOM_GLOSSARY_FILE.read_text(encoding="utf-8"))
+                if isinstance(custom, dict):
+                    for key, value in custom.items():
+                        if key not in self.data:
+                            continue
+                        if isinstance(value, dict) and isinstance(self.data[key], dict):
+                            self.data[key].update(value)
+                        elif isinstance(value, list) and isinstance(self.data[key], list):
+                            self.data[key].extend(item for item in value if item not in self.data[key])
+            except (OSError, ValueError, TypeError):
+                pass
         terms = [*self.data.get("recognition_hotwords", []),
                  *self.data.get("weapon_names", []), *self.data.get("agent_names", [])]
         self.hotwords = ", ".join(dict.fromkeys(terms))

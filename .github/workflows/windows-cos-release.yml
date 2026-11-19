@@ -1,0 +1,117 @@
+name: Publish domestic Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful Windows beta build run ID from main
+        required: true
+        type: string
+      version:
+        description: Version of the tested installer
+        required: true
+        type: string
+      confirmation:
+        description: 'After testing the EXE, type PUBLISH followed by a space and that version'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: cos-production
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      artifact: ${{ steps.build.outputs.artifact }}
+      commit: ${{ steps.build.outputs.commit }}
+    steps:
+      - name: Verify confirmation and successful Windows build
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ inputs.build_run_id }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_RUN" =~ ^[0-9]+$ ]] || { echo 'Invalid build run ID'; exit 1; }
+          [[ "$CONFIRMATION" == "PUBLISH $RELEASE_VERSION" ]] || { echo 'Confirmation mismatch'; exit 1; }
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN")
+          jq -e --arg repo "$GITHUB_REPOSITORY" '
+            .conclusion == "success" and .event == "workflow_dispatch" and .head_branch == "main"
+            and .head_repository.full_name == $repo and .path == ".github/workflows/windows-beta.yml"
+            and (.head_sha | test("^[0-9a-f]{40}$")) and (.run_attempt | type == "number")
+          ' <<<"$run" >/dev/null
+          attempt=$(jq -r '.run_attempt' <<<"$run")
+          artifact="windows-domestic-$BUILD_RUN-$attempt"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN/artifacts?name=$artifact" |
+            jq -e --arg name "$artifact" 'any(.artifacts[]; .name == $name and (.expired | not))' >/dev/null
+          echo "artifact=$artifact" >>"$GITHUB_OUTPUT"
+          jq -r '"commit=" + .head_sha' <<<"$run" >>"$GITHUB_OUTPUT"
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: cos-production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.validate.outputs.artifact }}
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          path: dist
+      - name: Verify artifact before exposing COS credentials
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+          EXPECTED_COMMIT: ${{ needs.validate.outputs.commit }}
+          BUILD_RUN: ${{ inputs.build_run_id }}
+        run: |
+          python -m pip install 'packaging>=24,<27' -r requirements_publish.txt
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from packaging.version import Version
+          from scripts import publish_cos as publish
+
+          path = Path("dist")
+          data = json.loads((path / "windows_build.json").read_text(encoding="utf-8-sig"))
+          notes = path / "release_notes.txt"
+          version = os.environ["EXPECTED_VERSION"]
+          if Version(version) <= Version("0.3.0b4"):
+              raise SystemExit("This workflow publishes b5 and newer, preserving the existing b4 installer.")
+          expected = {
+              "version": version, "channel": "domestic", "commit": os.environ["EXPECTED_COMMIT"],
+              "run_id": os.environ["BUILD_RUN"], "install_self_test": "passed", "arch": "x64",
+          }
+          if any(data.get(k) != v for k, v in expected.items()) or version != publish.APP_VERSION:
+              raise SystemExit("Build metadata does not match this release.")
+          if notes.read_bytes() != Path("release_notes.txt").read_bytes():
+              raise SystemExit("Build notes do not match the source revision.")
+          manifest = publish.prepare(publish.DEFAULT_INSTALLER, publish.DEFAULT_RECEIPT, notes,
+                                     publish.DEFAULT_MANIFEST)
+          if data["sha256"] != manifest["sha256"] or data["size"] != manifest["size"]:
+              raise SystemExit("Build metadata does not match the installer.")
+          print(f"Verified domestic installer {version} ({manifest['size']} bytes).")
+          PY
+      - name: Upload verified EXE, then publish latest.json
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_SESSION_TOKEN: ${{ secrets.COS_SESSION_TOKEN }}
+        run: python -m scripts.publish_cos --notes-file dist/release_notes.txt --upload

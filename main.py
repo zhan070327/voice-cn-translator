@@ -12,7 +12,14 @@ def self_test() -> int:
         import torch  # noqa: F401
         import transformers  # noqa: F401
         from PySide6.QtWidgets import QApplication, QLabel
+        from valorant_translator.models.cos import Bundle, NOTICE
         from valorant_translator.translation.glossary import Glossary
+        from valorant_translator.updates.domestic import load_channel
+
+        channel = load_channel()
+        if channel["channel"] == "domestic":
+            Bundle.from_channel(channel)
+            assert NOTICE.is_file(), "Bundled model license notice is missing"
 
         app = QApplication([])
         label = QLabel("启动检查")

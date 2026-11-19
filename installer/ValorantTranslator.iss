@@ -1,5 +1,5 @@
 #define MyAppName "队友语音翻译器"
-#define MyAppVersion "0.3.0b2"
+#define MyAppVersion "0.3.0b4"
 #define MyAppExe "ValorantTranslator.exe"
 
 [Setup]
@@ -36,3 +36,23 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: deskto
 
 [Run]
 Filename: "{app}\{#MyAppExe}"; Description: "立即启动翻译器"; Flags: nowait postinstall skipifsilent
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  OldGlossary, UserGlossary: String;
+begin
+  if CurStep = ssInstall then
+  begin
+    OldGlossary := ExpandConstant('{app}\_internal\config\glossary.json');
+    UserGlossary := ExpandConstant('{localappdata}\ValorantTranslator\glossary_custom.json');
+    if FileExists(OldGlossary) and not FileExists(UserGlossary) then
+    begin
+      if not DirExists(ExtractFileDir(UserGlossary)) then
+        if not CreateDir(ExtractFileDir(UserGlossary)) then
+          RaiseException('无法创建用户词库目录；安装已停止以保护原词库。');
+      if not CopyFile(OldGlossary, UserGlossary, False) then
+        RaiseException('无法备份旧词库；安装已停止以保护原词库。');
+    end;
+  end;
+end;

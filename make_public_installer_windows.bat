@@ -1,19 +1,14 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
+set "PAUSE_ON_EXIT=1"
+if /I "%~1"=="--ci" set "PAUSE_ON_EXIT=0"
 
-echo Preparing Python environment and Windows download package...
-call "%~dp0start_windows.bat" --prepare
+echo Checking existing CUDA PyTorch and preparing Windows download package...
+call "%~dp0start_windows.bat" --prepare-gpu
 if errorlevel 1 goto fail
 ".venv\Scripts\python.exe" -m scripts.verify_release --require-update-channel
 if errorlevel 1 goto fail
-
-".venv\Scripts\python.exe" -c "import torch,sys; sys.exit(0 if torch.__version__.startswith('2.8.0+cu128') else 1)"
-if errorlevel 1 (
-    echo Installing the CUDA 12.8 PyTorch package for the Windows build...
-    ".venv\Scripts\python.exe" -m pip install --upgrade torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
-    if errorlevel 1 goto fail
-)
 
 call "%~dp0build_windows.bat" --ci
 if errorlevel 1 goto fail
@@ -38,7 +33,7 @@ echo.
 echo READY: dist\VoiceCNTranslator_Beta_Setup.exe
 echo Send THIS EXE to testers after checking it on another Windows PC.
 echo Testers double-click it, install, then click Download Models in the app.
-pause
+if "%PAUSE_ON_EXIT%"=="1" pause
 exit /b 0
 
 :find_iscc
@@ -54,11 +49,11 @@ echo Inno Setup was not found. Portable package is ready:
 echo dist\ValorantTranslator_Portable.zip
 echo To create a single installer EXE, install Inno Setup 6, then double-click this script again.
 echo https://jrsoftware.org/inno-setup/downloads/
-pause
+if "%PAUSE_ON_EXIT%"=="1" pause
 exit /b 2
 
 :fail
 echo.
 echo Build failed. Please send a photo of the last error lines.
-pause
+if "%PAUSE_ON_EXIT%"=="1" pause
 exit /b 1

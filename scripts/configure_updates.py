@@ -22,7 +22,7 @@ def main() -> None:
         raise SystemExit("只接受公开 GitHub 仓库的 HTTPS 地址。")
     repo = parsed.path.strip("/").removesuffix(".git")
     repo = validate_repository(repo)
-    CHANNEL.write_text(json.dumps({"github_repository": repo}, indent=2) + "\n", encoding="utf-8")
+    CHANNEL.write_text(json.dumps({"channel": "github", "github_repository": repo}, indent=2) + "\n", encoding="utf-8")
     print(f"Future Windows builds will check GitHub Releases in {repo}.")
 
 

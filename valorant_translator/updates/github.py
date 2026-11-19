@@ -12,7 +12,10 @@ import json
 import os
 import re
 import sys
-from dataclasses import dataclass
+import threading
+import time
+from dataclasses import dataclass, replace
+from http.client import HTTPException
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
@@ -35,6 +38,10 @@ class UpdateError(RuntimeError):
     """An update cannot be checked or installed safely."""
 
 
+class UpdateCancelled(UpdateError):
+    """The user cancelled an update download."""
+
+
 @dataclass(frozen=True)
 class Release:
     version: Version
@@ -43,6 +50,8 @@ class Release:
     url: str
     sha256: str
     size: int
+    allowed_hosts: tuple[str, ...] = ()
+    fallback_urls: tuple[str, ...] = ()
 
 
 def validate_repository(repository: str) -> str:
@@ -156,7 +165,23 @@ def _verified_file(path: Path, release: Release) -> bool:
 
 
 def download_installer(release: Release, progress: Callable[[int], None],
-                       directory: Path | None = None) -> Path:
+                       directory: Path | None = None,
+                       cancel: threading.Event | None = None,
+                       speed: Callable[[float], None] | None = None) -> Path:
+    urls = (release.url, *release.fallback_urls)
+    for index, url in enumerate(urls):
+        try:
+            return _download_installer(replace(release, url=url), progress, directory, cancel, speed)
+        except UpdateCancelled:
+            raise
+        except (OSError, HTTPException, UpdateError):
+            if index == len(urls) - 1:
+                raise
+
+
+def _download_installer(release: Release, progress: Callable[[int], None],
+                        directory: Path | None, cancel: threading.Event | None,
+                        speed: Callable[[float], None] | None) -> Path:
     folder = directory or APP_DIR / "updates" / str(release.version)
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / INSTALLER_NAME
@@ -166,15 +191,29 @@ def download_installer(release: Release, progress: Callable[[int], None],
     partial = path.with_suffix(".exe.part")
     digest = hashlib.sha256()
     received = 0
+    started = last_speed = time.monotonic()
     try:
+        if cancel and cancel.is_set():
+            raise UpdateCancelled("下载已取消。")
         with urlopen(_request(release.url), timeout=30) as response, partial.open("wb") as output:
+            if release.allowed_hosts:
+                from valorant_translator.updates.domestic import validate_url
+                validate_url(response.geturl(), release.allowed_hosts)
             while chunk := response.read(1024 * 1024):
+                if cancel and cancel.is_set():
+                    raise UpdateCancelled("下载已取消。")
                 received += len(chunk)
                 if received > release.size:
-                    raise UpdateError("下载文件大于 GitHub 公布的大小。")
+                    raise UpdateError("下载文件大于更新清单公布的大小。")
                 output.write(chunk)
                 digest.update(chunk)
                 progress(min(99, int(received * 100 / release.size)))
+                now = time.monotonic()
+                if speed and now - last_speed >= 0.5:
+                    speed(received / max(0.001, now - started))
+                    last_speed = now
+        if cancel and cancel.is_set():
+            raise UpdateCancelled("下载已取消。")
         if received != release.size or not hmac.compare_digest(digest.hexdigest(), release.sha256):
             raise UpdateError("安装包大小或 SHA-256 校验失败，已拒绝运行。")
         partial.replace(path)

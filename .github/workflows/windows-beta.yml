@@ -1,71 +1,165 @@
 name: Windows beta build
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      channel:
+        description: Update channel to embed
+        type: choice
+        options: [domestic, github]
+        default: domestic
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}-${{ inputs.channel }}
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: windows-2022
     timeout-minutes: 90
-    permissions:
-      contents: write
     env:
+      BUILD_CHANNEL: ${{ inputs.channel }}
       QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: '1'
+      PIP_NO_CACHE_DIR: '1'
+      VALORANT_PACKAGE_WITHOUT_GPU: '1'
+      VALORANT_SKIP_PORTABLE: '1'
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: pip
-      - name: Create environment
+          architecture: x64
+      - name: Check available build disk
+        shell: pwsh
+        run: |
+          $free = (Get-Item $env:GITHUB_WORKSPACE).PSDrive.Free
+          Write-Host ("Free space before installing dependencies: {0:N1} GiB" -f ($free / 1GB))
+          if ($free -lt 12GB) { throw 'Need 12 GiB of free workspace disk. See CLOUD_WINDOWS_RELEASE_CN.md.' }
+
+      - name: Install CUDA wheel and packaging tools
         shell: pwsh
         run: |
           python -m venv .venv
-          .\.venv\Scripts\python.exe -m pip install --upgrade pip
-          .\.venv\Scripts\python.exe -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
-          .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-      - name: Run tests
-        shell: pwsh
-        run: .\.venv\Scripts\python.exe -m pytest -q
-      - name: Configure public GitHub update channel
-        shell: pwsh
-        run: .\.venv\Scripts\python.exe -m scripts.configure_updates "https://github.com/${{ github.repository }}"
-      - name: Build portable executable
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $python = '.\.venv\Scripts\python.exe'
+          & $python -m pip install torch==2.6.0+cu124 --index-url https://download.pytorch.org/whl/cu124
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $python -m pip install -r requirements.txt 'pyinstaller>=6,<7'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $python -m pip check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $python -m scripts.check_torch_cuda --package-only
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --version=6.4.3 --yes --no-progress
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup 6 compiler could not be found.' }
+          $free = (Get-Item $env:GITHUB_WORKSPACE).PSDrive.Free
+          Write-Host ("Free space before packaging: {0:N1} GiB" -f ($free / 1GB))
+          if ($free -lt 5GB) { throw 'Need 5 GiB of free workspace disk after dependency installation.' }
+
+      - name: Test source
+        run: .\.venv\Scripts\python.exe -m pytest -q tests
+
+      - name: Configure GitHub channel for international build
+        if: inputs.channel == 'github'
+        run: .\.venv\Scripts\python.exe -m scripts.configure_updates "https://github.com/$env:GITHUB_REPOSITORY"
+
+      - name: Run Windows packaging BAT
         shell: cmd
-        run: build_windows.bat --ci
-      - name: Build installer
+        run: |
+          if not exist build_logs mkdir build_logs
+          if "%BUILD_CHANNEL%"=="domestic" (
+            call make_domestic_installer_windows.bat > build_logs\windows-packaging.log 2>&1
+          ) else (
+            call make_public_installer_windows.bat --ci > build_logs\windows-packaging.log 2>&1
+          )
+          exit /b %errorlevel%
+
+      - name: Check bundled CUDA and quietly install the EXE
         shell: pwsh
         run: |
-          choco install innosetup --yes --no-progress
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\ValorantTranslator.iss
-      - name: Upload beta packages
+          $setup = Get-Item 'dist/VoiceCNTranslator_Beta_Setup.exe'
+          $bundle = Get-Item 'dist/ValorantTranslator'
+          $dlls = Get-ChildItem -LiteralPath $bundle.FullName -File -Recurse -Filter '*.dll'
+          foreach ($dll in 'torch_cuda.dll','cudart64_12.dll','cublas64_12.dll','cudnn64_9.dll') {
+            if ($dll -notin $dlls.Name) { throw "Missing CUDA runtime DLL from bundle: $dll" }
+          }
+          $location = Join-Path $env:RUNNER_TEMP 'voice-cn-install-smoke'
+          $log = Join-Path $env:GITHUB_WORKSPACE 'build_logs/inno-install.log'
+          # The completed installer and receipt suffice now. Reclaim space for the installation.
+          Remove-Item -LiteralPath $bundle.FullName -Recurse -Force
+          $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=""',
+                         ('/DIR="{0}"' -f $location), ('/LOG="{0}"' -f $log))
+          $process = Start-Process -FilePath $setup.FullName -ArgumentList $arguments -Wait -PassThru
+          if ($process.ExitCode) { throw "Inno install failed with exit code $($process.ExitCode)." }
+          $config = Get-Content "$location/_internal/config/update_channel.json" -Raw | ConvertFrom-Json
+          if ($config.channel -ne $env:BUILD_CHANNEL) { throw 'Installed channel mismatches build input.' }
+          $exe = Join-Path $location 'ValorantTranslator.exe'
+          $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode) { throw "Installed EXE self-test failed with exit code $($process.ExitCode)." }
+          if ($env:BUILD_CHANNEL -eq 'github' -and $setup.Length -ge 2GB) {
+            throw 'GitHub Releases requires each asset to be smaller than 2 GiB.'
+          }
+
+      - name: Record release checksums
+        shell: pwsh
+        run: |
+          $setup = Get-Item 'dist/VoiceCNTranslator_Beta_Setup.exe'
+          $version = & .\.venv\Scripts\python.exe -c "from valorant_translator.version import APP_VERSION; print(APP_VERSION)"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $sha = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($env:BUILD_CHANNEL -eq 'domestic') {
+            $receipt = Get-Content 'dist/domestic_build.json' -Raw | ConvertFrom-Json
+            if ($receipt.channel -ne 'domestic' -or $receipt.version -ne $version -or
+                $receipt.size -ne $setup.Length -or $receipt.sha256 -ne $sha) {
+              throw 'Installer and domestic build receipt mismatch.'
+            }
+          }
+          Copy-Item 'release_notes.txt' 'dist/release_notes.txt'
+          [ordered]@{version=$version; sha256=$sha; size=$setup.Length; channel=$env:BUILD_CHANNEL;
+                     commit=$env:GITHUB_SHA; run_id=$env:GITHUB_RUN_ID; run_attempt=$env:GITHUB_RUN_ATTEMPT;
+                     cuda='12.4'; arch='x64'; install_self_test='passed'} |
+            ConvertTo-Json | Set-Content -Encoding utf8 'dist/windows_build.json'
+          @("### Windows $env:BUILD_CHANNEL $version", "", "- Installer bytes: $($setup.Length)",
+            "- SHA-256: $sha", "- Silent installation and installed self-test passed.",
+            "- CUDA DLLs present. The standard runner did not execute GPU inference.") -join "`n" |
+            Add-Content -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload tested installer
         uses: actions/upload-artifact@v4
         with:
-          name: VoiceCNTranslator-Windows-Beta
+          name: windows-${{ inputs.channel }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            dist/ValorantTranslator_Portable.zip
             dist/VoiceCNTranslator_Beta_Setup.exe
+            dist/windows_build.json
+            dist/domestic_build.json
+            dist/release_notes.txt
+          compression-level: 0
+          retention-days: 3
           if-no-files-found: error
-      - name: Check installer size
+
+      - name: Show packaging log tail
+        if: failure()
         shell: pwsh
         run: |
-          $size = (Get-Item "dist/VoiceCNTranslator_Beta_Setup.exe").Length
-          Write-Host "Installer size: $size bytes"
-          if ($size -ge 2147483648) { throw "Installer exceeds GitHub's 2 GiB release asset limit" }
-      - name: Publish beta release
-        if: github.ref == 'refs/heads/main'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $version = & .\.venv\Scripts\python.exe -c "from valorant_translator.version import APP_VERSION; print(APP_VERSION)"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $tag = "v$version"
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag "dist/VoiceCNTranslator_Beta_Setup.exe" --clobber
-          } else {
-            gh release create $tag "dist/VoiceCNTranslator_Beta_Setup.exe" --title "队友语音翻译器 $tag 测试版" --notes "更新 Windows CUDA 12.8 运行库并加入 CUDA 推理失败后的 CPU 回退。GPU 效果需在测试者电脑验证；游戏内覆盖仍有 Riot 政策和反作弊风险。" --prerelease
+          if (Test-Path 'build_logs/windows-packaging.log') {
+            Get-Content 'build_logs/windows-packaging.log' -Tail 70 -Encoding UTF8
           }
+
+      - name: Save Windows build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build_logs/*.log
+          retention-days: 7
+          if-no-files-found: ignore

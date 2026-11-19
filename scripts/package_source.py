@@ -8,13 +8,16 @@ from zipfile import ZIP_DEFLATED, ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 FOLDERS = (".github", "assets", "config", "installer", "scripts", "test_audio",
            "tests", "valorant_translator")
-FILES = ("main.py", "requirements.txt", "start_windows.bat", "build_windows.bat",
+FILES = ("main.py", "requirements.txt", "requirements_publish.txt", "start_windows.bat", "build_windows.bat",
          "make_public_installer_windows.bat",
+         "make_domestic_installer_windows.bat",
          "create_shortcut_windows.vbs", "repair_torch_windows.bat", "README_CN.md",
          "PUBLIC_BETA_GUIDE_CN.md", "BETA_NOTICE_CN.txt", "UPGRADE_CN.md",
          "DIAGNOSE_CN.md", "GAME_TERMS_REVIEW_CN.md", "GAME_TERMS_REVIEW.csv",
          "PERFORMANCE_REPORT_CN.md", "TEST_PLAN_CN.md", "THIRD_PARTY_NOTICES_CN.md",
          "UPDATE_RELEASE_GUIDE_CN.md",
+         "DOMESTIC_UPDATE_RELEASE_CN.md",
+         "release_notes.txt",
          "safe_public_beta/RIOT_QUERY_DRAFT_CN.md")
 EXCLUDE_PARTS = {"__pycache__", ".pytest_cache", ".venv", ".git", ".DS_Store"}
 
