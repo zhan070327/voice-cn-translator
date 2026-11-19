@@ -14,9 +14,9 @@ def bounded(label, operation, *args, **kwargs):
     """Bound an entire SDK call, including any slow trickle or retry."""
     previous = signal.getsignal(signal.SIGALRM)
     def expired(signum, frame):
-        raise TimeoutError(f"{label} exceeded 60 seconds")
+        raise TimeoutError(f"{label} exceeded 90 seconds")
     signal.signal(signal.SIGALRM, expired)
-    signal.alarm(60)
+    signal.alarm(90)
     try:
         return timed_call(label, operation, *args, **kwargs)
     finally:
@@ -71,7 +71,7 @@ def main() -> None:
     run_id = os.environ["GITHUB_RUN_ID"]
     key = f"releases/diagnostics/b4-part-probe-{run_id}-{uuid4().hex}.bin"
     client = CosS3Client(CosConfig(Region="ap-guangzhou", SecretId=secret_id,
-                                   SecretKey=secret_key, Scheme="https", Timeout=(8, 30)),
+                                   SecretKey=secret_key, Scheme="https", Timeout=(60, 60)),
                          retry=0)
     log("controlled 1 MiB multipart probe started on a unique diagnostic key")
     probe(client, key)
