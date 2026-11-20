@@ -88,9 +88,7 @@ def _stage_installer(client, path: Path, entry: dict) -> None:
                             content_type="application/octet-stream", cache_control=cos.INSTALLER_CACHE)
 
 
-def publish(repo: str, gpu: Path, cpu: Path, manifest: dict, notes: str, commit: str, payload: bytes) -> None:
-    repo = validate_repository(repo)
-    tag = f"v{APP_VERSION}"
+def _stage_cos(gpu: Path, cpu: Path, manifest: dict, payload: bytes):
     client = cos._make_client()
     upload.require_unversioned(client)
     previous = cos._read_remote_manifest(client)
@@ -101,6 +99,13 @@ def publish(repo: str, gpu: Path, cpu: Path, manifest: dict, notes: str, commit:
     cos._probe_public_model(cos._channel())
     _stage_installer(client, gpu / INSTALLERS["gpu"], manifest)
     _stage_installer(client, cpu / INSTALLERS["cpu"], manifest["editions"]["cpu"])
+    return client, previous
+
+
+def publish(repo: str, gpu: Path, cpu: Path, manifest: dict, notes: str, commit: str, payload: bytes) -> None:
+    repo = validate_repository(repo)
+    tag = f"v{APP_VERSION}"
+    client, previous = _stage_cos(gpu, cpu, manifest, payload)
     release = _find_github_release(repo, tag)
     if release is None:
         with TemporaryDirectory() as temporary:
@@ -122,11 +127,38 @@ def publish(repo: str, gpu: Path, cpu: Path, manifest: dict, notes: str, commit:
         raise UpdateError("COS latest.json changed during staging. No manifest was written.")
     if release["draft"]:
         _gh("release", "edit", tag, "--repo", repo, "--draft=false", "--prerelease")
+    _write_cos_manifest(client, previous, payload)
+
+
+def _write_cos_manifest(client, previous: bytes | None, payload: bytes) -> None:
     if previous != payload:
         client.put_object(Bucket=cos.BUCKET, Key="latest.json", Body=payload, EnableMD5=True,
                           ContentType="application/json; charset=utf-8", CacheControl=cos.MANIFEST_CACHE)
     if cos._read_remote_manifest(client) != payload:
-        raise UpdateError("COS final read-back failed. Verify both channels before announcing the release.")
+        raise UpdateError("COS final read-back failed. Check the production manifest before retrying.")
+
+
+
+def publish_b5_cos_only(gpu: Path, cpu: Path, output: Path) -> None:
+    if APP_VERSION != "0.3.0b5":
+        raise UpdateError("This COS-only path is locked to 0.3.0b5.")
+    manifest, _, _ = prepare(
+        gpu, cpu, output,
+        expected_commit="aac7062ce6cff3bb65aac7c5ad2ab1f83ee042d8",
+        expected_run="44689887810", expected_attempt="1",
+    )
+    approved = (
+        (manifest, 1_623_751_846, "a9a788002ab354611c01932041c2afcadfbab1999e8325724b70d25b7f273a8d"),
+        (manifest["editions"]["cpu"], 216_024_614, "d40232ea5edc272d6a984a11d891d1abb66badaf7916189acd7c557d8a1e5122"),
+    )
+    if any((entry["size"], entry["sha256"]) != (size, sha) for entry, size, sha in approved):
+        raise UpdateError("The installer SHA-256 or size differs from the approved b5 RC.")
+    payload = output.read_bytes()
+    client, previous = _stage_cos(gpu, cpu, manifest, payload)
+    if cos._read_remote_manifest(client) != previous:
+        raise UpdateError("COS latest.json changed during staging. No manifest was written.")
+    _write_cos_manifest(client, previous, payload)
+    print("Published both approved 0.3.0b5 installers and verified latest.json on COS.")
 
 
 def main() -> None:
@@ -136,10 +168,18 @@ def main() -> None:
     parser.add_argument("--repo", default="zhan070327/voice-cn-translator")
     parser.add_argument("--output", type=Path, default=Path("dist/paired-latest.json"))
     parser.add_argument("--confirm", help=f'Type "PUBLISH {APP_VERSION}" only after real Windows testing.')
+    parser.add_argument("--cos-only-b5", action="store_true", help="Publish only the pinned b5 RC to COS.")
     parser.add_argument("--expected-commit")
     parser.add_argument("--expected-run")
     parser.add_argument("--expected-attempt")
     args = parser.parse_args()
+    if args.cos_only_b5:
+        if args.confirm != "PUBLISH 0.3.0b5":
+            parser.error('COS-only publication requires "PUBLISH 0.3.0b5".')
+        if any((args.expected_commit, args.expected_run, args.expected_attempt)):
+            parser.error("The COS-only candidate pins cannot be overridden.")
+        publish_b5_cos_only(args.gpu, args.cpu, args.output)
+        return
     manifest, notes, commit = prepare(args.gpu, args.cpu, args.output,
                                       expected_commit=args.expected_commit, expected_run=args.expected_run,
                                       expected_attempt=args.expected_attempt)

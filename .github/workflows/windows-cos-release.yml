@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       build_run_id:
-        description: Successful Windows beta build run ID from main
+        description: For feature/b5-cos-release use 44689887810. For legacy releases use a successful main run.
         required: true
         type: string
       version:
@@ -115,3 +115,48 @@ jobs:
           COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
           COS_SESSION_TOKEN: ${{ secrets.COS_SESSION_TOKEN }}
         run: python -m scripts.publish_cos --notes-file dist/release_notes.txt --upload
+
+  publish-approved-b5-cos:
+    if: >-
+      github.ref == 'refs/heads/feature/b5-cos-release' &&
+      github.run_attempt == 1 &&
+      inputs.build_run_id == '44689887810' &&
+      inputs.version == '0.3.0b5' &&
+      inputs.confirmation == 'PUBLISH 0.3.0b5'
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    environment: cos-production
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Require a recorded cos-production approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/environments/cos-production" |
+            jq -e '.protection_rules | any(.type == "required_reviewers" and (.reviewers | length > 0))' >/dev/null ||
+            { echo "::error::cos-production must have at least one required reviewer"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" |
+            jq -e 'any(.[]; .state == "approved" and any(.environments[]; .name == "cos-production"))' >/dev/null ||
+            { echo "::error::No cos-production approval for this workflow run"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: ./.github/actions/load-b5-build
+        with:
+          github-token: ${{ github.token }}
+      - name: Verify pinned EXEs, upload to COS, then write latest.json
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_SESSION_TOKEN: ${{ secrets.COS_SESSION_TOKEN }}
+        run: |
+          python -m scripts.publish_paired_release --gpu dist/paired/gpu --cpu dist/paired/cpu \
+            --cos-only-b5 --confirm 'PUBLISH 0.3.0b5'
