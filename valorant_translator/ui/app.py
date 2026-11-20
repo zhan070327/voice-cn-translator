@@ -1031,7 +1031,7 @@ class MainWindow(QMainWindow):
                       if device.id == self.device_combo.currentData()), None)
         routed = route is not None and route.id == self.settings.routing_verified_id
         self.routing_status.setText(f"上次已确认分流 · {route.name}" if routed else
-                                    f"语音设备 · {route.name}（待验证）" if route else "未分流")
+                                    f"分流来源 · {route.name}（待验证）" if route else "未分流")
         self.device_hint.show()
         if self.device_combo.currentIndex() < 0:
             self.device_hint.setText("没有可用设备，连接后刷新。")
@@ -1633,8 +1633,9 @@ class MainWindow(QMainWindow):
         if self.routing_wizard is None:
             self.routing_wizard = RoutingWizard(self)
         apply_dialog_theme(self.routing_wizard, self.settings)
-        self.routing_wizard.show()
+        self.routing_wizard.open()
         self.routing_wizard.raise_()
+        self.routing_wizard.activateWindow()
         self._request_devices()
 
     def _begin_talk(self):

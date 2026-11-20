@@ -1,9 +1,11 @@
 from collections import deque
 from pathlib import Path
+import time
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QTimer, Qt
 from PySide6.QtGui import QPalette
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QFormLayout, QInputDialog,
                                QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QTableWidget)
 
@@ -13,7 +15,7 @@ from valorant_translator.feedback import FeedbackStore
 from valorant_translator.pipeline import SubtitleResult
 from valorant_translator.translation import glossary
 from valorant_translator.translation.rules import RuleStore
-from valorant_translator.ui import app as ui
+from valorant_translator.ui import app as ui, routing
 
 
 @pytest.fixture
@@ -269,7 +271,8 @@ def test_history_details_submit_feedback_and_save_scoped_correction(window):
     assert not window.custom_rules.rules
 
 
-def test_routing_invitation_and_wizard_have_readable_steps(window, qapp):
+def test_routing_invitation_and_wizard_have_readable_steps(window, qapp, monkeypatch):
+    monkeypatch.setattr(routing, "probe_source", lambda _id: "")
     window.settings.routing_intro_seen = False
     window._show_routing_intro()
     qapp.processEvents()
@@ -283,10 +286,121 @@ def test_routing_invitation_and_wizard_have_readable_steps(window, qapp):
     assert_dark(wizard)
     for text in ("Voice Chat", "CABLE Output", "分开测游戏和队友语音"):
         assert text in labels(wizard)
-    assert "SteelSeries Sonar - Chat" in wizard.devices.currentText()
+    assert wizard.devices.currentItem().text() == "SteelSeries Sonar - Chat"
     button(wizard, "使用此声音来源").click()
-    assert config.Settings.load().device_id == "sonar"
+    assert wait_for(lambda: config.Settings.load().device_id == "sonar")
     button(wizard, "完成或跳过").click()
+
+
+def wait_for(predicate):
+    deadline = time.monotonic() + 3
+    while not predicate() and time.monotonic() < deadline:
+        QTest.qWait(10)
+    return predicate()
+
+
+def click(widget):
+    QTest.mouseClick(widget, Qt.MouseButton.LeftButton, pos=widget.rect().center())
+
+
+def test_routing_device_rows_click_switch_and_survive_refresh(window, qapp, monkeypatch):
+    devices = [*window.audio_devices, AudioDevice("cable", "CABLE Input", True)]
+    window._apply_devices(devices)
+    checked = []
+    monkeypatch.setattr(routing, "probe_source", lambda device: checked.append(device) or "")
+    window.overlay.show()
+    window._open_routing()
+    qapp.processEvents()
+    wizard = window.routing_wizard
+    assert not window.overlay.isVisible()
+    assert wizard.devices.count() == 2
+
+    for row, device_id, name in ((1, "cable", "CABLE Input"), (0, "sonar", "SteelSeries Sonar - Chat")):
+        item = wizard.devices.item(row)
+        QTest.mouseClick(wizard.devices.viewport(), Qt.MouseButton.LeftButton,
+                         pos=wizard.devices.visualItemRect(item).center())
+        assert item.isSelected()
+        assert f"已选中：{name}" in wizard.state.text()
+        assert window.settings.device_id != device_id
+        wizard.refresh()
+        assert wizard.devices.currentItem().text() == name
+        click(button(wizard, "使用此声音来源"))
+        assert wait_for(lambda: window.settings.device_id == device_id)
+        assert config.Settings.load().device_id == device_id
+        assert window.device_combo.currentData() == device_id
+        assert name in window.routing_status.text()
+        assert "当前分流来源（待验证）" in wizard.state.text()
+        assert wizard.game_sample.isEnabled()
+    assert checked == ["cable", "sonar"]
+    click(button(wizard, "完成或跳过"))
+    assert window.overlay.isVisible()
+
+
+def test_routing_unavailable_device_keeps_current_source(window, qapp, monkeypatch):
+    monkeypatch.setattr(routing, "probe_source", lambda _id: "设备被其他应用独占（0x8889000A）")
+    window._open_routing()
+    qapp.processEvents()
+    wizard = window.routing_wizard
+    click(button(wizard, "使用此声音来源"))
+    assert wait_for(lambda: "0x8889000A" in wizard.action_status.text())
+    assert window.settings.device_id == "system"
+    assert not wizard.game_sample.isEnabled()
+
+    window._apply_devices([device for device in window.audio_devices if device.id != "sonar"])
+    click(button(wizard, "使用此声音来源"))
+    assert "已断开或已禁用" in wizard.action_status.text()
+    assert window.settings.device_id == "system"
+    wizard.refresh()
+    assert "未检测到" in wizard.state.text()
+    click(button(wizard, "使用此声音来源"))
+    assert "请安装或启用设备后刷新" in wizard.action_status.text()
+
+
+def test_routing_official_link_buttons_report_open_or_copy(window, qapp, monkeypatch):
+    opened = []
+    monkeypatch.setattr(routing.QDesktopServices, "openUrl",
+                        lambda url: opened.append(url.toString()) or True)
+    window._open_routing()
+    qapp.processEvents()
+    wizard = window.routing_wizard
+    links = (("Sonar 官方说明", routing.SONAR_GUIDE), ("VB-CABLE 官方下载", routing.VB_CABLE))
+    for name, _ in links:
+        click(button(wizard, name))
+        assert "已请求在默认浏览器" in wizard.action_status.text()
+    assert opened == [url for _, url in links]
+
+    monkeypatch.setattr(routing.QDesktopServices, "openUrl", lambda _url: False)
+    for name, url in links:
+        click(button(wizard, name))
+        qapp.processEvents()
+        dialog = next(d for d in wizard.findChildren(QDialog)
+                      if d.isVisible() and d.windowTitle() == "无法打开官方网页")
+        assert_dark(dialog)
+        address = dialog.findChild(QLineEdit)
+        assert address.isReadOnly() and address.text() == url
+        click(button(dialog, "复制链接"))
+        assert qapp.clipboard().text() == url
+        assert "链接已复制" in wizard.action_status.text()
+
+
+def test_routing_probe_preserves_capture_errors_and_releases_device(monkeypatch):
+    events = []
+
+    class Capture:
+        def __init__(self, device_id, on_audio, on_level, on_status):
+            self.device_id, self.on_status = device_id, on_status
+
+        def start(self):
+            events.append(("start", self.device_id))
+            self.on_status("音频设备已连接，正在监听" if self.device_id == "ok" else "音频设备已断开")
+
+        def stop(self):
+            events.append(("stop", self.device_id))
+
+    monkeypatch.setattr(routing, "AudioCapture", Capture)
+    assert routing.probe_source("ok") == ""
+    assert routing.probe_source("removed") == "音频设备已断开"
+    assert events == [("start", "ok"), ("stop", "ok"), ("start", "removed"), ("stop", "removed")]
 
 
 def test_update_prompt_and_model_folder_picker_use_same_theme(window, tmp_path):

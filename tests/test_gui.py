@@ -425,8 +425,9 @@ def test_b6_both_color_pickers_use_readable_non_native_glass(qapp, monkeypatch, 
 def test_b6_routing_and_automatic_ptt_do_not_share_device_setting(qapp, monkeypatch, tmp_path):
     from valorant_translator import config
     from valorant_translator.audio.capture import AudioDevice
-    from valorant_translator.ui import app as ui
+    from valorant_translator.ui import app as ui, routing
 
+    monkeypatch.setattr(routing, "probe_source", lambda _id: "")
     monkeypatch.setattr(config, "APP_DIR", tmp_path)
     monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "settings.json")
     old_mic = AudioDevice("old", "旧麦克风", False)
@@ -451,10 +452,10 @@ def test_b6_routing_and_automatic_ptt_do_not_share_device_setting(qapp, monkeypa
         monkeypatch.setattr(window, "_request_devices", lambda: None)
         window._open_routing()
         wizard = window.routing_wizard
-        assert wizard.devices.count() == 1 and wizard.devices.currentData() == "chat"
+        assert wizard.devices.count() == 1 and wizard.devices.currentItem().text() == sonar.name
         assert "尚未设为当前声音来源" in wizard.state.text()
         wizard.select_button.click()
-        assert Settings.load().device_id == "chat"
+        assert _wait_for(lambda: Settings.load().device_id == "chat")
         assert Settings.load().microphone_id == "new"
         assert "待验证" in wizard.state.text()
         assert not wizard.verify_button.isEnabled()
