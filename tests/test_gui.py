@@ -4,15 +4,22 @@ import time
 from types import SimpleNamespace
 
 from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QColor, QEnterEvent
+from PySide6.QtGui import QColor, QEnterEvent, QHideEvent, QShowEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from valorant_translator.config import Settings
 from valorant_translator.pipeline import SubtitleResult, TaskTrace
-from valorant_translator.ui.glass import (BACKGROUND_THEMES, DEFAULT_ACCENT, CompactLabel, GlassButton,
+from valorant_translator.ui.glass import (BACKGROUND_THEMES, DEFAULT_ACCENT, CompactLabel, GlassButton, accent_ink,
                                         GlassSection, GlassSurface, _background_pixmap, background_palette)
-from valorant_translator.ui.icons import LineIcon, button_icon
+from valorant_translator.ui.icons import DONE_PHASE, LineIcon, button_icon
+
+
+def _wait_for(predicate, timeout=3.0):
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        QTest.qWait(10)
+    return predicate()
 from valorant_translator.ui.overlay import SubtitleOverlay
 
 
@@ -200,25 +207,69 @@ def test_live_icon_stops_while_hidden_or_minimized_and_completes_once(qapp):
     assert label.toolTip() == label.text()
     assert button_icon("missing", "#ffffff").isNull()
     icon.set_mode("spin", highlight=True)
-    QTest.qWait(100)
-    assert icon.phase > 0
+    assert _wait_for(lambda: icon.phase > 0)
     host.showMinimized()
-    QTest.qWait(50)
+    assert _wait_for(lambda: not icon._timer.isActive())
     stationary = icon.phase
     QTest.qWait(100)
     assert icon.phase == stationary and not icon._timer.isActive()
     host.showNormal()
-    QTest.qWait(100)
-    assert icon.phase > stationary
+    assert _wait_for(lambda: icon.phase > stationary)
     host.hide()
     stationary = icon.phase
     QTest.qWait(70)
     assert icon.phase == stationary and not icon._timer.isActive()
     host.show()
     icon.set_mode("done", restart=True)
-    QTest.qWait(430)
-    assert icon.phase == 10 and not icon._timer.isActive()
+    assert _wait_for(lambda: icon.phase == DONE_PHASE and not icon._timer.isActive())
+    QTest.qWait(100)
+    assert icon.phase == DONE_PHASE and not icon._timer.isActive()
     host.close()
+
+
+def test_live_icon_handles_events_before_timer_creation(qapp):
+    class IconReceivingResizeEvents(LineIcon):
+        def setFixedSize(self, *args):
+            assert self._timer is not None
+            self.hideEvent(QHideEvent())
+            return super().setFixedSize(*args)
+
+    early = IconReceivingResizeEvents("mic")
+    early.close()
+    partial = LineIcon.__new__(LineIcon)
+    QWidget.__init__(partial)
+    partial.hideEvent(QHideEvent())
+    partial.showEvent(QShowEvent())
+    partial.eventFilter(partial, QEvent(QEvent.Type.WindowStateChange))
+    partial.close()
+
+
+def test_checkmark_uses_visible_elapsed_time_when_timer_ticks_arrive_late(qapp, monkeypatch):
+    from valorant_translator.ui import icons
+
+    clock = [12.0]
+    monkeypatch.setattr(icons, "monotonic", lambda: clock[0])
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    icon = LineIcon("mic")
+    layout.addWidget(icon)
+    host.show()
+    try:
+        icon.set_mode("done", restart=True)
+        clock[0] += 0.100
+        icon._tick()
+        before = icon.phase
+        assert 0 < before < DONE_PHASE
+        host.hide()
+        clock[0] += 5
+        host.show()
+        icon._tick()
+        assert icon.phase == before
+        clock[0] += 0.500
+        icon._tick()
+        assert icon.phase == DONE_PHASE and not icon._timer.isActive()
+    finally:
+        host.close()
 
 
 def test_background_presets_draw_distinct_cached_gradients(qapp):
@@ -284,6 +335,7 @@ def test_theme_switches_are_independent_saved_and_shared_with_onboarding(qapp, m
         assert window.surface._background == custom
         assert window.styleSheet() != style
         assert guide.styleSheet() == window.styleSheet()
+        assert guide.step_icons[1].accent == accent_ink("#00ac78")
         saved = Settings.load()
         assert (saved.background_theme, saved.background_color, saved.accent) == ("custom", "#ded342", "#00ac78")
 

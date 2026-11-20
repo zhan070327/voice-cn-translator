@@ -3,13 +3,18 @@ from __future__ import annotations
 
 import math
 from functools import lru_cache
+from time import monotonic
+from weakref import ref
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QWidget
+from shiboken6 import isValid
 
 SIZE = 20
 NEUTRAL = "#e1e7f1"
+FRAME_MS = 33
+DONE_PHASE = 10
 
 # Each shape is drawn on the same 20 px grid with the same stroke.
 _LINES = {
@@ -59,7 +64,7 @@ def _draw(painter, name, color, mode="idle", phase=0, level=0):
         painter.drawArc(QRectF(4, 4, 12, 12), -phase * 4, 16 * 250)
     elif mode == "done":
         first = min(1, phase / 4)
-        second = max(0, min(1, (phase - 4) / 6))
+        second = max(0, min(1, (phase - 4) / (DONE_PHASE - 4)))
         stroke = [(4.5, 10), (4.5 + 3.5 * first, 10 + 3.5 * first)]
         if second > 0:
             stroke.append((8 + 7.5 * second, 13.5 - 7.5 * second))
@@ -111,11 +116,13 @@ class LineIcon(QWidget):
         self.highlighted = False
         self.phase = 0
         self.level = 0.0
-        self._host = None
+        self._host_ref = None
+        self._elapsed = 0.0
+        self._running_since = None
+        self._timer = QTimer(self, interval=FRAME_MS, timerType=Qt.TimerType.PreciseTimer)
+        self._timer.timeout.connect(self._tick)
         self.setFixedSize(QSize(SIZE, SIZE))
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self._timer = QTimer(self, interval=33)
-        self._timer.timeout.connect(self._tick)
         if name not in _LINES:
             self.setFixedSize(0, 0)
 
@@ -126,8 +133,10 @@ class LineIcon(QWidget):
 
     def set_mode(self, mode, *, highlight=False, restart=False):
         if mode != self.mode or restart:
+            self._pause_animation()
             self.mode = mode
             self.phase = 0
+            self._elapsed = 0.0
         elif highlight == self.highlighted:
             return
         self.highlighted = highlight
@@ -138,43 +147,73 @@ class LineIcon(QWidget):
         self.level = max(0.0, min(1.0, level))
 
     def _sync_animation(self):
-        moving = self.mode in ("spin", "pulse") or (self.mode == "done" and self.phase < 10)
+        timer = getattr(self, "_timer", None)
+        if timer is None or not isValid(timer):
+            return
+        moving = self.mode in ("spin", "pulse") or (self.mode == "done" and self.phase < DONE_PHASE)
         if moving and self.isVisible() and not self.window().isMinimized():
-            if not self._timer.isActive():
-                self._timer.start()
+            if not timer.isActive():
+                self._running_since = monotonic()
+                timer.start()
         else:
-            self._timer.stop()
+            self._pause_animation()
+
+    def _pause_animation(self):
+        timer = getattr(self, "_timer", None)
+        if timer is None or not isValid(timer):
+            return
+        timer.stop()
+        started = getattr(self, "_running_since", None)
+        if started is not None:
+            self._elapsed += monotonic() - started
+            self._running_since = None
 
     def showEvent(self, event):
-        host = self.window()
-        if host is not self._host:
-            if self._host is not None:
-                self._host.removeEventFilter(self)
-            self._host = host
-            host.installEventFilter(self)
         super().showEvent(event)
+        # Qt may send show/hide events during construction or wrapper teardown.
+        timer = getattr(self, "_timer", None)
+        if timer is None or not isValid(timer):
+            return
+        host = self.window()
+        host_ref = getattr(self, "_host_ref", None)
+        previous = host_ref() if host_ref is not None else None
+        if host is not previous:
+            if previous is not None and isValid(previous):
+                previous.removeEventFilter(self)
+            self._host_ref = ref(host)
+            host.installEventFilter(self)
         self._sync_animation()
 
     def hideEvent(self, event):
-        self._timer.stop()
+        self._pause_animation()
         super().hideEvent(event)
 
     def eventFilter(self, watched, event):
-        if event.type() in (QEvent.Type.WindowStateChange, QEvent.Type.Show, QEvent.Type.Hide):
+        if event.type() == QEvent.Type.Hide:
+            self._pause_animation()
+        elif event.type() in (QEvent.Type.WindowStateChange, QEvent.Type.Show):
             self._sync_animation()
         return super().eventFilter(watched, event)
 
     def _tick(self):
         if not self.isVisible() or self.window().isMinimized():
-            self._timer.stop()
+            self._pause_animation()
             return
-        self.phase = self.phase + (24 if self.mode == "spin" else 1)
-        if self.mode == "done" and self.phase >= 10:
-            self._timer.stop()
+        started = self._running_since
+        if started is None:
+            return
+        frame = int((self._elapsed + monotonic() - started) * 1000 / FRAME_MS)
+        if self.mode == "done":
+            # QTimer can coalesce ticks under load. Always render the complete checkmark.
+            self.phase = min(frame, DONE_PHASE)
+            if self.phase == DONE_PHASE:
+                self._pause_animation()
+        else:
+            self.phase = frame * (24 if self.mode == "spin" else 1)
         self.update()
 
     def paintEvent(self, event):
-        if self.name in _LINES:
+        if getattr(self, "name", None) in _LINES:
             with QPainter(self) as painter:
                 _draw(painter, self.name, self.accent if self.highlighted else NEUTRAL,
                       self.mode, self.phase, self.level)
