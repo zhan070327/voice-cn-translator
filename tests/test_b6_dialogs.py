@@ -1,4 +1,5 @@
 from collections import deque
+from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QTimer
@@ -313,4 +314,4 @@ def test_update_prompt_and_model_folder_picker_use_same_theme(window, tmp_path):
 
     run_dialogs(lambda: chosen.append(ui.QFileDialog.getExistingDirectory(window, "选择模型文件夹")),
                 ("选择模型文件夹", choose))
-    assert chosen == [str(folder)]
+    assert [Path(path) for path in chosen] == [folder]
