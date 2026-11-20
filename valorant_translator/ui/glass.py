@@ -1,12 +1,19 @@
 from dataclasses import dataclass
 from functools import lru_cache
 
-from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, QRectF
+from PySide6.QtCore import Property, QEasingCurve, QEvent, QPropertyAnimation, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPixmap, QRadialGradient
-from PySide6.QtWidgets import QPushButton, QStyle, QStyleOptionButton, QStylePainter, QWidget
+from PySide6.QtWidgets import (QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+                               QStyle, QStyleOptionButton, QStyleOptionGroupBox,
+                               QStylePainter, QVBoxLayout, QWidget)
+
+from valorant_translator.ui.icons import NEUTRAL, SIZE, LineIcon, button_icon
 
 DEFAULT_ACCENT = "#FF4655"
 DEFAULT_BACKGROUND_COLOR = "#47768f"
+GAP = 12
+GUTTER = 16
+INLINE = 8
 
 
 @dataclass(frozen=True)
@@ -59,17 +66,92 @@ def accent_color(value: str) -> str:
     return color.name() if color.isValid() else DEFAULT_ACCENT
 
 
+def accent_ink(value):
+    hue, saturation, lightness, _ = QColor(accent_color(value)).getHslF()
+    return QColor.fromHslF(max(0.0, hue), min(saturation, 0.62), max(0.57, lightness)).name()
+
+
 class GlassButton(QPushButton):
     """Animate the painting only, keeping the layout and hit target stable."""
 
-    def __init__(self, *args):
+    def __init__(self, *args, icon=None):
         super().__init__(*args)
+        self._line_icon = icon
+        self._icon_accent = accent_ink(DEFAULT_ACCENT)
+        self._hover = 0.0
         self._scale = 1.0
         self._press_animation = QPropertyAnimation(self, b"visualScale", self)
         self._press_animation.setDuration(80)
         self._press_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.pressed.connect(lambda: self._animate_to(0.97))
         self.released.connect(lambda: self._animate_to(1.0))
+        self._hover_animation = QPropertyAnimation(self, b"visualHover", self)
+        self._hover_animation.setDuration(100)
+        self._hover_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.setIconSize(QSize(SIZE, SIZE))
+        self.toggled.connect(self._refresh_icon)
+        self.objectNameChanged.connect(self._refresh_icon)
+        self._refresh_icon()
+
+    def set_line_icon(self, name):
+        if name != self._line_icon:
+            self._line_icon = name
+            self._refresh_icon()
+
+    def set_accent(self, color):
+        if self._line_icon and color != self._icon_accent:
+            self._icon_accent = color
+            self._refresh_icon()
+
+    def _refresh_icon(self):
+        if getattr(self, "_line_icon", None):
+            self.setIcon(button_icon(self._line_icon, self._line_color()))
+
+    def _line_color(self):
+        if not self.isEnabled():
+            return "#a0a4ad"
+        return self._icon_accent if self.isChecked() or self.objectName() == "primary" else NEUTRAL
+
+    @Property(float)
+    def visualHover(self):
+        return self._hover
+
+    @visualHover.setter
+    def visualHover(self, value):
+        if round(self._hover * 4) != round(value * 4):
+            option = QStyleOptionButton()
+            self.initStyleOption(option)
+            inner = self.style().subElementRect(QStyle.SubElement.SE_PushButtonContents, option, self)
+            span = self.fontMetrics().horizontalAdvance(self.text()) + SIZE + 4
+            left = inner.left() if self.property("navigation") else inner.center().x() - span // 2
+            region = QRect(left, inner.center().y() - SIZE // 2, SIZE, SIZE)
+            self.update(region.adjusted(-7, -3, 7, 3))
+        self._hover = value
+
+    def _animate_hover(self, target):
+        if self._line_icon and self.isEnabled() and self.isVisible() and not self.window().isMinimized():
+            self._hover_animation.stop()
+            self._hover_animation.setStartValue(self._hover)
+            self._hover_animation.setEndValue(target)
+            self._hover_animation.start()
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self._animate_hover(1.0)
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self._animate_hover(0.0)
+
+    def hideEvent(self, event):
+        self._hover_animation.stop()
+        self._hover = 0.0
+        super().hideEvent(event)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.EnabledChange:
+            self._refresh_icon()
 
     @Property(float)
     def visualScale(self):
@@ -97,6 +179,8 @@ class GlassButton(QPushButton):
         painter.translate(-center)
         option = QStyleOptionButton()
         self.initStyleOption(option)
+        if self._line_icon and self.isEnabled() and self._hover:
+            option.icon = button_icon(self._line_icon, self._line_color(), round(self._hover * 4))
         painter.drawControl(QStyle.ControlElement.CE_PushButton, option)
         if scale < 1:
             painter.setPen(QColor("transparent"))
@@ -104,6 +188,71 @@ class GlassButton(QPushButton):
             pill = self.objectName() == "primary" or self.property("gamePill") or self.property("ghost")
             radius = 17 if pill else 10
             painter.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), radius, radius)
+
+
+def tint_icons(parent, value):
+    accent = accent_ink(value)
+    for kind in (GlassButton, LineIcon):
+        for item in parent.findChildren(kind):
+            item.set_accent(accent)
+
+
+class GlassSection(QGroupBox):
+    def __init__(self, title, icon):
+        super().__init__(title)
+        self.setObjectName("glassSection")
+        self.setAccessibleName(title)
+        self.body = QVBoxLayout(self)
+        self.body.setContentsMargins(GUTTER, GAP, GUTTER, GAP)
+        self.body.setSpacing(INLINE)
+        header = QHBoxLayout()
+        header.setSpacing(INLINE)
+        self.icon = LineIcon(icon)
+        header.addWidget(self.icon)
+        label = QLabel(title)
+        label.setObjectName("sectionTitle")
+        header.addWidget(label, 1)
+        self.body.addLayout(header)
+
+    def paintEvent(self, event):
+        with QStylePainter(self) as painter:
+            option = QStyleOptionGroupBox()
+            self.initStyleOption(option)
+            option.text = ""
+            option.subControls = QStyle.SubControl.SC_GroupBoxFrame
+            painter.drawComplexControl(QStyle.ComplexControl.CC_GroupBox, option)
+
+
+class CompactLabel(QLabel):
+    """One visible line, with full text available to tooltips and feedback."""
+
+    def __init__(self, text=""):
+        super().__init__()
+        self._full_text = ""
+        self.setTextFormat(Qt.TextFormat.PlainText)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setText(text)
+
+    def text(self):
+        return self._full_text
+
+    def setText(self, text):
+        self._full_text = text
+        self.setToolTip(text)
+        self._elide()
+
+    def _elide(self):
+        super().setText(self.fontMetrics().elidedText(
+            self._full_text, Qt.TextElideMode.ElideRight, self.contentsRect().width()))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._elide()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange and hasattr(self, "_full_text"):
+            self._elide()
 
 
 @lru_cache(maxsize=6)
@@ -156,7 +305,7 @@ def glass_styles(accent: str) -> str:
     accent = accent_color(accent)
     rgb = QColor(accent)
     h, s, lightness, _ = rgb.getHslF()
-    edge = QColor.fromHslF(max(0.0, h), min(s, 0.62), max(0.51, lightness)).name()
+    edge = accent_ink(accent)
     color = QColor.fromHslF(max(0.0, h), min(s, 0.56), min(lightness, 0.53))
 
     def tone(base, amount):
@@ -169,32 +318,36 @@ def glass_styles(accent: str) -> str:
         QLabel, QScrollArea, QScrollArea QWidget#pageBody, QTabWidget::pane {
             background: transparent; border: none;
         }
-        QLabel#eyebrow, QLabel#muted { color: #d0d6e1; }
+        QLabel#eyebrow, QLabel#muted, QLabel#statLabel { color: #d0d6e1; }
         QLabel#title { font-size: 27px; font-weight: 750; }
         QLabel#brand { font-size: 22px; font-weight: 750; }
-        QLabel#translation { font-size: 23px; font-weight: 750; padding: 7px; }
-        QLabel#statValue { font-size: 17px; font-weight: 700; }
-        QLabel#warning { color: #ffe0ab; background: rgba(111,68,35,93);
-            border: 1px solid rgba(255,210,132,103); border-radius: 12px; padding: 9px; }
+        QLabel#translation { font-size: 23px; font-weight: 750; padding: 3px 0; }
+        QLabel#statValue { font-size: 18px; font-weight: 700; }
+        QLabel#statLabel { font-size: 11px; }
+        QLabel#sectionTitle { font-size: 15px; font-weight: 700; color: #f3f5fa; }
+        QFrame#warning { background: rgba(234,235,250,18);
+            border: 1px solid rgba(225,235,251,82); border-radius: 12px; }
+        QFrame#warning QLabel { color: #e5e8f0; }
         QLabel#lastDiscard { color: #f2d49b; }
-        QFrame#hero, QFrame#sidebar, QFrame#glassCard, QGroupBox {
+        QFrame#hero, QFrame#sidebar, QFrame#glassCard, QGroupBox#glassSection {
             background: qlineargradient(x1:0,y1:0,x2:0.7,y2:1,
                          stop:0 rgba(222,233,250,55), stop:0.45 rgba(173,187,215,37),
                          stop:1 rgba(14,21,37,80));
-            border: 1px solid rgba(225,235,251,103); border-radius: 18px;
+            border: 1px solid rgba(225,235,251,103); border-top-color: rgba(234,242,255,156);
+            border-radius: 18px;
         }
         QFrame#sidebar {
             background: qlineargradient(x1:0,y1:0,x2:0.8,y2:1,
                          stop:0 rgba(230,241,255,45), stop:1 rgba(158,191,228,12));
             border-color: rgba(225,239,255,120);
         }
-        QGroupBox { margin-top: 16px; padding: 17px 13px 13px 13px; font-weight: 600; }
-        QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 7px; color: #e0e3e8; }
+        QGroupBox#glassSection { margin: 0; padding: 0; }
         QPushButton, QComboBox, QSpinBox, QLineEdit { background: rgba(239,243,247,19);
             border: 1px solid rgba(228,234,241,88); border-radius: 11px; padding: 8px 11px; }
         QComboBox QAbstractItemView, QMenu { background: #25272d; color: #f0edf2; }
         QPushButton:hover { background: rgba(236,242,250,53); border-color: #c3cbd5; }
         QPushButton[gamePill="true"] { border-radius: 16px; }
+        QPushButton[navigation="true"] { text-align: left; padding-left: 13px; }
         QPushButton:checked, QPushButton[gamePill="true"]:checked {
             background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
                          stop:0 rgba(227,234,251,52), stop:1 rgba(196,210,237,19));

@@ -3,7 +3,8 @@ import psutil
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout
 
-from valorant_translator.ui.glass import GlassButton, GlassSurface
+from valorant_translator.ui.glass import GAP, GUTTER, INLINE, GlassButton, GlassSurface, tint_icons
+from valorant_translator.ui.icons import LineIcon
 
 
 class Onboarding(QDialog):
@@ -21,14 +22,33 @@ class Onboarding(QDialog):
         container.setContentsMargins(0, 0, 0, 0)
         self.surface = GlassSurface()
         container.addWidget(self.surface)
-        self.apply_theme()
         layout = QVBoxLayout(self.surface)
-        layout.setContentsMargins(22, 22, 22, 22)
+        layout.setContentsMargins(GUTTER, GUTTER, GUTTER, GUTTER)
+        layout.setSpacing(GAP)
+        steps = QFrame()
+        steps.setObjectName("glassCard")
+        step_row = QHBoxLayout(steps)
+        step_row.setContentsMargins(GAP, GAP, GAP, GAP)
+        step_row.setSpacing(GAP)
+        self.step_icons = []
+        for name, label in (("chip", "设备"), ("download", "模型"), ("mic", "试音")):
+            group = QVBoxLayout()
+            group.setSpacing(4)
+            icon = LineIcon(name)
+            self.step_icons.append(icon)
+            group.addWidget(icon, alignment=Qt.AlignmentFlag.AlignHCenter)
+            text = QLabel(label)
+            text.setObjectName("statLabel")
+            text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            group.addWidget(text)
+            step_row.addLayout(group, 1)
+        layout.addWidget(steps)
         panel = QFrame()
         panel.setObjectName("glassCard")
         layout.addWidget(panel)
         card = QVBoxLayout(panel)
-        card.setContentsMargins(18, 18, 18, 18)
+        card.setContentsMargins(GUTTER, GUTTER, GUTTER, GUTTER)
+        card.setSpacing(INLINE)
         self.title = QLabel()
         self.title.setObjectName("title")
         card.addWidget(self.title)
@@ -37,7 +57,7 @@ class Onboarding(QDialog):
         card.addWidget(self.details)
         self.progress = QProgressBar()
         card.addWidget(self.progress)
-        self.action = GlassButton()
+        self.action = GlassButton(icon="next")
         self.action.setProperty("ghost", True)
         self.action.clicked.connect(self._action)
         card.addWidget(self.action, alignment=Qt.AlignmentFlag.AlignHCenter)
@@ -50,6 +70,7 @@ class Onboarding(QDialog):
         buttons.addStretch()
         buttons.addWidget(self.finish)
         layout.addLayout(buttons)
+        self.apply_theme()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._refresh)
         self.timer.start(200)
@@ -61,15 +82,32 @@ class Onboarding(QDialog):
         stylesheet = self.window.styleSheet()
         if stylesheet != self.styleSheet():
             self.setStyleSheet(stylesheet)
+        tint_icons(self, settings.accent)
+
+    def _update_step_icons(self):
+        for index, icon in enumerate(self.step_icons):
+            current = index == self.step
+            mode = "idle"
+            if index < self.step:
+                mode = "done"
+            elif current and (self._loading or (index == 1 and self.window._model_busy)):
+                mode = "spin"
+            elif current and index == 2 and self.window.talk._busy:
+                mode = self.window.reverse_icon.mode if self.window.reverse_icon.mode == "spin" else "pulse"
+            elif current and index == 2 and self.test_started and self.window.reverse_icon.mode == "done":
+                mode = "done"
+            icon.set_mode(mode, highlight=index <= self.step)
 
     def _refresh(self):
+        self._update_step_icons()
         if self._loading:
             return
         w = self.window
         self.progress.setVisible(self.step == 1 and w._model_busy)
         self.finish.setVisible(self.step == 2)
         if self.step == 0:
-            self.title.setText("1 / 3 检测设备")
+            self.action.set_line_icon("next")
+            self.title.setText("检测设备")
             self.details.setText(f"输入：{w.device_combo.currentText() or '未检测到设备'}\n"
                                  f"麦克风：{w.mic_combo.currentText() or '未检测到麦克风'}\n"
                                  f"推荐 Whisper {self._recommendation()}，可在详细设置更改。"
@@ -77,22 +115,28 @@ class Onboarding(QDialog):
             self.action.setText("下一步")
             self.action.setEnabled(True)
         elif self.step == 1:
-            self.title.setText("2 / 3 下载模型")
+            self.title.setText("下载模型")
             sizes = w.download_sizes()
             models = [f"Whisper {w.model_combo.currentData()}", "M2M100 418M"]
             models = [f"{model} · {sizes[model] / 1024**2:,.1f} MiB" if sizes.get(model) else model
                       for model in models]
-            self.details.setText("\n".join([*models, w.model_status_label.text(),
-                                 w.model_transfer.text() if w._model_busy and w.model_transfer.isVisibleTo(w) else
-                                 w.status_label.text()]))
+            status = w.model_transfer.text() if w._model_busy and not w.model_transfer.isHidden() else w.status_label.text()
+            model_status = w.model_status_label.text()
+            details = [*models, model_status]
+            if status != "当前状态：待机":
+                details.append(status.removeprefix("当前状态："))
+            self.details.setText("\n".join(details))
             self.progress.setRange(w.model_progress.minimum(), w.model_progress.maximum())
             self.progress.setValue(w.model_progress.value())
-            self.action.setText("下一步" if w._models_ready() else "暂停下载" if w._model_busy else "一键下载模型")
+            ready = w._models_ready()
+            self.action.set_line_icon("next" if ready else "pause" if w._model_busy else "download")
+            self.action.setText("下一步" if ready else "暂停下载" if w._model_busy else "一键下载模型")
             self.action.setEnabled(not w._model_busy or w.model_pause_button.isEnabled() and w._uses_cos_models())
         else:
-            self.title.setText("3 / 3 说一句话测试")
-            self.details.setText("点击测试后说一句中文。程序会将识别结果翻成英文，显示在字幕中。\n" +
-                                 (w.talk_state.text() if self.test_started else "等待录音测试。"))
+            self.title.setText("语音试播")
+            self.action.set_line_icon("mic")
+            self.details.setText(w.talk_state.text() if self.test_started else "点击录音测试，说一句中文。")
+            self.details.setToolTip("识别后会把中文翻译成英文并显示在字幕中。")
             self.action.setText("录音测试")
             self.action.setEnabled(not w.talk._busy and bool(w.mic_combo.currentData()))
 
@@ -126,6 +170,7 @@ class Onboarding(QDialog):
 
     def _set_loading(self):
         self._loading = True
+        self._update_step_icons()
         self.action.setText("加载中…")
         self.action.setEnabled(False)
 
