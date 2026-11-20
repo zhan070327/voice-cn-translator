@@ -13,14 +13,14 @@ from importlib.metadata import PackageNotFoundError, version
 from packaging.version import Version
 
 from PySide6.QtCore import QObject, QSignalBlocker, Qt, Signal, QTimer
-from PySide6.QtGui import QColor, QIcon, QPalette
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout, QFrame,
                                QHBoxLayout, QLabel, QLineEdit,
-                               QMainWindow, QMessageBox, QProgressBar,
+                               QMainWindow, QProgressBar,
                                QScrollArea, QSpinBox, QTabWidget,
                                QVBoxLayout, QWidget, QTableWidget,
                                QTableWidgetItem, QAbstractItemView,
-                               QButtonGroup, QColorDialog, QFileDialog, QInputDialog, QSizePolicy)
+                               QButtonGroup, QColorDialog, QSizePolicy)
 
 from valorant_translator.audio.capture import list_devices, preferred_microphone
 from valorant_translator.feedback import FeedbackStore
@@ -34,6 +34,8 @@ from valorant_translator.pipeline import Pipeline, SubtitleResult, TaskTrace
 from valorant_translator.recognition.whisper import LANGUAGES
 from valorant_translator.translation.glossary import GAMES
 from valorant_translator.translation.rules import Rule, RuleStore, now
+from valorant_translator.ui.dialogs import (GlassFileDialog as QFileDialog, GlassInputDialog as QInputDialog,
+                                           GlassMessageBox as QMessageBox, apply_dialog_theme)
 from valorant_translator.ui.glass import (BACKGROUND_THEMES, DEFAULT_ACCENT, DEFAULT_BACKGROUND_COLOR,
                                         GAP, GUTTER, INLINE, CompactLabel, GlassButton, GlassSection,
                                         GlassSurface, accent_color, glass_styles, tint_icons)
@@ -650,15 +652,7 @@ class MainWindow(QMainWindow):
         picker = QColorDialog(initial, self)
         picker.setOption(QColorDialog.ColorDialogOption.DontUseNativeDialog)
         picker.setWindowTitle(title)
-        palette = picker.palette()
-        for role, color in (
-            (QPalette.ColorRole.Window, "#202436"), (QPalette.ColorRole.Base, "#171b2a"),
-            (QPalette.ColorRole.Button, "#31374c"), (QPalette.ColorRole.WindowText, "#f1f1f6"),
-            (QPalette.ColorRole.ButtonText, "#f1f1f6"), (QPalette.ColorRole.Text, "#f1f1f6"),
-        ):
-            palette.setColor(role, QColor(color))
-        picker.setPalette(palette)
-        picker.setStyleSheet(glass_styles(self.settings.accent) + "QColorDialog { background: #202436; }")
+        apply_dialog_theme(picker, self.settings)
         try:
             return picker.selectedColor() if picker.exec() else QColor()
         finally:
@@ -1414,7 +1408,7 @@ class MainWindow(QMainWindow):
         if entry is None:
             return
         corrected, accepted = QInputDialog.getMultiLineText(
-            self, "修正译文", f"识别原文：{entry.original}\n请输入正确译文：",
+            self, "修正译文", f"识别原文：{entry.original}\n当前译文：{entry.corrected_chinese or entry.chinese}\n请输入正确译文：",
             entry.corrected_chinese or entry.chinese)
         if not accepted or not corrected.strip():
             return
@@ -1638,6 +1632,7 @@ class MainWindow(QMainWindow):
     def _open_routing(self):
         if self.routing_wizard is None:
             self.routing_wizard = RoutingWizard(self)
+        apply_dialog_theme(self.routing_wizard, self.settings)
         self.routing_wizard.show()
         self.routing_wizard.raise_()
         self._request_devices()

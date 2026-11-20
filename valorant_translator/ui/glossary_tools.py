@@ -5,14 +5,16 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-                               QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox,
+                               QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
                                QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout)
 
 from valorant_translator.feedback import ERROR_TYPES
-from valorant_translator.translation.glossary import GAMES, game_glossary
+from valorant_translator.translation.glossary import GAMES, game_glossary, read_default_glossary
 from valorant_translator.translation.rules import Rule, now, write_document
-from valorant_translator.ui.glass import GlassButton, glass_styles
+from valorant_translator.ui.dialogs import (GlassFileDialog as QFileDialog, GlassMessageBox as QMessageBox,
+                                           apply_dialog_theme, localize_buttons)
+from valorant_translator.ui.glass import GlassButton
 
 JSON_FILTER = "JSON 文件 (*.json)"
 
@@ -20,7 +22,7 @@ JSON_FILTER = "JSON 文件 (*.json)"
 def dialog(parent, title):
     window = QDialog(parent)
     window.setWindowTitle(title)
-    window.setStyleSheet(glass_styles(parent.settings.accent))
+    apply_dialog_theme(window)
     return window, QVBoxLayout(window)
 
 
@@ -36,6 +38,7 @@ def preview(parent, title, text, *, confirm=False):
     controls.accepted.connect(window.accept)
     controls.rejected.connect(window.reject)
     layout.addWidget(controls)
+    localize_buttons(window)
     window.resize(720, 420)
     # Keep the dialog alive for the duration of exec; callers do not retain it.
     try:
@@ -47,17 +50,18 @@ def preview(parent, title, text, *, confirm=False):
 def entry_text(entry):
     lines = [
         ("时间", entry.created_at), ("游戏", GAMES.get(entry.game, entry.game)),
-        ("语言方向", f"{entry.language} → {entry.target_language}"),
+        ("语言方向", f"{entry.language or '未记录'} → {entry.target_language or '未记录'}"),
         ("原始识别", entry.original), ("纠错后原文", entry.corrected_original),
         ("原始模型译文", entry.machine_translation), ("最终字幕", entry.chinese),
-        ("手动修正", entry.corrected_chinese), ("应用的规则", entry.glossary_rules),
+        ("手动修正", entry.corrected_chinese), ("应用的词库规则", entry.glossary_rules),
     ]
-    return "\n".join(f"{key}：{value}" for key, value in lines if value)
+    return "\n".join(f"{key}：{value or '未记录'}" for key, value in lines)
 
 
 def _table(layout, headers):
     table = QTableWidget(0, len(headers))
     table.setHorizontalHeaderLabels(headers)
+    table.setAlternatingRowColors(True)
     table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -67,6 +71,8 @@ def _table(layout, headers):
 
 
 def _populate(table, rows):
+    table.clearSelection()
+    table.setCurrentCell(-1, -1)
     table.setRowCount(len(rows))
     for r, values in enumerate(rows):
         for c, value in enumerate(values):
@@ -78,12 +84,15 @@ def _populate(table, rows):
 
 def _buttons(layout, items):
     row = QHBoxLayout()
+    buttons = {}
     for title, action in items:
         button = GlassButton(title)
         button.clicked.connect(lambda checked=False, callback=action: callback())
         row.addWidget(button)
+        buttons[title] = button
     row.addStretch()
     layout.addLayout(row)
+    return buttons
 
 
 def _rule_editor(parent, rule):
@@ -129,33 +138,71 @@ def _rule_editor(parent, rule):
     buttons.accepted.connect(accept)
     buttons.rejected.connect(window.reject)
     layout.addWidget(buttons)
+    localize_buttons(window)
     window.exec()
     window.deleteLater()
     return selected
 
 
 def default_glossary(parent):
-    glossary = game_glossary(parent.settings.game)
-    rows = ["默认词库 · " + GAMES.get(parent.settings.game, parent.settings.game)]
-    rows.extend(f"{source} → {target}" for source, target in glossary.data.get("exact_phrases", {}).items())
-    for item in glossary.data.get("rules", []):
-        rows.append(f"{item.get('source')}→{item.get('target')}  {item.get('original')}  "
-                    f"→ {item.get('corrected') or item.get('translated')}  [{item.get('origin')}]")
+    game = parent.settings.game
+    try:
+        data = read_default_glossary(game)
+    except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
+        preview(parent, "默认词库", f"默认词库无法读取。\n原因：{exc}")
+        return
+    rows = ["默认词库 · " + GAMES.get(game, game)]
+    for key, title in (
+        ("exact_phrases", "整句译法"), ("target_replacements", "译文替换"),
+        ("location_aliases", "地图位置"), ("entity_aliases", "人物与武器别名"),
+        ("translated_name_aliases", "译名修正"), ("contextual_rewrites", "语境改写"),
+        ("rules", "识别纠错与台词规则"), ("suppressed_lines", "英雄台词过滤"),
+        ("recognition_hotwords", "识别热词"), ("uncertain_recognition_fragments", "不确定片段"),
+        ("weapon_names", "武器"), ("agent_names", "英雄")
+    ):
+        items = data.get(key)
+        if not items:
+            continue
+        rows.extend(("", f"【{title} · {len(items)} 条】"))
+        if isinstance(items, dict):
+            rows.extend(f"{source} → {', '.join(value) if isinstance(value, list) else value}"
+                        for source, value in items.items())
+        elif key == "rules":
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                target = item.get("corrected") or item.get("translated") or ""
+                rows.append(f"{item.get('source', '')} → {item.get('target', '')}  "
+                            f"{item.get('original', '')} → {target}  [{item.get('origin', '')}]")
+        elif key == "contextual_rewrites":
+            rows.extend(f"{item['source']} · {', '.join(item['literal'])} → {item['natural']}"
+                        for item in items)
+        elif key == "suppressed_lines":
+            rows.extend(f"{item.get('character', '')} · {item.get('original', '')}"
+                        for item in items if isinstance(item, dict))
+        else:
+            rows.extend(items)
+    if len(rows) == 1:
+        rows.append("此游戏目前没有默认词条。可切换到 Valorant 查看内置词库。")
     preview(parent, "默认词库", "\n".join(rows))
 
 
 def manage_rules(parent, store):
     window, layout = dialog(parent, "自定义词库")
     layout.addWidget(QLabel("同范围冲突依次比较优先级、核实状态、更新时间。被停用的词条不参与匹配。"))
-    table = _table(layout, ("游戏", "方向", "原文", "纠错或译文", "优先级", "状态"))
     status = QLabel()
+    status.setWordWrap(True)
     layout.addWidget(status)
+    table = _table(layout, ("游戏", "方向", "原文", "纠错或译文", "优先级", "状态"))
 
     def refresh(message=""):
         _populate(table, [(GAMES.get(rule.game, rule.game), f"{rule.source} → {rule.target}", rule.original,
                            rule.corrected or rule.translated, rule.priority, "启用" if rule.enabled else "停用")
                           for rule in store.rules])
-        status.setText(message)
+        empty = "暂无自定义词条。点击「添加」或「导入」。" if not store.rules else ""
+        status.setText(" ".join(filter(None, (message, empty))))
+        status.setVisible(bool(message or empty))
+        update_actions()
 
     def select():
         row = table.currentRow()
@@ -163,7 +210,7 @@ def manage_rules(parent, store):
 
     def edit(index=None):
         old = store.rules[index] if index is not None else Rule(parent.settings.game, "en", "zh", "")
-        new = _rule_editor(parent, old)
+        new = _rule_editor(window, old)
         if new is None:
             return
         rules = list(store.rules)
@@ -209,9 +256,15 @@ def manage_rules(parent, store):
         except (OSError, ValueError) as exc:
             QMessageBox.warning(window, "操作失败", str(exc))
 
-    _buttons(layout, [("添加", edit), ("编辑", lambda: edit(select()) if select() is not None else None),
-                      ("启用或停用", change), ("删除", lambda: change(remove=True)),
-                      ("导入", lambda: transfer(True)), ("导出", lambda: transfer(False))])
+    actions = _buttons(layout, [("添加", edit), ("编辑", lambda: edit(select())), ("启用或停用", change),
+                                ("删除", lambda: change(remove=True)), ("导入", lambda: transfer(True)),
+                                ("导出", lambda: transfer(False))])
+
+    def update_actions():
+        for action in ("编辑", "启用或停用", "删除"):
+            actions[action].setEnabled(select() is not None)
+
+    table.itemSelectionChanged.connect(update_actions)
     refresh()
     window.resize(850, 420)
     window.exec()
@@ -225,6 +278,10 @@ def submit_feedback(parent, store, entry):
     source.setTextFormat(Qt.TextFormat.PlainText)
     source.setWordWrap(True)
     form.addRow("识别原文", source)
+    current = QLabel(entry.corrected_chinese or entry.chinese or "未记录")
+    current.setTextFormat(Qt.TextFormat.PlainText)
+    current.setWordWrap(True)
+    form.addRow("当前译文", current)
     suggestion = QLineEdit()
     category = QComboBox()
     category.addItems(ERROR_TYPES)
@@ -248,6 +305,7 @@ def submit_feedback(parent, store, entry):
     controls.accepted.connect(save)
     controls.rejected.connect(window.reject)
     layout.addWidget(controls)
+    localize_buttons(window)
     window.exec()
     window.deleteLater()
 
@@ -256,8 +314,12 @@ def review_feedback(parent, store, custom_rules):
     import json
 
     window, layout = dialog(parent, "本地反馈与审核")
-    hint = QLabel("导入文件进入待审核列表。通过的反馈可导出为词库候选。")
+    hint = QLabel("导入反馈后可筛选、通过或拒绝。通过的反馈进入候选词库。")
+    hint.setWordWrap(True)
     layout.addWidget(hint)
+    empty = QLabel()
+    empty.setWordWrap(True)
+    layout.addWidget(empty)
     category = QComboBox()
     category.addItems(("全部类型", *ERROR_TYPES))
     layout.addWidget(category)
@@ -270,6 +332,14 @@ def review_feedback(parent, store, custom_rules):
         keys[:] = [item["id"] for item in records]
         _populate(table, [(item["status"], f"{item['game']} {item['source']}→{item['target']}",
                            item["original"], item["suggested"], item["category"]) for item in records])
+        if store.unreadable:
+            empty.setText("本机反馈文件无法读取。请备份原文件后恢复。")
+        elif not store.entries:
+            empty.setText("暂无反馈。点击「导入反馈」打开测试者的文件。")
+        else:
+            empty.setText("此分类下暂无反馈。可切换错误类型。")
+        empty.setVisible(store.unreadable or not records)
+        update_actions()
 
     def selected():
         row = table.currentRow()
@@ -278,7 +348,7 @@ def review_feedback(parent, store, custom_rules):
     def show():
         record = selected()
         if record:
-            preview(parent, "反馈详情", json.dumps(record, ensure_ascii=False, indent=2))
+            preview(window, "反馈详情", json.dumps(record, ensure_ascii=False, indent=2))
 
     def mark(status):
         record = selected()
@@ -315,7 +385,7 @@ def review_feedback(parent, store, custom_rules):
             data = {"version": 1, "rules": [vars(rule) for rule in store.approved_candidates()]}
         else:
             data = {"version": 1, "feedback": list(store.entries.values())}
-        if not preview(parent, "分享前检查", json.dumps(data, ensure_ascii=False, indent=2), confirm=True):
+        if not preview(window, "分享前检查", json.dumps(data, ensure_ascii=False, indent=2), confirm=True):
             return
         name, _ = QFileDialog.getSaveFileName(window, "导出文件",
                                              "已审核词库候选.json" if candidates else "翻译反馈.json", JSON_FILTER)
@@ -328,9 +398,18 @@ def review_feedback(parent, store, custom_rules):
 
     category.currentIndexChanged.connect(refresh)
     table.doubleClicked.connect(show)
-    _buttons(layout, [("查看", show), ("通过", lambda: mark("Approved")), ("拒绝", lambda: mark("Rejected")),
-                      ("导入反馈", load), ("导出反馈与审核结果", export),
-                      ("导出已审核词库候选", lambda: export(True))])
+    actions = _buttons(layout, [("导入反馈", load), ("查看", show), ("通过", lambda: mark("Approved")),
+                                ("拒绝", lambda: mark("Rejected"))])
+    exports = _buttons(layout, [("导出反馈与审核结果", export),
+                                ("导出已审核词库候选", lambda: export(True))])
+
+    def update_actions():
+        for action in ("查看", "通过", "拒绝"):
+            actions[action].setEnabled(selected() is not None)
+        exports["导出反馈与审核结果"].setEnabled(bool(store.entries))
+        exports["导出已审核词库候选"].setEnabled(any(item["status"] == "Approved" for item in store.entries.values()))
+
+    table.itemSelectionChanged.connect(update_actions)
     refresh()
     window.resize(900, 430)
     window.exec()

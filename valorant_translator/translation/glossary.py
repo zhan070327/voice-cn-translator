@@ -16,10 +16,19 @@ GAMES = {"valorant": "Valorant", "cs2": "CS2", "apex": "Apex",
          "overwatch2": "Overwatch 2", "general": "通用"}
 
 
+def default_glossary_path(game: str) -> Path:
+    game = game if game in GAMES else "valorant"
+    return GLOSSARY_FILE if game == "valorant" else GLOSSARY_FILE.with_name(f"glossary_{game}.json")
+
+
+def read_default_glossary(game: str) -> dict:
+    """Read the installed catalog without personal edits or a cached fallback."""
+    return _valid_data(json.loads(default_glossary_path(game).read_text(encoding="utf-8-sig")))
+
+
 def game_glossary(game: str) -> Glossary:
     game = game if game in GAMES else "valorant"
-    path = GLOSSARY_FILE if game == "valorant" else GLOSSARY_FILE.with_name(f"glossary_{game}.json")
-    return Glossary(path, backup=config.APP_DIR / f"glossary-default-{game}.last-good.json")
+    return Glossary(default_glossary_path(game), backup=config.APP_DIR / f"glossary-default-{game}.last-good.json")
 
 
 def _valid_data(data):

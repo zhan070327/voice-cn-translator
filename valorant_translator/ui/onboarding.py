@@ -3,6 +3,7 @@ import psutil
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QSizePolicy, QVBoxLayout
 
+from valorant_translator.ui.dialogs import apply_dialog_theme
 from valorant_translator.ui.glass import GAP, GUTTER, INLINE, CompactLabel, GlassButton, GlassSurface, tint_icons
 from valorant_translator.ui.icons import LineIcon
 
@@ -84,9 +85,7 @@ class Onboarding(QDialog):
     def apply_theme(self):
         settings = self.window.settings
         self.surface.set_background(settings.background_theme, settings.background_color)
-        stylesheet = self.window.styleSheet()
-        if stylesheet != self.styleSheet():
-            self.setStyleSheet(stylesheet)
+        apply_dialog_theme(self, settings, painted_surface=True)
         tint_icons(self, settings.accent)
 
     def _update_step_icons(self):

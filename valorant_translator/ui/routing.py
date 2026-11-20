@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout
+from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QProgressBar, QScrollArea, QVBoxLayout, QWidget
 
 from valorant_translator.audio.capture import AudioCapture
-from valorant_translator.ui.glass import GlassButton, glass_styles
+from valorant_translator.ui.dialogs import apply_dialog_theme
+from valorant_translator.ui.glass import GlassButton
 
 SONAR_GUIDE = "https://support.steelseries.com/hc/en-us/articles/5785460374797-How-do-I-Setup-Sonar-to-use-Valorant-voice-chat-"
 VB_CABLE = "https://vb-audio.com/Cable/"
@@ -26,11 +27,18 @@ class RoutingWizard(QDialog):
     def __init__(self, window):
         super().__init__(window)
         self.setWindowTitle("语音分流设置")
-        self.setStyleSheet(glass_styles(window.settings.accent))
+        apply_dialog_theme(self, window.settings)
         self.resize(595, 470)
         layout = QVBoxLayout(self)
         self.state = QLabel()
         layout.addWidget(self.state)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        body.setObjectName("pageBody")
+        steps = QVBoxLayout(body)
+        scroll.setWidget(body)
+        layout.addWidget(scroll, 1)
         for title, content in (
             ("1  准备虚拟声音设备", "任选 SteelSeries Sonar Chat 或 VB-CABLE。装好后点击刷新。"),
             ("2  在 VALORANT 设置语音输出", "Audio → Voice Chat → Output Device。选择 Sonar Chat 或 CABLE Input。"
@@ -45,8 +53,8 @@ class RoutingWizard(QDialog):
             heading.setObjectName("translation")
             label = QLabel(content)
             label.setWordWrap(True)
-            layout.addWidget(heading)
-            layout.addWidget(label)
+            steps.addWidget(heading)
+            steps.addWidget(label)
             if title.startswith("1"):
                 links = QHBoxLayout()
                 for label, url in (("Sonar 官方说明", SONAR_GUIDE), ("VB-CABLE 官方下载", VB_CABLE)):
@@ -56,7 +64,7 @@ class RoutingWizard(QDialog):
                 self.refresh_button = GlassButton("刷新设备", icon="refresh")
                 self.refresh_button.clicked.connect(window._request_devices)
                 links.addWidget(self.refresh_button)
-                layout.addLayout(links)
+                steps.addLayout(links)
             if title.startswith("3"):
                 self.devices = QComboBox()
                 self.devices.currentIndexChanged.connect(self._update_state)
@@ -65,7 +73,9 @@ class RoutingWizard(QDialog):
                 self.select_button = GlassButton("使用此声音来源")
                 self.select_button.clicked.connect(self._select)
                 device_row.addWidget(self.select_button)
-                layout.addLayout(device_row)
+                steps.addLayout(device_row)
+
+        steps.addStretch()
 
         samples = QHBoxLayout()
         self.game_sample = GlassButton("采样游戏音效")
