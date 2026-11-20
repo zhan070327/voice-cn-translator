@@ -13,29 +13,29 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         set -euo pipefail
-        sha=8cddb5c3c1796ca6685946add7614311d1852259
+        sha=aac7062ce6cff3bb65aac7c5ad2ab1f83ee042d8
         git merge-base --is-ancestor "$sha" HEAD
-        run="repos/$GITHUB_REPOSITORY/actions/runs/44600127347"
+        run="repos/$GITHUB_REPOSITORY/actions/runs/44689887810"
         gh api "$run" | jq -e --arg repo "$GITHUB_REPOSITORY" --arg sha "$sha" '
           .status == "completed" and .conclusion == "success" and .run_attempt == 1
-          and .path == ".github/workflows/windows-beta.yml" and .head_branch == "feature/b5-integrated"
+          and .path == ".github/workflows/windows-beta.yml" and .head_branch == "feature/b5-final-rc"
           and .head_repository.full_name == $repo and .head_sha == $sha
         ' >/dev/null
         gh api "$run/artifacts" | jq -e '
-          any(.artifacts[]; .id == 14568078101 and .name == "windows-dual-gpu-44600127347-1" and .expired == false)
-          and any(.artifacts[]; .id == 14566299846 and .name == "windows-dual-cpu-44600127347-1" and .expired == false)
+          any(.artifacts[]; .id == 14608714293 and .name == "windows-dual-gpu-44689887810-1" and .expired == false)
+          and any(.artifacts[]; .id == 14608841828 and .name == "windows-dual-cpu-44689887810-1" and .expired == false)
         ' >/dev/null
     - uses: actions/download-artifact@v4
       with:
-        name: windows-dual-gpu-44600127347-1
+        name: windows-dual-gpu-44689887810-1
         path: dist/paired/gpu
-        run-id: 44600127347
+        run-id: 44689887810
         github-token: ${{ inputs.github-token }}
     - uses: actions/download-artifact@v4
       with:
-        name: windows-dual-cpu-44600127347-1
+        name: windows-dual-cpu-44689887810-1
         path: dist/paired/cpu
-        run-id: 44600127347
+        run-id: 44689887810
         github-token: ${{ inputs.github-token }}
     - name: Verify both installer hashes, sizes, versions, notes and build receipts
       shell: bash
@@ -44,8 +44,8 @@ runs:
         python -m pip install 'packaging>=24,<27' -r requirements_publish.txt
         python -m scripts.publish_paired_release \
           --gpu dist/paired/gpu --cpu dist/paired/cpu \
-          --expected-commit 8cddb5c3c1796ca6685946add7614311d1852259 \
-          --expected-run 44600127347 --expected-attempt 1 | tee -a "$GITHUB_STEP_SUMMARY"
+          --expected-commit aac7062ce6cff3bb65aac7c5ad2ab1f83ee042d8 \
+          --expected-run 44689887810 --expected-attempt 1 | tee -a "$GITHUB_STEP_SUMMARY"
     - name: Verify the validated manifest against the exact b4 updater
       shell: bash
       run: |

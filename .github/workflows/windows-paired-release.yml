@@ -1,7 +1,7 @@
 name: Verify and publish b5 CPU and GPU
 on:
   push:
-    branches: [codex/b5-cloud-release, feature/b5-integrated]
+    branches: [feature/b5-final-rc]
     paths: ['.github/workflows/windows-paired-release.yml', '.github/actions/load-b5-build/**', 'scripts/publish_paired_release.py', 'scripts/cos_multipart.py']
   workflow_dispatch:
     inputs:
@@ -68,5 +68,5 @@ jobs:
           COS_SESSION_TOKEN: ${{ secrets.COS_SESSION_TOKEN }}
         run: |
           python -m scripts.publish_paired_release --gpu dist/paired/gpu --cpu dist/paired/cpu \
-            --repo "$GITHUB_REPOSITORY" --expected-commit 8cddb5c3c1796ca6685946add7614311d1852259 \
-            --expected-run 44600127347 --expected-attempt 1 --confirm 'PUBLISH 0.3.0b5'
+            --repo "$GITHUB_REPOSITORY" --expected-commit aac7062ce6cff3bb65aac7c5ad2ab1f83ee042d8 \
+            --expected-run 44689887810 --expected-attempt 1 --confirm 'PUBLISH 0.3.0b5'
