@@ -2,7 +2,7 @@ name: Windows beta build
 
 on:
   push:
-    branches: [feature/ui-two-way, codex/b5-reverse-qa, feature/b5-integrated]
+    branches: [feature/ui-two-way, codex/b5-reverse-qa, feature/b5-integrated, feature/b5-ui-round3, feature/b5-final-rc]
     paths: ['.github/workflows/windows-beta.yml']
   workflow_dispatch:
     inputs:

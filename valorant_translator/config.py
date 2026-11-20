@@ -30,6 +30,8 @@ class Settings:
     model_source: str = "cos"
     game: str = "valorant"
     accent: str = "#FF4655"
+    background_theme: str = "default"
+    background_color: str = ""
     ptt_hotkey: str = "<ctrl>+<shift>+z"
     microphone_id: str = ""
     onboarding_done: bool = False
