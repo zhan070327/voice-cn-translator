@@ -205,9 +205,16 @@ def _make_client():
     if not secret_id or not secret_key:
         raise UpdateError("上传需要 COS_SECRET_ID 和 COS_SECRET_KEY 环境变量；dry-run 不需要。")
     from qcloud_cos import CosConfig, CosS3Client
-    config = CosConfig(Region=REGION, SecretId=secret_id, SecretKey=secret_key,
-                       Token=os.environ.get("COS_SESSION_TOKEN") or None, Scheme="https", Timeout=30)
-    return CosS3Client(config)
+    options = dict(Region=REGION, SecretId=secret_id, SecretKey=secret_key,
+                   Token=os.environ.get("COS_SESSION_TOKEN") or None, Scheme="https", Timeout=300)
+    origin_client = CosS3Client(CosConfig(**options))
+
+    class AcceleratedPublishClient(CosS3Client):
+        def get_bucket_versioning(self, Bucket, **kwargs):
+            # The acceleration endpoint supports object uploads but not this bucket-level guard.
+            return origin_client.get_bucket_versioning(Bucket, **kwargs)
+
+    return AcceleratedPublishClient(CosConfig(Endpoint="cos.accelerate.myqcloud.com", **options))
 
 
 def main() -> None:

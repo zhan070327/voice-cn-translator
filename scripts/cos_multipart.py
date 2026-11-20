@@ -15,8 +15,8 @@ from requests.exceptions import ConnectionError, Timeout
 from scripts import publish_cos as cos
 from valorant_translator.updates.github import UpdateError
 
-PART_BYTES = 32 * 1024**2
-WORKERS = 4
+PART_BYTES = 8 * 1024**2
+WORKERS = 2
 ATTEMPTS = 4
 CRC64 = crcmod.mkCrcFun(0x142F0E1EBA9EA3693, initCrc=0, rev=True, xorOut=2**64-1)
 
