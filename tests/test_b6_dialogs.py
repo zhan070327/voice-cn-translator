@@ -101,6 +101,8 @@ def run_dialogs(action, *steps):
     finally:
         tick.stop()
         watchdog.stop()
+        tick.timeout.disconnect()
+        watchdog.timeout.disconnect()
     if errors:
         raise errors[0]
     assert not remaining, [title for title, _ in remaining]
