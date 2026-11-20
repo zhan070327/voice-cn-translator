@@ -12,8 +12,8 @@ from importlib.metadata import PackageNotFoundError, version
 
 from packaging.version import Version
 
-from PySide6.QtCore import QObject, Qt, Signal, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QObject, QSignalBlocker, Qt, Signal, QTimer
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout, QFrame,
                                QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                                QMainWindow, QMessageBox, QProgressBar,
@@ -32,7 +32,8 @@ from valorant_translator.models.download import (download_models, import_models,
 from valorant_translator.pipeline import Pipeline, SubtitleResult, TaskTrace
 from valorant_translator.recognition.whisper import LANGUAGES
 from valorant_translator.translation.glossary import GAMES
-from valorant_translator.ui.glass import GlassButton, GlassSurface, glass_styles
+from valorant_translator.ui.glass import (BACKGROUND_THEMES, DEFAULT_ACCENT, DEFAULT_BACKGROUND_COLOR,
+                                        GlassButton, GlassSurface, accent_color, glass_styles)
 from valorant_translator.ui.onboarding import Onboarding
 from valorant_translator.ui.overlay import SubtitleOverlay
 from valorant_translator.ui.talk import PushToTalk
@@ -184,9 +185,10 @@ class MainWindow(QMainWindow):
         self.update_bar.hide()
         hero_layout.addWidget(self.update_bar)
         self.update_cancel_button = GlassButton("取消下载")
+        self.update_cancel_button.setProperty("ghost", True)
         self.update_cancel_button.clicked.connect(self._cancel_update)
         self.update_cancel_button.hide()
-        hero_layout.addWidget(self.update_cancel_button)
+        hero_layout.addWidget(self.update_cancel_button, alignment=Qt.AlignmentFlag.AlignHCenter)
         main_layout.addWidget(hero)
         cards = QHBoxLayout()
         self.model_stat = self._stat(cards, "识别模型", "未加载")
@@ -220,6 +222,7 @@ class MainWindow(QMainWindow):
         model_row.addWidget(self.download_button)
         model_row.addWidget(self.import_button)
         self.model_pause_button = GlassButton("暂停下载")
+        self.model_pause_button.setProperty("ghost", True)
         self.model_pause_button.clicked.connect(self._pause_model_download)
         self.model_pause_button.hide()
         model_row.addWidget(self.model_pause_button)
@@ -407,10 +410,26 @@ class MainWindow(QMainWindow):
         form.addRow("显示/隐藏字幕快捷键", self.hotkey_edit)
         theme = GlassButton("选择点缀色")
         theme.clicked.connect(self._choose_accent)
-        form.addRow("主题色", theme)
+        form.addRow("点缀色", theme)
         self.duration_spin = self._spin(int(self.settings.subtitle_seconds), 1, 30)
         form.addRow("字幕显示时长（秒）", self.duration_spin)
         form.addRow(self._hint("音频设备与字幕模式在“快速开始”页面设置。更改识别模型后需下载对应模型。"))
+        self.background_combo = QComboBox()
+        for key, (label, _) in BACKGROUND_THEMES.items():
+            self.background_combo.addItem(label, key)
+        self.background_combo.addItem("自定义", "custom")
+        self.background_combo.setCurrentIndex(max(0, self.background_combo.findData(self.settings.background_theme)))
+        self.background_combo.currentIndexChanged.connect(self._select_background)
+        form.addRow("背景主题", self.background_combo)
+        colors = QHBoxLayout()
+        self.background_color_button = GlassButton("自定义背景色")
+        self.background_color_button.clicked.connect(self._choose_background)
+        self.theme_reset_button = GlassButton("恢复默认")
+        self.theme_reset_button.clicked.connect(self._reset_theme)
+        colors.addWidget(self.background_color_button)
+        colors.addWidget(self.theme_reset_button)
+        colors.addStretch()
+        form.addRow(colors)
         form = self._settings_card(settings_layout, "历史和隐私")
         self.history_check = self._check("保存本地翻译历史（不保存音频）", self.settings.save_history)
         form.addRow(self.history_check)
@@ -453,7 +472,7 @@ class MainWindow(QMainWindow):
         self._build_shell()
 
     def _build_shell(self):
-        self.surface = GlassSurface()
+        self.surface = GlassSurface(self.settings.background_theme, self.settings.background_color)
         shell = QHBoxLayout(self.surface)
         shell.setContentsMargins(15, 15, 15, 15)
         shell.setSpacing(14)
@@ -489,6 +508,7 @@ class MainWindow(QMainWindow):
         self.game_group = QButtonGroup(self)
         for key, name in GAMES.items():
             button = GlassButton(name)
+            button.setProperty("gamePill", True)
             button.setCheckable(True)
             button.setChecked(key == self.settings.game)
             button.clicked.connect(lambda checked=False, game=key: self._select_game(game))
@@ -526,12 +546,42 @@ class MainWindow(QMainWindow):
         return sizes
 
     def _choose_accent(self):
-        from PySide6.QtGui import QColor
-        color = QColorDialog.getColor(QColor(self.settings.accent), self, "选择点缀色")
+        color = QColorDialog.getColor(QColor(accent_color(self.settings.accent)), self, "选择点缀色")
         if color.isValid():
             self.settings.accent = color.name()
-            self.settings.save()
-            self.setStyleSheet(glass_styles(self.settings.accent))
+            self._save_theme()
+
+    def _select_background(self):
+        self.settings.background_theme = self.background_combo.currentData()
+        self._save_theme()
+
+    def _choose_background(self):
+        stored = self.settings.background_color
+        current = QColor(stored if isinstance(stored, str) else "")
+        if not current.isValid():
+            current = QColor(DEFAULT_BACKGROUND_COLOR)
+        color = QColorDialog.getColor(current, self, "自定义背景色")
+        if color.isValid():
+            self.settings.background_color = color.name()
+            self.settings.background_theme = "custom"
+            self._save_theme()
+
+    def _reset_theme(self):
+        self.settings.background_theme = "default"
+        self.settings.background_color = ""
+        self.settings.accent = DEFAULT_ACCENT
+        self._save_theme()
+
+    def _save_theme(self):
+        with QSignalBlocker(self.background_combo):
+            self.background_combo.setCurrentIndex(self.background_combo.findData(self.settings.background_theme))
+        self.settings.save()
+        self.surface.set_background(self.settings.background_theme, self.settings.background_color)
+        stylesheet = glass_styles(self.settings.accent)
+        if stylesheet != self.styleSheet():
+            self.setStyleSheet(stylesheet)
+        if self.onboarding is not None:
+            self.onboarding.apply_theme()
 
     def _select_game(self, game):
         if game == self.settings.game:

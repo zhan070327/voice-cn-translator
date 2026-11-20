@@ -1,9 +1,9 @@
 import psutil
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout
 
-from valorant_translator.ui.glass import GlassButton, GlassSurface, glass_styles
+from valorant_translator.ui.glass import GlassButton, GlassSurface
 
 
 class Onboarding(QDialog):
@@ -19,10 +19,10 @@ class Onboarding(QDialog):
         self.setMinimumSize(525, 325)
         container = QVBoxLayout(self)
         container.setContentsMargins(0, 0, 0, 0)
-        surface = GlassSurface()
-        container.addWidget(surface)
-        self.setStyleSheet(glass_styles(window.settings.accent))
-        layout = QVBoxLayout(surface)
+        self.surface = GlassSurface()
+        container.addWidget(self.surface)
+        self.apply_theme()
+        layout = QVBoxLayout(self.surface)
         layout.setContentsMargins(22, 22, 22, 22)
         panel = QFrame()
         panel.setObjectName("glassCard")
@@ -38,9 +38,9 @@ class Onboarding(QDialog):
         self.progress = QProgressBar()
         card.addWidget(self.progress)
         self.action = GlassButton()
-        self.action.setObjectName("primary")
+        self.action.setProperty("ghost", True)
         self.action.clicked.connect(self._action)
-        card.addWidget(self.action)
+        card.addWidget(self.action, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.finish = GlassButton("完成")
         self.finish.clicked.connect(self.accept)
         buttons = QHBoxLayout()
@@ -54,6 +54,13 @@ class Onboarding(QDialog):
         self.timer.timeout.connect(self._refresh)
         self.timer.start(200)
         self._refresh()
+
+    def apply_theme(self):
+        settings = self.window.settings
+        self.surface.set_background(settings.background_theme, settings.background_color)
+        stylesheet = self.window.styleSheet()
+        if stylesheet != self.styleSheet():
+            self.setStyleSheet(stylesheet)
 
     def _refresh(self):
         if self._loading:

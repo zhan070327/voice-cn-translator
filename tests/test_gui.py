@@ -3,12 +3,14 @@ from __future__ import annotations
 import time
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QGroupBox
 
 from valorant_translator.config import Settings
 from valorant_translator.pipeline import SubtitleResult, TaskTrace
-from valorant_translator.ui.glass import GlassButton
+from valorant_translator.ui.glass import (BACKGROUND_THEMES, DEFAULT_ACCENT, GlassButton,
+                                        GlassSurface, _background_pixmap, background_palette)
 from valorant_translator.ui.overlay import SubtitleOverlay
 
 
@@ -142,6 +144,97 @@ def test_glass_button_animates_without_resizing(qapp):
     QTest.qWait(110)
     assert abs(button.visualScale - 1.0) < 0.001
     button.close()
+
+
+def test_background_presets_draw_distinct_cached_gradients(qapp):
+    surface = GlassSurface()
+    surface.resize(320, 208)
+    surface.show()
+    _background_pixmap.cache_clear()
+    samples = []
+    for theme in BACKGROUND_THEMES:
+        surface.set_background(theme, "")
+        image = surface.grab().toImage()
+        samples.append((image.pixelColor(18, 65).name(), image.pixelColor(307, 196).name()))
+        misses = _background_pixmap.cache_info().misses
+        surface.repaint()
+        surface.grab()
+        assert _background_pixmap.cache_info().misses == misses
+    assert len(set(samples)) == len(BACKGROUND_THEMES)
+    left, right = map(QColor, samples[0])
+    assert left.blue() > left.red() and right.red() > right.blue()
+    assert _background_pixmap.cache_info().misses == len(BACKGROUND_THEMES)
+    surface.close()
+
+
+def test_theme_switches_are_independent_saved_and_shared_with_onboarding(qapp, monkeypatch, tmp_path):
+    from valorant_translator import config
+    from valorant_translator.ui import app as ui
+
+    monkeypatch.setattr(config, "APP_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "settings.json")
+    monkeypatch.setattr(ui, "MODEL_DIR", tmp_path / "models")
+    monkeypatch.setattr(ui, "list_devices", lambda: [])
+    monkeypatch.setattr(ui, "load_channel", lambda: {})
+    monkeypatch.setattr(ui.MainWindow, "_start_hotkey", lambda self: None)
+    Settings(font_size=34).save()
+    window = ui.MainWindow()
+    try:
+        assert window.background_combo.currentData() == "default"
+        assert window.start_button.objectName() == "primary"
+        assert window.update_cancel_button.property("ghost")
+        assert window.model_pause_button.property("ghost")
+        assert all(button.property("gamePill") for button in window.game_group.buttons())
+        style = window.styleSheet()
+        window.background_combo.setCurrentIndex(window.background_combo.findData("indigo"))
+        assert window.styleSheet() == style
+        assert Settings.load().background_theme == "indigo"
+
+        window._show_onboarding()
+        guide = window.onboarding
+        assert guide.surface._background == window.surface._background
+        assert guide.styleSheet() == style
+        assert guide.action.property("ghost")
+
+        def pick_color(_initial, _parent, title):
+            return QColor("#ded342" if title == "自定义背景色" else "#00ac78")
+
+        monkeypatch.setattr(ui.QColorDialog, "getColor", pick_color)
+        window.background_color_button.click()
+        custom = background_palette("custom", "#ded342")
+        assert guide.surface._background == window.surface._background == custom
+        assert window.background_combo.currentData() == "custom"
+        assert window.styleSheet() == style
+        window._choose_accent()
+        assert window.surface._background == custom
+        assert window.styleSheet() != style
+        assert guide.styleSheet() == window.styleSheet()
+        saved = Settings.load()
+        assert (saved.background_theme, saved.background_color, saved.accent) == ("custom", "#ded342", "#00ac78")
+
+        window._model_busy = True
+        guide.step = 1
+        guide._refresh()
+        qapp.processEvents()
+        assert guide.action.text() == "暂停下载"
+        assert guide.action.width() < guide.width() / 3
+        assert guide.action.objectName() != "primary"
+        window._model_busy = False
+        guide.close()
+    finally:
+        window.close()
+
+    reopened = ui.MainWindow()
+    try:
+        assert reopened.surface._background == custom
+        assert reopened.settings.accent == "#00ac78"
+        reopened.theme_reset_button.click()
+        saved = Settings.load()
+        assert saved.background_theme == "default" and saved.accent == DEFAULT_ACCENT
+        assert saved.background_color == "" and saved.font_size == 34
+        assert reopened.surface._background == background_palette("default", "")
+    finally:
+        reopened.close()
 
 
 def test_gui_detects_incompatible_torch_version(monkeypatch):
