@@ -1,4 +1,4 @@
-"""Local M2M100 translation for the five supported speech languages."""
+"""Local M2M100 translation for the supported speech languages."""
 from __future__ import annotations
 
 import gc
@@ -12,7 +12,7 @@ M2M_REPO = "facebook/m2m100_418M"
 M2M_DIR = MODEL_DIR / "m2m100_418M"
 M2M_FILES = ("pytorch_model.bin", "config.json", "sentencepiece.bpe.model",
              "tokenizer_config.json", "vocab.json")
-SUPPORTED_LANGUAGES = frozenset(("en", "ms", "hi", "ta", "th"))
+SUPPORTED_LANGUAGES = frozenset(("en", "ms", "hi", "ta", "th", "ja", "ko"))
 
 
 class LocalM2M:
@@ -59,10 +59,14 @@ class LocalM2M:
         return self._translate_with_fallback(source, language, "zh")
 
     def translate_to_english(self, source: str) -> str:
+        return self.translate_to_english_details(source)[0]
+
+    def translate_to_english_details(self, source: str) -> tuple[str, str | None, str]:
         callout = translate_callout(self.converter.convert(source))
         if callout is not None:
-            return callout
-        return self._translate_with_fallback(source, "zh", "en")
+            return callout, None, "reverse_callout"
+        raw = self._translate_with_fallback(source, "zh", "en")
+        return raw, raw, ""
 
     def _translate_with_fallback(self, source: str, language: str, target: str) -> str:
         self.tokenizer.src_lang = language

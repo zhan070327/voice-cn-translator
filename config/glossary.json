@@ -641,7 +641,18 @@
     "deafen": "致聋。",
     "knocked back": "被击退了。",
     "knockback": "击退。",
-    "revealed": "被发现了。"
+    "revealed": "被发现了。",
+    "my ultimate is ready": "我的大招好了。",
+    "my ultimus ready": "我的大招好了。",
+    "my ultimates ready": "我的大招好了。",
+    "ultimus": "大招。",
+    "ultimates": "大招。",
+    "watch your eyes": "当心眼睛。",
+    "watch your eyes flash": "当心眼睛，有闪。",
+    "watch your eyes careful now": "当心眼睛，小心。",
+    "rotating a": "转 A。",
+    "eco round": "经济局。",
+    "hell": "地狱。"
   },
   "contextual_rewrites": [
     {
@@ -2041,6 +2052,106 @@
     "Crosscut": "传送",
     "Chokehold": "锁喉",
     "Interceptor": "拦截",
-    "Evolution": "进化"
-  }
+    "Evolution": "进化",
+    "看你的眼睛": "当心眼睛"
+  },
+  "version": 1,
+  "rules": [
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "my ultimus ready",
+      "corrected": "My ultimate is ready.",
+      "kind": "asr_correction",
+      "priority": 10,
+      "confidence": 1.0,
+      "enabled": true,
+      "origin": "b5 实机反馈（2026-11-20）",
+      "verified": false,
+      "updated": "2026-11-20T00:00:00Z"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "my ultimates ready",
+      "corrected": "My ultimate is ready.",
+      "kind": "asr_correction",
+      "priority": 10,
+      "confidence": 1.0,
+      "enabled": true,
+      "origin": "b5 实机反馈（2026-11-20）",
+      "verified": false,
+      "updated": "2026-11-20T00:00:00Z"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "ultimus",
+      "corrected": "ultimate",
+      "kind": "asr_correction",
+      "priority": 10,
+      "confidence": 1.0,
+      "enabled": true,
+      "origin": "b5 实机反馈（2026-11-20）",
+      "verified": false,
+      "updated": "2026-11-20T00:00:00Z"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "ultimates",
+      "corrected": "ultimate",
+      "kind": "asr_correction",
+      "priority": 10,
+      "confidence": 1.0,
+      "enabled": true,
+      "origin": "b5 实机反馈（2026-11-20）",
+      "verified": false,
+      "updated": "2026-11-20T00:00:00Z"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "Fire in the hole!",
+      "translated": "小心炸弹！",
+      "character": "Raze",
+      "kind": "official_line",
+      "priority": 10,
+      "confidence": 1.0,
+      "enabled": true,
+      "origin": "https://wiki.playvalorant.com/en-us/Raze/Quotes#Showstopper",
+      "verified": true,
+      "updated": "2026-11-20T00:00:00Z",
+      "localized": ""
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "ultimate",
+      "translated": "大招。",
+      "kind": "term",
+      "priority": 10,
+      "confidence": 1.0,
+      "enabled": true,
+      "origin": "VALORANT 战术术语",
+      "verified": false,
+      "updated": "2026-11-20T00:00:00Z"
+    }
+  ],
+  "suppressed_lines": [
+    {
+      "game": "valorant",
+      "source": "en",
+      "character": "Raze",
+      "original": "You can take the girl out of Salvador, but you'll never take the Salvador out of the girl. Wait...",
+      "origin": "https://wiki.playvalorant.com/en-us/Raze/Quotes#Match_Start",
+      "verified": true
+    }
+  ]
 }

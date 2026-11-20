@@ -122,7 +122,7 @@ def test_main_window_starts_without_models(qapp, monkeypatch, tmp_path):
     window.mode_combo.setCurrentIndex(0)
     assert window.settings.normal_window
     settings_groups = window.tabs.widget(1).findChildren(QGroupBox)
-    assert [group.title() for group in settings_groups] == ["软件更新", "识别和翻译", "字幕", "历史和隐私"]
+    assert [group.title() for group in settings_groups] == ["软件更新", "识别和翻译", "字幕", "历史和隐私", "游戏词库"]
     assert all(isinstance(group, GlassSection) and group.icon.width() == 20 for group in settings_groups)
     assert window.advanced_fields.isHidden()
     previous = (window.vad_spin.value(), window.timeout_spin.value(), window.age_spin.value())
@@ -322,10 +322,10 @@ def test_theme_switches_are_independent_saved_and_shared_with_onboarding(qapp, m
         assert guide.styleSheet() == style
         assert guide.action.property("ghost")
 
-        def pick_color(_initial, _parent, title):
+        def pick_color(_initial, title):
             return QColor("#ded342" if title == "自定义背景色" else "#00ac78")
 
-        monkeypatch.setattr(ui.QColorDialog, "getColor", pick_color)
+        monkeypatch.setattr(window, "_pick_theme_color", pick_color)
         window.background_color_button.click()
         custom = background_palette("custom", "#ded342")
         assert guide.surface._background == window.surface._background == custom
@@ -375,3 +375,119 @@ def test_gui_detects_incompatible_torch_version(monkeypatch):
     assert not ui.MainWindow._torch_version_ok()
     monkeypatch.setattr(ui, "version", lambda name: "2.6.0" if name == "torch" else "0")
     assert ui.MainWindow._torch_version_ok()
+
+
+def test_b6_both_color_pickers_use_readable_non_native_glass(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtGui import QPalette
+    from PySide6.QtWidgets import QColorDialog, QDialog
+    from valorant_translator import config
+    from valorant_translator.ui import app as ui
+
+    monkeypatch.setattr(config, "APP_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "settings.json")
+    monkeypatch.setattr(ui, "list_devices", lambda: [])
+    monkeypatch.setattr(ui, "load_channel", lambda: None)
+    monkeypatch.setattr(ui.MainWindow, "_start_hotkey", lambda self: None)
+    window = ui.MainWindow()
+    seen = []
+
+    def inspect_and_accept():
+        pickers = [widget for widget in qapp.topLevelWidgets()
+                   if isinstance(widget, QColorDialog) and widget.isVisible()]
+        for picker in pickers:
+            seen.append((picker.windowTitle(), picker.testOption(QColorDialog.ColorDialogOption.DontUseNativeDialog),
+                         "QColorDialog" in picker.styleSheet(),
+                         picker.palette().color(QPalette.ColorRole.Window).lightness(),
+                         picker.palette().color(QPalette.ColorRole.WindowText).lightness()))
+            picker.setCurrentColor(QColor("#22778c"))
+            picker.done(QDialog.DialogCode.Accepted)
+
+    try:
+        for action in (window._choose_accent, window._choose_background):
+            QTimer.singleShot(0, inspect_and_accept)
+            # Prevent a modal timeout from hanging CI if the expected widget never appears.
+            watchdog = QTimer(window)
+            watchdog.setSingleShot(True)
+            watchdog.timeout.connect(lambda: [w.reject() for w in window.findChildren(QColorDialog)])
+            watchdog.start(1500)
+            action()
+            watchdog.stop()
+        assert [item[0] for item in seen] == ["选择点缀色", "自定义背景色"]
+        assert all(native_disabled and styled and background < foreground
+                   for _, native_disabled, styled, background, foreground in seen)
+        assert Settings.load().accent == "#22778c"
+        assert Settings.load().background_color == "#22778c"
+    finally:
+        window.close()
+
+
+def test_b6_routing_and_automatic_ptt_do_not_share_device_setting(qapp, monkeypatch, tmp_path):
+    from valorant_translator import config
+    from valorant_translator.audio.capture import AudioDevice
+    from valorant_translator.ui import app as ui
+
+    monkeypatch.setattr(config, "APP_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "settings.json")
+    old_mic = AudioDevice("old", "旧麦克风", False)
+    new_mic = AudioDevice("new", "新默认麦克风", False)
+    team = AudioDevice("speakers", "耳机", True)
+    sonar = AudioDevice("chat", "SteelSeries Sonar - Chat", True)
+    monkeypatch.setattr(ui, "list_devices", lambda: [old_mic, team, sonar])
+    monkeypatch.setattr(ui, "load_channel", lambda: None)
+    monkeypatch.setattr(ui.MainWindow, "_start_hotkey", lambda self: None)
+    monkeypatch.setattr(ui.MainWindow, "_models_ready", lambda self: True)
+    window = ui.MainWindow()
+    try:
+        assert window.settings.device_id == "speakers"
+        monkeypatch.setattr(ui, "list_devices", lambda: [new_mic, team, sonar])
+        seen = []
+        monkeypatch.setattr(window.talk, "begin", lambda settings, **kw: seen.append(settings.microphone_id) or True)
+        assert window._begin_talk()
+        assert seen == ["new"]
+        assert window.settings.device_id == "speakers"
+        assert Settings.load().microphone_id == "new"
+        assert "新默认麦克风" in window.microphone_stat.text()
+        monkeypatch.setattr(window, "_request_devices", lambda: None)
+        window._open_routing()
+        wizard = window.routing_wizard
+        assert wizard.devices.count() == 1 and wizard.devices.currentData() == "chat"
+        assert "尚未设为当前声音来源" in wizard.state.text()
+        wizard.select_button.click()
+        assert Settings.load().device_id == "chat"
+        assert Settings.load().microphone_id == "new"
+        assert "待验证" in wizard.state.text()
+        assert not wizard.verify_button.isEnabled()
+        wizard.close()
+    finally:
+        window.close()
+
+
+def test_b6_history_correction_requires_explicit_scope(qapp, monkeypatch, tmp_path):
+    from valorant_translator import config
+    from valorant_translator.ui import app as ui
+
+    monkeypatch.setattr(config, "APP_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "settings.json")
+    monkeypatch.setattr(ui, "list_devices", lambda: [])
+    monkeypatch.setattr(ui, "load_channel", lambda: None)
+    monkeypatch.setattr(ui.MainWindow, "_start_hotkey", lambda self: None)
+    window = ui.MainWindow()
+    try:
+        window.history.add_result(SubtitleResult("Go A", "去 A。", "en", 0.1, 0.1, 0.2))
+        window._refresh_history()
+        window.history_table.selectRow(0)
+        monkeypatch.setattr(ui.QInputDialog, "getMultiLineText", lambda *_: ("全队去 A。", True))
+        monkeypatch.setattr(ui.QInputDialog, "getItem", lambda *_, **__: ("仅修正本条历史", True))
+        window._correct_history()
+        assert window.history.recent()[0].corrected_chinese == "全队去 A。"
+        assert not window.custom_rules.rules
+        assert window.history.lookup_correction("go a", "en") is None
+        window.history_table.selectRow(0)
+        monkeypatch.setattr(ui.QInputDialog, "getItem", lambda *_, **__: ("保存到我的词库", True))
+        window._correct_history()
+        [rule] = window.custom_rules.rules
+        assert (rule.original, rule.translated, rule.game, rule.source, rule.target) == (
+            "Go A", "全队去 A。", "valorant", "en", "zh")
+    finally:
+        window.close()

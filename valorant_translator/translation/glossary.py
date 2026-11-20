@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 
+from valorant_translator import config
 from valorant_translator.config import APP_DIR
+
+LOG = logging.getLogger(__name__)
 
 GLOSSARY_FILE = Path(__file__).resolve().parents[2] / "config" / "glossary.json"
 CUSTOM_GLOSSARY_FILE = APP_DIR / "glossary_custom.json"
@@ -13,14 +17,61 @@ GAMES = {"valorant": "Valorant", "cs2": "CS2", "apex": "Apex",
 
 
 def game_glossary(game: str) -> Glossary:
-    if game == "valorant" or game not in GAMES:
-        return Glossary()
-    return Glossary(GLOSSARY_FILE.with_name(f"glossary_{game}.json"))
+    game = game if game in GAMES else "valorant"
+    path = GLOSSARY_FILE if game == "valorant" else GLOSSARY_FILE.with_name(f"glossary_{game}.json")
+    return Glossary(path, backup=config.APP_DIR / f"glossary-default-{game}.last-good.json")
+
+
+def _valid_data(data):
+    if not isinstance(data, dict) or type(data.get("version", 1)) is not int or data.get("version", 1) != 1:
+        raise ValueError("Unsupported glossary format")
+    for name in ("exact_phrases", "target_replacements"):
+        if any(not isinstance(value, str) for value in data.get(name, {}).values()):
+            raise ValueError(f"Invalid {name}")
+    for name in ("location_aliases", "entity_aliases", "translated_name_aliases"):
+        if any(not isinstance(values, list) or not all(isinstance(value, str) for value in values)
+               for values in data.get(name, {}).values()):
+            raise ValueError(f"Invalid {name}")
+    for name in ("recognition_hotwords", "weapon_names", "agent_names", "uncertain_recognition_fragments"):
+        values = data.get(name, [])
+        if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+            raise ValueError(f"Invalid {name}")
+    for rule in data.get("contextual_rewrites", []):
+        if not (isinstance(rule["source"], str) and isinstance(rule["natural"], str)
+                and isinstance(rule["literal"], list) and all(isinstance(v, str) for v in rule["literal"])):
+            raise ValueError("Invalid contextual rewrite")
+    for name in ("rules", "suppressed_lines"):
+        if not isinstance(data.get(name, []), list):
+            raise ValueError(f"Invalid {name}")
+    return data
+
+
+def _load_default(path, backup):
+    for candidate in (path, backup):
+        if candidate is None:
+            continue
+        try:
+            payload = candidate.read_text(encoding="utf-8-sig")
+            data = _valid_data(json.loads(payload))
+        except (OSError, ValueError, TypeError, AttributeError, KeyError):
+            LOG.warning("Glossary could not be loaded from %s", candidate, exc_info=True)
+            continue
+        if candidate == path and backup is not None:
+            try:
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                if not backup.is_file() or backup.read_text(encoding="utf-8", errors="replace") != payload:
+                    tmp = backup.with_suffix(".tmp")
+                    tmp.write_text(payload, encoding="utf-8")
+                    tmp.replace(backup)
+            except OSError:
+                LOG.warning("Unable to cache default glossary", exc_info=True)
+        return data
+    return {}
 
 
 class Glossary:
-    def __init__(self, path: Path = GLOSSARY_FILE):
-        self.data = json.loads(path.read_text(encoding="utf-8"))
+    def __init__(self, path: Path = GLOSSARY_FILE, *, backup: Path | None = None):
+        self.data = _load_default(path, backup)
         if path == GLOSSARY_FILE and CUSTOM_GLOSSARY_FILE.is_file():
             try:
                 custom = json.loads(CUSTOM_GLOSSARY_FILE.read_text(encoding="utf-8"))
@@ -30,6 +81,7 @@ class Glossary:
                     # The b4 installer sometimes saved a full copy of the old built-in dictionary.
                     # Keep actual edits from those copies without masking new b5 defaults.
                     full_copy = bool(legacy and legacy.keys() <= custom.keys())
+                    merged = json.loads(json.dumps(self.data))
                     for key, value in custom.items():
                         if full_copy:
                             baseline = legacy.get(key)
@@ -37,14 +89,15 @@ class Glossary:
                                 value = {k: v for k, v in value.items() if baseline.get(k) != v}
                             elif isinstance(value, list) and isinstance(baseline, list):
                                 value = [item for item in value if item not in baseline]
-                        if key not in self.data:
+                        if key in {"rules", "suppressed_lines", "version"} or key not in merged:
                             continue
-                        if isinstance(value, dict) and isinstance(self.data[key], dict):
-                            self.data[key].update(value)
-                        elif isinstance(value, list) and isinstance(self.data[key], list):
-                            self.data[key].extend(item for item in value if item not in self.data[key])
-            except (OSError, ValueError, TypeError):
-                pass
+                        if isinstance(value, dict) and isinstance(merged[key], dict):
+                            merged[key].update(value)
+                        elif isinstance(value, list) and isinstance(merged[key], list):
+                            merged[key].extend(item for item in value if item not in merged[key])
+                    self.data = _valid_data(merged)
+            except (OSError, ValueError, TypeError, AttributeError, KeyError):
+                LOG.warning("Invalid legacy custom glossary", exc_info=True)
         terms = [*self.data.get("recognition_hotwords", []),
                  *self.data.get("weapon_names", []), *self.data.get("agent_names", [])]
         self.hotwords = ", ".join(dict.fromkeys(terms))
@@ -62,6 +115,20 @@ class Glossary:
         self.uncertain_fragments = {
             self.normalize(item) for item in self.data.get("uncertain_recognition_fragments", [])
         }
+
+        words = {key: value for key, value in {**self.agents, **self.weapons}.items() if key}
+        self._entity_names = words
+        self._entity_pattern = self._pattern(words)
+        targets = self.data.get("target_replacements", {})
+        self._targets = {key.casefold(): value for key, value in targets.items() if key != "看你的眼睛"}
+        self._target_pattern = self._pattern(self._targets)
+
+    @staticmethod
+    def _pattern(keys):
+        if not keys:
+            return None
+        alternatives = "|".join(map(re.escape, sorted(keys, key=len, reverse=True)))
+        return re.compile(rf"(?<!\w)(?:{alternatives})(?!\w)", re.IGNORECASE)
 
     def is_uncertain_fragment(self, source: str) -> bool:
         return self.normalize(source) in self.uncertain_fragments
@@ -127,15 +194,16 @@ class Glossary:
 
         count = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
                  "1": 1, "2": 2, "3": 3, "4": 4, "5": 5}
-        for alias, place in self.locations.items():
-            escaped = re.escape(alias)
-            number = r"(one|two|three|four|five|[1-5])"
-            match = re.fullmatch(rf"{number} (?:at |on |in )?{escaped}", text)
-            if not match:
-                match = re.fullmatch(rf"{escaped} {number}", text)
-            if match:
-                amount = {1: "一个", 2: "两个", 3: "三个", 4: "四个", 5: "五个"}
-                return f"{place}{amount[count[match.group(1)]]}。"
+        number = r"(one|two|three|four|five|[1-5])"
+        match = re.fullmatch(rf"{number} (?:at |on |in )?(.+)", text)
+        if match and match.group(2) in self.locations:
+            amount, alias = count[match.group(1)], match.group(2)
+        else:
+            match = re.fullmatch(rf"(.+) {number}", text)
+            alias, amount = (match.group(1), count[match.group(2)]) if match else ("", 0)
+        if alias in self.locations:
+            amount_text = {1: "一个", 2: "两个", 3: "三个", 4: "四个", 5: "五个"}
+            return f"{self.locations[alias]}{amount_text[amount]}。"
 
         match = re.fullmatch(r"(?:go |lets |we )?rush(?: to)? ([abc])(?: now)?", text)
         if match:
@@ -157,13 +225,12 @@ class Glossary:
         match = re.fullmatch(r"go (?:to )?([abc])", text)
         if match:
             return f"去 {match.group(1).upper()}。"
-        for alias, place in self.locations.items():
-            if text == f"push {alias}":
-                return f"压 {place}。"
-            if text == f"smoke {alias}":
-                return f"{place}封烟。"
-            if text == f"flash {alias}":
-                return f"{place}给闪。"
+        action, _, alias = text.partition(" ")
+        place = self.locations.get(alias)
+        if place:
+            callout = {"push": f"压 {place}。", "smoke": f"{place}封烟。", "flash": f"{place}给闪。"}
+            if action in callout:
+                return callout[action]
         if text in self.agents:
             return f"{self.agents[text]}。"
         if text in self.weapons:
@@ -172,8 +239,12 @@ class Glossary:
 
     def postprocess(self, translated: str, original: str = "") -> str:
         text = translated.strip()
-        for source, target in self.data.get("target_replacements", {}).items():
-            text = re.sub(rf"(?i)(?<![\w]){re.escape(source)}(?![\w])", target, text)
+        if self._target_pattern:
+            text = self._target_pattern.sub(lambda match: self._targets.get(match[0].casefold(), match[0]), text)
+        eye_warning = self.data.get("target_replacements", {}).get("看你的眼睛")
+        if eye_warning and any(self.normalize(part) == "watch your eyes"
+                               for part in re.split(r"[.!?。！？,，;；]+", original)):
+            text = text.replace("看你的眼睛", eye_warning, 1)
         # Repair known literal model output only when the matching English phrase
         # is a complete utterance or a punctuated clause in the ASR transcript.
         # This avoids changing e.g. "give me a moment of silence" into "wait for me".
@@ -184,10 +255,14 @@ class Glossary:
                 for literal in rule["literal"]:
                     text = text.replace(literal, rule["natural"])
         source_words = self.normalize(original)
-        source_entities = {canonical for alias, canonical in {**self.weapons, **self.agents}.items()
-                           if re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", source_words)}
+        source_entities = dict.fromkeys(
+            self._entity_names[match[0]] for match in self._entity_pattern.finditer(source_words)
+        ) if self._entity_pattern else {}
+        aliases = {}
         for canonical in source_entities:
-            aliases = self.data.get("translated_name_aliases", {}).get(canonical, [])
-            for alias in sorted(aliases, key=len, reverse=True):
-                text = text.replace(alias, canonical)
+            for alias in self.data.get("translated_name_aliases", {}).get(canonical, []):
+                aliases.setdefault(alias, canonical)
+        if aliases:
+            pattern = "|".join(map(re.escape, sorted(aliases, key=len, reverse=True)))
+            text = re.sub(pattern, lambda match: aliases[match[0]], text)
         return text[:100]

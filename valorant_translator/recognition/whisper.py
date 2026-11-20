@@ -12,7 +12,7 @@ from valorant_translator.translation.glossary import Glossary
 
 LOG = logging.getLogger(__name__)
 LANGUAGES = {"en": "英语", "ms": "马来语", "hi": "印地语", "ta": "泰米尔语",
-             "th": "泰语", "zh": "中文（直接显示）"}
+             "th": "泰语", "ja": "日语", "ko": "韩语", "zh": "中文（直接显示）"}
 WHISPER_REPOS = {
     "tiny": "Systran/faster-whisper-tiny",
     "base": "Systran/faster-whisper-base",
@@ -60,7 +60,7 @@ def filter_segments(segments, info, locked, glossary, on_rejection=None):
     lang = locked or info.language
     confidence = float(info.language_probability) if locked is None else 1.0
     han_count = sum("\u4e00" <= char <= "\u9fff" for char in text)
-    if locked is None and han_count >= 2 and han_count > sum(
+    if locked is None and lang not in {"ja", "ko"} and han_count >= 2 and han_count > sum(
             char.isascii() and char.isalpha() for char in text):
         lang = "zh"
 
@@ -99,7 +99,7 @@ def filter_segments(segments, info, locked, glossary, on_rejection=None):
     minimum = 2 if lang == "zh" else 3
     if len(text) < minimum or not any(c.isalnum() for c in text):
         return reject(f"文本过短（{len(text)} 字符，至少 {minimum}）或无有效字符")
-    if locked is None and known_callout and text.isascii():
+    if locked is None and known_callout and lang not in {"ja", "ko"} and text.isascii():
         lang = "en"
     return Recognition(text, lang, confidence)
 

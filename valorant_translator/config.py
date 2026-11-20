@@ -29,6 +29,12 @@ class Settings:
     normal_window: bool = True
     model_source: str = "cos"
     game: str = "valorant"
+    game_terms: bool = True
+    official_lines: bool = True
+    asr_correction: bool = True
+    teammate_only: bool = True
+    routing_intro_seen: bool = False
+    routing_verified_id: str = ""
     accent: str = "#FF4655"
     background_theme: str = "default"
     background_color: str = ""

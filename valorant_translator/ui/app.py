@@ -13,7 +13,7 @@ from importlib.metadata import PackageNotFoundError, version
 from packaging.version import Version
 
 from PySide6.QtCore import QObject, QSignalBlocker, Qt, Signal, QTimer
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtGui import QColor, QIcon, QPalette
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout, QFrame,
                                QHBoxLayout, QLabel, QLineEdit,
                                QMainWindow, QMessageBox, QProgressBar,
@@ -22,7 +22,8 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout, 
                                QTableWidgetItem, QAbstractItemView,
                                QButtonGroup, QColorDialog, QFileDialog, QInputDialog, QSizePolicy)
 
-from valorant_translator.audio.capture import list_devices
+from valorant_translator.audio.capture import list_devices, preferred_microphone
+from valorant_translator.feedback import FeedbackStore
 from valorant_translator.config import APP_DIR, MODEL_DIR, Settings
 from valorant_translator.history import HistoryStore
 from valorant_translator.models.catalog import fetch_catalog, install_selected
@@ -32,13 +33,17 @@ from valorant_translator.models.download import (download_models, import_models,
 from valorant_translator.pipeline import Pipeline, SubtitleResult, TaskTrace
 from valorant_translator.recognition.whisper import LANGUAGES
 from valorant_translator.translation.glossary import GAMES
+from valorant_translator.translation.rules import Rule, RuleStore, now
 from valorant_translator.ui.glass import (BACKGROUND_THEMES, DEFAULT_ACCENT, DEFAULT_BACKGROUND_COLOR,
                                         GAP, GUTTER, INLINE, CompactLabel, GlassButton, GlassSection,
                                         GlassSurface, accent_color, glass_styles, tint_icons)
+from valorant_translator.ui.glossary_tools import (default_glossary, entry_text, manage_rules, preview,
+                                                   review_feedback, submit_feedback)
 from valorant_translator.ui.icons import LineIcon
 from valorant_translator.ui.onboarding import Onboarding
 from valorant_translator.ui.overlay import SubtitleOverlay
-from valorant_translator.ui.talk import PushToTalk
+from valorant_translator.ui.routing import RoutingWizard, routing_devices
+from valorant_translator.ui.talk import SILENT_RMS, PushToTalk
 from valorant_translator.updates.channel import check_for_update
 from valorant_translator.updates.domestic import load_channel
 from valorant_translator.updates.github import (UpdateCancelled, download_installer,
@@ -58,6 +63,8 @@ class Bridge(QObject):
     talk_end = Signal()
     talk_status = Signal(str)
     talk_result = Signal(object)
+    talk_details = Signal(object)
+    talk_level = Signal(float)
     model_catalog = Signal(object)
     download_done = Signal()
     model_download_progress = Signal(object, object, float)
@@ -80,6 +87,11 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = Settings.load()
+        self.custom_rules = RuleStore()
+        self.feedback_store = FeedbackStore()
+        self.audio_devices = []
+        self._quiet_since = None
+        self.routing_wizard = None
         try:
             self.history = HistoryStore()
             self.history_error = ""
@@ -108,13 +120,18 @@ class MainWindow(QMainWindow):
         self._recent_trace: deque[TaskTrace] = deque(maxlen=10)
         self._task_timings: dict[int, dict[str, float]] = {}
         self._trace_token = None
+        self._last_diagnostics = None
         self._active_icon_tasks: set[tuple[int, str]] = set()
         self.bridge = Bridge()
-        self.talk = PushToTalk(self.bridge.talk_status.emit, self.bridge.talk_result.emit)
+        self.talk = PushToTalk(self.bridge.talk_status.emit, self.bridge.talk_result.emit,
+                               level=self.bridge.talk_level.emit, details=self.bridge.talk_details.emit,
+                               custom_rules=self.custom_rules)
         self.bridge.talk_begin.connect(self._begin_talk)
         self.bridge.talk_end.connect(self.talk.end)
         self.bridge.talk_result.connect(self._reverse_result)
         self.bridge.talk_status.connect(self._talk_status)
+        self.bridge.talk_level.connect(self._talk_level)
+        self.bridge.talk_details.connect(self._save_reverse_history)
         self.bridge.model_catalog.connect(self._catalog_ready)
         self.bridge.status.connect(self._status)
         self.bridge.level.connect(self._show_audio_level)
@@ -148,6 +165,8 @@ class MainWindow(QMainWindow):
         self._refresh_model_status()
         self._update_mode_hint()
         QTimer.singleShot(0, self._show_update_result)
+        if sys.platform == "win32" and not self.settings.routing_intro_seen:
+            QTimer.singleShot(0, self._show_routing_intro)
         if self._model_channel and self._model_channel["channel"] in ("domestic", "dual") and "model_manifest_url" in self._model_channel:
             threading.Thread(target=self._fetch_model_catalog, name="model-catalog", daemon=True).start()
         else:
@@ -326,6 +345,9 @@ class MainWindow(QMainWindow):
         self.reverse_icon = talk_group.icon
         self.talk_state = self._compact("按住说话，松开翻译。")
         talk_layout.addWidget(self.talk_state)
+        self.microphone_level = self._compact("")
+        self.microphone_level.hide()
+        talk_layout.addWidget(self.microphone_level)
         self.talk_button = GlassButton("按住说话", icon="mic")
         self.talk_button.setToolTip("按住按钮或设置中的说话快捷键，松开后翻译。")
         self.talk_button.pressed.connect(self._begin_talk)
@@ -406,6 +428,11 @@ class MainWindow(QMainWindow):
         self.mic_combo = QComboBox()
         self.mic_combo.currentIndexChanged.connect(self._save_settings)
         self._row(form, "麦克风", self.mic_combo)
+        self.routing_button = GlassButton("语音分流设置", icon="speaker")
+        self.routing_button.clicked.connect(self._open_routing)
+        form.addRow(self.routing_button)
+        self.routing_status = self._hint("")
+        form.addRow(self.routing_status)
         self.advanced_button = GlassButton("高级设置", icon="settings")
         self.advanced_button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.advanced_button.setCheckable(True)
@@ -473,6 +500,17 @@ class MainWindow(QMainWindow):
         self.history_check.setToolTip("只保存识别文字与译文，不保存音频。")
         form.addRow(self.history_check)
         self.feedback_button.setToolTip("诊断仅本次运行保留，分享前可检查是否包含对话原文。")
+        glossary_form = self._settings_card(settings_layout, "游戏词库", "settings")
+        self.glossary_checks = {}
+        for key, title in (("game_terms", "启用游戏术语优化"), ("official_lines", "启用官方台词匹配"),
+                           ("asr_correction", "启用语音识别纠错"), ("teammate_only", "只翻译队友语音（过滤英雄语音）")):
+            check = self._check(title, getattr(self.settings, key))
+            self.glossary_checks[key] = check
+            glossary_form.addRow(check)
+        self.glossary_checks["teammate_only"].setToolTip(
+            "只过滤词库中已核实的整句英雄台词。分流可避免游戏音效进入翻译器。")
+        glossary_form.addRow(self._hint("通过窗口顶部手动选择游戏。"))
+        self._glossary_actions(glossary_form)
         settings_layout.addStretch()
         self.tabs.addTab(self._scroll(settings_page), "详细设置")
 
@@ -480,12 +518,12 @@ class MainWindow(QMainWindow):
         history_layout = QVBoxLayout(self.history_page)
         history_layout.setContentsMargins(GUTTER, GAP, GUTTER, GUTTER)
         history_hint = self._hint("最近 1000 条 · 仅在本机保存")
-        history_hint.setToolTip("不保存音频。修正译文后，同样的原文会优先使用你的修正。")
+        history_hint.setToolTip("只修正选中记录，或明确选择将译法保存到我的词库。")
         history_layout.addWidget(history_hint)
         if self.history_error:
             history_layout.addWidget(self._hint(f"历史记录暂不可用：{self.history_error}"))
         self.history_table = QTableWidget(0, 5)
-        self.history_table.setHorizontalHeaderLabels(("时间", "识别原文", "中文字幕", "语言", "延迟"))
+        self.history_table.setHorizontalHeaderLabels(("时间", "识别原文", "字幕译文", "语言", "延迟"))
         self.history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.history_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -507,6 +545,16 @@ class MainWindow(QMainWindow):
             history_buttons.addWidget(button)
         history_buttons.addStretch()
         history_layout.addLayout(history_buttons)
+        extra = QHBoxLayout()
+        for label, action in (("查看详情", self._history_details), ("反馈翻译错误", self._feedback_history),
+                              ("反馈与审核", self._review_feedback), ("导入旧 CSV", self._import_history)):
+            button = GlassButton(label)
+            button.clicked.connect(action)
+            button.setEnabled(self.history is not None or label == "反馈与审核")
+            extra.addWidget(button)
+        extra.addStretch()
+        history_layout.addLayout(extra)
+        self.history_table.doubleClicked.connect(self._history_details)
         self.tabs.addTab(self.history_page, "翻译历史")
         self._build_shell()
 
@@ -598,8 +646,26 @@ class MainWindow(QMainWindow):
         sizes[f"Whisper {size}"] = bundle.size if bundle else specs.get(f"whisper-{size}")
         return sizes
 
+    def _pick_theme_color(self, initial, title):
+        picker = QColorDialog(initial, self)
+        picker.setOption(QColorDialog.ColorDialogOption.DontUseNativeDialog)
+        picker.setWindowTitle(title)
+        palette = picker.palette()
+        for role, color in (
+            (QPalette.ColorRole.Window, "#202436"), (QPalette.ColorRole.Base, "#171b2a"),
+            (QPalette.ColorRole.Button, "#31374c"), (QPalette.ColorRole.WindowText, "#f1f1f6"),
+            (QPalette.ColorRole.ButtonText, "#f1f1f6"), (QPalette.ColorRole.Text, "#f1f1f6"),
+        ):
+            palette.setColor(role, QColor(color))
+        picker.setPalette(palette)
+        picker.setStyleSheet(glass_styles(self.settings.accent) + "QColorDialog { background: #202436; }")
+        try:
+            return picker.selectedColor() if picker.exec() else QColor()
+        finally:
+            picker.deleteLater()
+
     def _choose_accent(self):
-        color = QColorDialog.getColor(QColor(accent_color(self.settings.accent)), self, "选择点缀色")
+        color = self._pick_theme_color(QColor(accent_color(self.settings.accent)), "选择点缀色")
         if color.isValid():
             self.settings.accent = color.name()
             self._save_theme()
@@ -613,7 +679,7 @@ class MainWindow(QMainWindow):
         current = QColor(stored if isinstance(stored, str) else "")
         if not current.isValid():
             current = QColor(DEFAULT_BACKGROUND_COLOR)
-        color = QColorDialog.getColor(current, self, "自定义背景色")
+        color = self._pick_theme_color(current, "自定义背景色")
         if color.isValid():
             self.settings.background_color = color.name()
             self.settings.background_theme = "custom"
@@ -794,7 +860,8 @@ class MainWindow(QMainWindow):
         old_fast = settings.fast_mode
         old_model = settings.whisper_model
         old_compute = settings.compute_device
-        settings.device_id = str(self.device_combo.currentData() or "")
+        if self.device_combo.currentData():
+            settings.device_id = str(self.device_combo.currentData())
         settings.language = self.language_combo.currentData()
         settings.whisper_model = self.model_combo.currentData()
         settings.compute_device = self.compute_combo.currentData()
@@ -815,7 +882,13 @@ class MainWindow(QMainWindow):
             self.click_check.blockSignals(False)
         settings.hotkey = self.hotkey_edit.text().strip()
         settings.ptt_hotkey = self.ptt_hotkey_edit.text().strip()
-        settings.microphone_id = str(self.mic_combo.currentData() or "")
+        if self.mic_combo.currentData():
+            settings.microphone_id = str(self.mic_combo.currentData())
+        for key, check in self.glossary_checks.items():
+            enabled = check.isChecked()
+            setattr(settings, key, enabled)
+            if self.pipeline:
+                setattr(self.pipeline.settings, key, enabled)
         settings.vad_level = self.vad_spin.value()
         settings.translation_timeout = float(self.timeout_spin.value())
         settings.max_task_age = float(self.age_spin.value())
@@ -927,6 +1000,8 @@ class MainWindow(QMainWindow):
         self.devices_refreshed.emit(not error)
 
     def _apply_devices(self, devices) -> None:
+        self.audio_devices = list(devices)
+        devices = self.audio_devices
         self.device_combo.blockSignals(True)
         self.device_combo.clear()
         for device in devices:
@@ -939,17 +1014,30 @@ class MainWindow(QMainWindow):
             index = next((i for i, device in enumerate(devices) if device.loopback), 0)
         self.device_combo.setCurrentIndex(index)
         self.device_combo.blockSignals(False)
-        self.mic_combo.blockSignals(True)
-        self.mic_combo.clear()
-        for device in devices:
-            if not device.loopback:
-                self.mic_combo.addItem(device.name, device.id)
-        self.mic_combo.setCurrentIndex(max(0, self.mic_combo.findData(self.settings.microphone_id)))
-        self.mic_combo.blockSignals(False)
+        microphone = preferred_microphone(devices, self.settings.microphone_id)
+        self._apply_microphones(devices, microphone)
+        old = self.settings.microphone_id
         self._save_settings()
+        if microphone and old != microphone.id:
+            self.statusBar().showMessage(f"已自动使用麦克风：{microphone.name}", 5000)
+
+    def _apply_microphones(self, devices, microphone):
+        with QSignalBlocker(self.mic_combo):
+            self.mic_combo.clear()
+            for device in devices:
+                if not device.loopback:
+                    self.mic_combo.addItem(device.name, device.id)
+            if microphone:
+                self.mic_combo.setCurrentIndex(self.mic_combo.findData(microphone.id))
 
     def _update_device_hint(self) -> None:
-        self.microphone_stat.setText(self.mic_combo.currentText() or "未检测到")
+        mic = self.mic_combo.currentText()
+        self.microphone_stat.setText(f"{mic} · 可用" if mic else "未检测到")
+        route = next((device for device in routing_devices(self.audio_devices)
+                      if device.id == self.device_combo.currentData()), None)
+        routed = route is not None and route.id == self.settings.routing_verified_id
+        self.routing_status.setText(f"上次已确认分流 · {route.name}" if routed else
+                                    f"语音设备 · {route.name}（待验证）" if route else "未分流")
         self.device_hint.show()
         if self.device_combo.currentIndex() < 0:
             self.device_hint.setText("没有可用设备，连接后刷新。")
@@ -982,7 +1070,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "PyTorch 版本过低",
                                 "请先关闭程序，在项目文件夹双击 repair_torch_windows.bat，更新完成后再打开。")
             return
-        if not self.settings.device_id:
+        if not self.device_combo.currentData():
             QMessageBox.warning(self, "未选择音频设备", "请在“声音来源”选择系统声音。")
             return
         self._recent_trace.clear()
@@ -993,7 +1081,9 @@ class MainWindow(QMainWindow):
         self.pipeline = Pipeline(self._effective_settings(), self.bridge.status.emit, self.bridge.level.emit,
                                  self.bridge.result.emit, self.bridge.diagnostic.emit,
                                  self.bridge.runtime.emit, self.history,
-                                 on_trace=lambda trace: self.bridge.trace.emit((token, trace)))
+                                 on_trace=lambda trace: self.bridge.trace.emit((token, trace)),
+                                 custom_rules=self.custom_rules)
+        self._last_diagnostics = self.pipeline.diagnostics
         self.start_button.setText("模型加载中…")
         self.run_icon.set_mode("spin", highlight=True)
         self.start_button.setEnabled(False)
@@ -1106,6 +1196,8 @@ class MainWindow(QMainWindow):
             f"识别 {result.asr_seconds:.2f}s · 翻译 {result.translation_seconds:.2f}s · 音频结束至显示 {total:.2f}s"
         )
         if result.task_id is not None:
+            if self.pipeline is not None:
+                self.pipeline.diagnostics.add("字幕已显示")
             self._record_trace(TaskTrace(result.task_id, "界面已更新", f"字幕已显示，处理耗时 {total:.2f} 秒"))
         if self.tabs.currentWidget() is self.history_page:
             self._refresh_history()
@@ -1141,6 +1233,8 @@ class MainWindow(QMainWindow):
             report += f"#{task_id} " + " · ".join(f"{name} {value:.3f} 秒" for name, value in times.items()) + "\n"
         if not self._task_timings:
             report += "暂无"
+        if self._last_diagnostics:
+            report += "\n\n最近会话队列与丢弃统计\n" + self._last_diagnostics.summary()
         QApplication.clipboard().setText(report)
         QMessageBox.information(self, "已复制反馈信息", "可粘贴给开发者；发送前请检查是否含有不想公开的对话文字。")
 
@@ -1283,14 +1377,15 @@ class MainWindow(QMainWindow):
         for row, entry in enumerate(entries):
             values = (entry.created_at.replace("T", " ")[:19], entry.original,
                       entry.corrected_chinese or entry.chinese,
-                      LANGUAGES.get(entry.language, entry.language),
-                      f"{entry.total_seconds:.2f}s")
+                      (LANGUAGES.get(entry.language, entry.language) if entry.target_language == "zh"
+                       else f"{entry.language} → {entry.target_language}"),
+                      f"{entry.total_seconds:.2f}s" if entry.total_seconds >= 0 else "")
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 if column == 0:
                     item.setData(Qt.ItemDataRole.UserRole, entry.id)
-                if column == 2 and entry.corrected_chinese:
-                    item.setToolTip(f"机器原译：{entry.chinese}")
+                if column in (1, 2):
+                    item.setToolTip(entry_text(entry))
                 self.history_table.setItem(row, column, item)
 
     def _selected_history_id(self) -> int | None:
@@ -1298,24 +1393,81 @@ class MainWindow(QMainWindow):
         item = self.history_table.item(row, 0) if row >= 0 else None
         return int(item.data(Qt.ItemDataRole.UserRole)) if item else None
 
-    def _correct_history(self) -> None:
+    def _selected_entry(self):
         entry_id = self._selected_history_id()
         if entry_id is None or self.history is None:
-            QMessageBox.information(self, "先选一条记录", "请先在表格中选中需要修正的译文。")
+            QMessageBox.information(self, "先选一条记录", "请在历史表格中选中一条记录。")
+            return None
+        try:
+            return self.history.entry(entry_id)
+        except Exception as exc:
+            QMessageBox.warning(self, "读取失败", str(exc))
+            return None
+
+    def _history_details(self):
+        entry = self._selected_entry()
+        if entry:
+            preview(self, "翻译详情", entry_text(entry))
+
+    def _correct_history(self) -> None:
+        entry = self._selected_entry()
+        if entry is None:
             return
-        row = self.history_table.currentRow()
-        original = self.history_table.item(row, 1).text()
-        current = self.history_table.item(row, 2).text()
         corrected, accepted = QInputDialog.getMultiLineText(
-            self, "修正译文", f"识别原文：{original}\n请输入正确的简体中文：", current)
+            self, "修正译文", f"识别原文：{entry.original}\n请输入正确译文：",
+            entry.corrected_chinese or entry.chinese)
+        if not accepted or not corrected.strip():
+            return
+        modes = ["仅修正本条历史", "保存到我的词库"]
+        mode, accepted = QInputDialog.getItem(self, "修正范围", "选择这条修正的用途", modes, editable=False)
         if not accepted:
             return
         try:
-            self.history.correct(entry_id, corrected)
+            self.history.correct(entry.id, corrected, apply_future=False)
+            if mode == modes[1]:
+                rule = Rule(entry.game, entry.language, entry.target_language,
+                            entry.corrected_original or entry.original, corrected.strip(),
+                            origin="用户历史修正", priority=100, updated=now())
+                conflict = self.custom_rules.add(rule)
+                message = "已保存到我的词库" + ("。同范围冲突按词条优先级处理。" if conflict else "")
+            else:
+                message = "已修正本条历史"
             self._refresh_history()
-            self.statusBar().showMessage("修正已保存在本机；同样的识别原文之后会优先使用")
+            self.statusBar().showMessage(message)
         except Exception as exc:
             QMessageBox.warning(self, "保存修正失败", str(exc))
+
+    def _feedback_history(self):
+        entry = self._selected_entry()
+        if entry:
+            submit_feedback(self, self.feedback_store, entry)
+
+    def _review_feedback(self):
+        review_feedback(self, self.feedback_store, self.custom_rules)
+
+    def _glossary_actions(self, form):
+        row = QHBoxLayout()
+        for text, action in (("查看默认词库", lambda: default_glossary(self)),
+                             ("管理自定义词库", lambda: manage_rules(self, self.custom_rules)),
+                             ("查看反馈记录", self._review_feedback)):
+            button = GlassButton(text)
+            button.clicked.connect(action)
+            row.addWidget(button)
+        row.addStretch()
+        form.addRow(row)
+
+    def _import_history(self):
+        if self.history is None:
+            return
+        name, _ = QFileDialog.getOpenFileName(self, "导入旧历史", "", "CSV 文件 (*.csv)")
+        if not name:
+            return
+        try:
+            imported, skipped = self.history.import_csv(Path(name))
+            self._refresh_history()
+            self.statusBar().showMessage(f"已导入 {imported} 条。跳过 {skipped} 条。")
+        except Exception as exc:
+            QMessageBox.warning(self, "导入失败", str(exc))
 
     def _export_history(self) -> None:
         if self.history is None:
@@ -1469,12 +1621,83 @@ class MainWindow(QMainWindow):
             return replace(self.settings, compute_device="cpu")
         return self.settings
 
+    def _show_routing_intro(self):
+        if self.settings.routing_intro_seen:
+            return
+        self.settings.routing_intro_seen = True
+        self.settings.save()
+        prompt = QMessageBox(self)
+        prompt.setWindowTitle("可选：语音分流")
+        prompt.setText("可将队友语音单独送到翻译器。也可以继续使用系统混音。")
+        setup = prompt.addButton("打开分流设置", QMessageBox.ButtonRole.AcceptRole)
+        prompt.addButton("稍后", QMessageBox.ButtonRole.RejectRole)
+        prompt.buttonClicked.connect(lambda button: self._open_routing() if button is setup else None)
+        prompt.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        prompt.show()
+
+    def _open_routing(self):
+        if self.routing_wizard is None:
+            self.routing_wizard = RoutingWizard(self)
+        self.routing_wizard.show()
+        self.routing_wizard.raise_()
+        self._request_devices()
+
     def _begin_talk(self):
         if self._model_busy or not self._models_ready():
             self._talk_status("请先准备完整的识别和翻译模型。")
             return False
-        return self.talk.begin(self._effective_settings(),
-                               self.pipeline.translate_microphone if self.pipeline else None)
+        if self.talk.capture is not None:
+            return False
+        try:
+            devices = list_devices()
+        except Exception as exc:
+            self._talk_status(f"无法检查麦克风：{exc}")
+            return False
+        microphone = preferred_microphone(devices, self.settings.microphone_id)
+        self._apply_microphones(devices, microphone)
+        if microphone is None:
+            self.microphone_stat.setText("未检测到")
+            self._talk_status("未检测到麦克风。请连接后重试。")
+            return False
+        self.microphone_stat.setText(f"{microphone.name} · 可用")
+        if microphone.id != self.settings.microphone_id:
+            self.settings.microphone_id = microphone.id
+            self.settings.save()
+            self.statusBar().showMessage(f"已自动使用麦克风：{microphone.name}", 5000)
+        return self.talk.begin(
+            self._effective_settings(),
+            diagnostic_session=self.pipeline.translate_microphone_details if self.pipeline else None,
+        )
+
+    def _talk_level(self, rms):
+        if rms < 0:
+            self._quiet_since = None
+            self.microphone_level.hide()
+            return
+        now = time.monotonic()
+        self._quiet_since = (self._quiet_since or now) if rms < SILENT_RMS else None
+        message = f"麦克风 RMS {rms:.4f}"
+        if self._quiet_since is not None and now - self._quiet_since >= 0.6:
+            message += " · 麦克风没有收到声音，请检查麦克风选择"
+        self.microphone_level.setText(message)
+        self.microphone_level.setToolTip(message)
+        self.microphone_level.show()
+
+    def _save_reverse_history(self, details):
+        chinese, english, game, audio_end, metrics = details
+        if self.history is None or not self.settings.save_history:
+            return
+        metrics = dict(metrics)
+        try:
+            self.history.add_result(SubtitleResult(
+                chinese, english, "zh", metrics.pop("asr_seconds", -1.0),
+                metrics.pop("translation_seconds", -1.0), time.monotonic() - audio_end,
+                game=game, target_language="en", **metrics,
+            ))
+            if self.tabs.currentWidget() is self.history_page:
+                self._refresh_history()
+        except Exception:
+            LOG.exception("Could not save reverse history")
 
     def _talk_status(self, message):
         self.talk_state.setText(message)
@@ -1541,6 +1764,10 @@ class MainWindow(QMainWindow):
             self._talk_status("系统快捷键不可用，可在窗口中按住说话。")
 
     def closeEvent(self, event) -> None:
+        if self.routing_wizard is not None:
+            wizard, self.routing_wizard = self.routing_wizard, None
+            wizard.close()
+            wizard.deleteLater()
         self._model_pause.set()
         self.talk.close()
         if self.pipeline:
