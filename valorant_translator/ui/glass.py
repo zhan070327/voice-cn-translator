@@ -237,6 +237,8 @@ class CompactLabel(QLabel):
         return self._full_text
 
     def setText(self, text):
+        if text == self._full_text:
+            return
         self._full_text = text
         self.setToolTip(text)
         self._elide()

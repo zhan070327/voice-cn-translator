@@ -289,11 +289,16 @@ def test_theme_switches_are_independent_saved_and_shared_with_onboarding(qapp, m
 
         window._model_busy = True
         guide.step = 1
+        window._model_download_progress(260_000_000, 500_000_000, 4_900_000)
         guide._refresh()
         qapp.processEvents()
         assert guide.action.text() == "暂停下载"
         assert guide.action.width() < guide.width() / 3
         assert guide.action.objectName() != "primary"
+        assert guide.details.height() >= 3 * guide.details.fontMetrics().lineSpacing()
+        assert guide.transfer.isVisible() and "4.7 MiB/s" in guide.transfer.text()
+        assert guide.transfer.fontMetrics().height() <= guide.transfer.height()
+        assert "预计" in guide.transfer.toolTip()
         window._model_busy = False
         guide.close()
     finally:
