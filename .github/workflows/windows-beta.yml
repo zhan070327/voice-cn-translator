@@ -3,7 +3,7 @@ name: Windows beta build
 on:
   push:
     branches: [feature/ui-two-way, codex/b5-reverse-qa, feature/b5-integrated, feature/b5-ui-round3, feature/b5-final-rc, feature/b6-game-glossary-feedback]
-    paths: ['.github/workflows/windows-beta.yml']
+    paths: ['.github/workflows/windows-beta.yml', 'installer/ValorantTranslator.iss']
   workflow_dispatch:
     inputs:
       channel:

@@ -65,3 +65,9 @@ def test_pyinstaller_options_stay_in_one_cmd_command():
     assert start < entry
     assert all(line.endswith("^") for line in lines[start:entry])
     assert all(line.lstrip().startswith("--") for line in lines[start + 1:entry])
+
+
+def test_installer_version_matches_application():
+    from scripts.verify_release import main
+
+    main()
