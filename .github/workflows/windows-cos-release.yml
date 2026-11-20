@@ -124,7 +124,7 @@ jobs:
       inputs.version == '0.3.0b5' &&
       inputs.confirmation == 'PUBLISH 0.3.0b5'
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 180
     environment: cos-production
     permissions:
       actions: read
