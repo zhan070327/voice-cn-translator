@@ -28,6 +28,8 @@ from valorant_translator.version import APP_VERSION
 
 CHANNEL_FILE = Path(__file__).resolve().parents[2] / "config" / "update_channel.json"
 INSTALLER_NAME = "VoiceCNTranslator_Beta_Setup.exe"
+CPU_INSTALLER_NAME = "VoiceCNTranslator_CPU_Beta_Setup.exe"
+INSTALLERS = {"gpu": INSTALLER_NAME, "cpu": CPU_INSTALLER_NAME}
 MAX_INSTALLER_BYTES = 4 * 1024**3
 MAX_RESPONSE_BYTES = 2 * 1024**2
 SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\Z")
@@ -52,6 +54,8 @@ class Release:
     size: int
     allowed_hosts: tuple[str, ...] = ()
     fallback_urls: tuple[str, ...] = ()
+    installer_name: str = INSTALLER_NAME
+    source: str = ""
 
 
 def validate_repository(repository: str) -> str:
@@ -79,7 +83,7 @@ def _request(url: str) -> Request:
                                  "User-Agent": f"VoiceCNTranslator/{APP_VERSION}"})
 
 
-def _release_from_json(data: dict, repository: str) -> Release | None:
+def _release_from_json(data: dict, repository: str, installer_name: str = INSTALLER_NAME) -> Release | None:
     if data.get("draft"):
         return None
     tag = data.get("tag_name")
@@ -90,7 +94,7 @@ def _release_from_json(data: dict, repository: str) -> Release | None:
     except InvalidVersion:
         return None
     for asset in data.get("assets", []):
-        if not isinstance(asset, dict) or asset.get("name") != INSTALLER_NAME:
+        if not isinstance(asset, dict) or asset.get("name") != installer_name:
             continue
         if asset.get("state") != "uploaded":
             continue
@@ -102,18 +106,18 @@ def _release_from_json(data: dict, repository: str) -> Release | None:
         if not isinstance(url, str):
             continue
         parsed = urlparse(url)
-        expected_path = f"/{repository}/releases/download/{tag}/{INSTALLER_NAME}"
+        expected_path = f"/{repository}/releases/download/{tag}/{installer_name}"
         if (parsed.scheme != "https" or parsed.hostname != "github.com"
                 or parsed.username or parsed.password or parsed.port
                 or parsed.path.casefold() != expected_path.casefold()
                 or parsed.query or parsed.fragment):
             continue
         return Release(release_version, tag, str(data.get("body") or "")[:800], url,
-                       match.group(1).lower(), size)
+                       match.group(1).lower(), size, installer_name=installer_name)
     return None
 
 
-def find_update(repository: str, current: str = APP_VERSION) -> Release | None:
+def find_update(repository: str, current: str = APP_VERSION, *, edition: str = "gpu") -> Release | None:
     repository = validate_repository(repository)
     try:
         current_version = Version(current)
@@ -145,7 +149,7 @@ def find_update(repository: str, current: str = APP_VERSION) -> Release | None:
         except InvalidVersion:
             continue
         if release_version > current_version:
-            published.append((release_version, _release_from_json(item, repository)))
+            published.append((release_version, _release_from_json(item, repository, INSTALLERS[edition])))
     if not published:
         return None
     latest_version, latest_release = max(published, key=lambda item: item[0])
@@ -184,7 +188,7 @@ def _download_installer(release: Release, progress: Callable[[int], None],
                         speed: Callable[[float], None] | None) -> Path:
     folder = directory or APP_DIR / "updates" / str(release.version)
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / INSTALLER_NAME
+    path = folder / release.installer_name
     if _verified_file(path, release):
         progress(100)
         return path
@@ -227,6 +231,6 @@ def _download_installer(release: Release, progress: Callable[[int], None],
 def start_installer(path: Path, release: Release) -> None:
     if sys.platform != "win32" or not getattr(sys, "frozen", False):
         raise UpdateError("自动安装只适用于 Windows 安装版 EXE。")
-    if path.name != INSTALLER_NAME or not _verified_file(path, release):
+    if path.name != release.installer_name or not _verified_file(path, release):
         raise UpdateError("安装包在启动前校验失败，已拒绝运行。")
     os.startfile(str(path))

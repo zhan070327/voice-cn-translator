@@ -1,0 +1,72 @@
+name: Verify and publish b5 CPU and GPU
+on:
+  push:
+    branches: [codex/b5-cloud-release]
+    paths: ['.github/workflows/windows-paired-release.yml', '.github/actions/load-b5-build/**', 'scripts/publish_paired_release.py', 'scripts/cos_multipart.py']
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [verify, publish]
+        default: verify
+      confirmation:
+        description: Enter PUBLISH 0.3.0b5 only after completing real Windows checks
+        type: string
+permissions:
+  actions: read
+  contents: read
+jobs:
+  verify:
+    if: github.event_name == 'push' || inputs.mode == 'verify'
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: ./.github/actions/load-b5-build
+        with:
+          github-token: ${{ github.token }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: b5-verified-manifest-preview
+          path: dist/paired-latest.json
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'publish' && inputs.confirmation == 'PUBLISH 0.3.0b5'
+    environment: cos-production
+    concurrency:
+      group: cos-production
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: ./.github/actions/load-b5-build
+        with:
+          github-token: ${{ github.token }}
+      - name: Stage and verify both mirrors, then publish official manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_SESSION_TOKEN: ${{ secrets.COS_SESSION_TOKEN }}
+        run: |
+          python -m scripts.publish_paired_release --gpu dist/paired/gpu --cpu dist/paired/cpu \
+            --repo "$GITHUB_REPOSITORY" --expected-commit c1fe4168bbf6011bc1d0db35ba2c332d55fe3d8a \
+            --expected-run 44491479079 --expected-attempt 1 --confirm 'PUBLISH 0.3.0b5'

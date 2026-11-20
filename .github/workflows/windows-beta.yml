@@ -1,27 +1,41 @@
 name: Windows beta build
 
 on:
+  push:
+    branches: [feature/ui-two-way]
+    paths: ['.github/workflows/windows-beta.yml']
   workflow_dispatch:
     inputs:
       channel:
         description: Update channel to embed
         type: choice
-        options: [domestic, github]
-        default: domestic
+        options: [domestic, github, dual]
+        default: dual
+      edition:
+        description: Windows installer edition (dual builds can be mirrored)
+        type: choice
+        options: [gpu, cpu, both]
+        default: both
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-build-${{ github.ref }}-${{ inputs.channel }}
-  cancel-in-progress: false
+  group: windows-build-${{ github.ref }}-${{ inputs.channel || 'dual' }}-${{ inputs.edition }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   build:
     runs-on: windows-2022
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: ${{ fromJSON((inputs.edition == 'both' || inputs.edition == '') && '["gpu","cpu"]' || format('["{0}"]', inputs.edition)) }}
     env:
-      BUILD_CHANNEL: ${{ inputs.channel }}
+      BUILD_CHANNEL: ${{ inputs.channel || 'dual' }}
+      BUILD_EDITION: ${{ matrix.edition }}
+      VALORANT_CPU_PACKAGE: ${{ matrix.edition == 'cpu' && '1' || '0' }}
       QT_QPA_PLATFORM: offscreen
       PYTHONUTF8: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -48,13 +62,18 @@ jobs:
           python -m venv .venv
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $python = '.\.venv\Scripts\python.exe'
-          & $python -m pip install torch==2.6.0+cu124 --index-url https://download.pytorch.org/whl/cu124
+          if ($env:BUILD_EDITION -eq 'cpu') {
+            & $python -m pip install torch==2.6.0+cpu --index-url https://download.pytorch.org/whl/cpu
+          } else {
+            & $python -m pip install torch==2.6.0+cu124 --index-url https://download.pytorch.org/whl/cu124
+          }
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $python -m pip install -r requirements.txt 'pyinstaller>=6,<7'
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $python -m pip check
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          & $python -m scripts.check_torch_cuda --package-only
+          $check = if ($env:BUILD_EDITION -eq 'cpu') { '--cpu-package' } else { '--package-only' }
+          & $python -m scripts.check_torch_cuda $check
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
           if (!(Test-Path $iscc)) {
@@ -70,8 +89,22 @@ jobs:
         run: .\.venv\Scripts\python.exe -m pytest -q tests
 
       - name: Configure GitHub channel for international build
-        if: inputs.channel == 'github'
+        if: env.BUILD_CHANNEL == 'github'
         run: .\.venv\Scripts\python.exe -m scripts.configure_updates "https://github.com/$env:GITHUB_REPOSITORY"
+
+      - name: Configure editions and paired channel
+        if: env.BUILD_CHANNEL == 'dual' || matrix.edition == 'cpu'
+        shell: pwsh
+        run: |
+          $python = '.\.venv\Scripts\python.exe'
+          if ($env:BUILD_CHANNEL -eq 'dual') {
+            & $python -m scripts.configure_paired_windows $env:GITHUB_REPOSITORY $env:BUILD_EDITION
+          } elseif ($env:BUILD_CHANNEL -eq 'github') {
+            & $python -c "import json; from pathlib import Path; p=Path('config/update_channel.json'); d=json.loads(p.read_text()); d['edition']='cpu'; p.write_text(json.dumps(d))"
+          } else {
+            & $python -c "import json; from pathlib import Path; p=Path('config/update_channel_domestic.json'); d=json.loads(p.read_text()); d['edition']='cpu'; p.write_text(json.dumps(d))"
+          }
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Run Windows packaging BAT
         shell: cmd
@@ -91,7 +124,11 @@ jobs:
           $bundle = Get-Item 'dist/ValorantTranslator'
           $dlls = Get-ChildItem -LiteralPath $bundle.FullName -File -Recurse -Filter '*.dll'
           foreach ($dll in 'torch_cuda.dll','cudart64_12.dll','cublas64_12.dll','cudnn64_9.dll') {
-            if ($dll -notin $dlls.Name) { throw "Missing CUDA runtime DLL from bundle: $dll" }
+            if ($env:BUILD_EDITION -eq 'cpu' -and $dll -in $dlls.Name) { throw "CPU installer contains CUDA DLL: $dll" }
+            if ($env:BUILD_EDITION -eq 'gpu' -and $dll -notin $dlls.Name) { throw "Missing CUDA runtime DLL from bundle: $dll" }
+          }
+          if ($env:BUILD_EDITION -eq 'cpu' -and ($dlls.Name -match '(cuda|cudnn|cublas|cufft|curand|cusparse|cusolver|nvrtc|nvjitlink|nvblas|nvjpeg|cufile)')) {
+            throw 'CPU installer still contains NVIDIA CUDA runtime DLLs.'
           }
           $location = Join-Path $env:RUNNER_TEMP 'voice-cn-install-smoke'
           $log = Join-Path $env:GITHUB_WORKSPACE 'build_logs/inno-install.log'
@@ -103,10 +140,12 @@ jobs:
           if ($process.ExitCode) { throw "Inno install failed with exit code $($process.ExitCode)." }
           $config = Get-Content "$location/_internal/config/update_channel.json" -Raw | ConvertFrom-Json
           if ($config.channel -ne $env:BUILD_CHANNEL) { throw 'Installed channel mismatches build input.' }
+          $edition = if ($config.edition) { $config.edition } else { 'gpu' }
+          if ($edition -ne $env:BUILD_EDITION) { throw 'Installed edition mismatches build input.' }
           $exe = Join-Path $location 'ValorantTranslator.exe'
           $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
           if ($process.ExitCode) { throw "Installed EXE self-test failed with exit code $($process.ExitCode)." }
-          if ($env:BUILD_CHANNEL -eq 'github' -and $setup.Length -ge 2GB) {
+          if ($env:BUILD_CHANNEL -ne 'domestic' -and $setup.Length -ge 2GB) {
             throw 'GitHub Releases requires each asset to be smaller than 2 GiB.'
           }
 
@@ -124,22 +163,27 @@ jobs:
               throw 'Installer and domestic build receipt mismatch.'
             }
           }
+          if ($env:BUILD_EDITION -eq 'cpu') {
+            Rename-Item -LiteralPath $setup.FullName -NewName 'VoiceCNTranslator_CPU_Beta_Setup.exe'
+            $setup = Get-Item 'dist/VoiceCNTranslator_CPU_Beta_Setup.exe'
+          }
+          $cuda = if ($env:BUILD_EDITION -eq 'gpu') { '12.4' } else { $null }
           Copy-Item 'release_notes.txt' 'dist/release_notes.txt'
           [ordered]@{version=$version; sha256=$sha; size=$setup.Length; channel=$env:BUILD_CHANNEL;
                      commit=$env:GITHUB_SHA; run_id=$env:GITHUB_RUN_ID; run_attempt=$env:GITHUB_RUN_ATTEMPT;
-                     cuda='12.4'; arch='x64'; install_self_test='passed'} |
+                     edition=$env:BUILD_EDITION; cuda=$cuda; arch='x64'; install_self_test='passed'} |
             ConvertTo-Json | Set-Content -Encoding utf8 'dist/windows_build.json'
-          @("### Windows $env:BUILD_CHANNEL $version", "", "- Installer bytes: $($setup.Length)",
+          @("### Windows $env:BUILD_CHANNEL / $env:BUILD_EDITION $version", "", "- Installer bytes: $($setup.Length)",
             "- SHA-256: $sha", "- Silent installation and installed self-test passed.",
-            "- CUDA DLLs present. The standard runner did not execute GPU inference.") -join "`n" |
+            "- Runtime edition validated. The standard runner did not execute GPU inference.") -join "`n" |
             Add-Content -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
       - name: Upload tested installer
         uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ inputs.channel }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ inputs.channel == 'domestic' && matrix.edition == 'gpu' && format('windows-domestic-{0}-{1}', github.run_id, github.run_attempt) || format('windows-{0}-{1}-{2}-{3}', inputs.channel || 'dual', matrix.edition, github.run_id, github.run_attempt) }}
           path: |
-            dist/VoiceCNTranslator_Beta_Setup.exe
+            dist/VoiceCNTranslator*_Beta_Setup.exe
             dist/windows_build.json
             dist/domestic_build.json
             dist/release_notes.txt
@@ -159,7 +203,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: windows-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          name: windows-logs-${{ matrix.edition }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: build_logs/*.log
           retention-days: 7
           if-no-files-found: ignore

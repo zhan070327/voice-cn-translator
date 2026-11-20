@@ -1,4 +1,4 @@
-"""Detect exact duplicate CUDA DLL payloads in the Windows onedir bundle."""
+"""Audit Windows CUDA DLLs and prune them only in an explicit CPU build."""
 from __future__ import annotations
 
 import argparse
@@ -7,18 +7,31 @@ from collections import defaultdict
 from pathlib import Path
 
 CUDA_NAMES = ("cuda", "cudnn", "cublas", "cufft", "curand", "cusparse", "nvrtc",
-              "nvjitlink", "nvblas", "nvjpeg")
+              "nvjitlink", "nvblas", "nvjpeg", "cusolver", "cufile")
+
+
+def cuda_dlls(folder: Path):
+    if not folder.is_dir():
+        raise FileNotFoundError(f"打包目录不存在：{folder}")
+    for path in folder.rglob("*"):
+        if path.is_file() and path.suffix.lower() == ".dll" and any(
+                name in path.name.lower() for name in CUDA_NAMES):
+            yield path
+
+
+def prune_cpu_runtime(folder: Path) -> list[Path]:
+    candidates = list(cuda_dlls(folder))
+    if any(path.name.lower().startswith(("torch_cuda", "c10_cuda")) for path in candidates):
+        raise ValueError("CPU 打包意外使用 CUDA PyTorch，已停止。")
+    for path in candidates:
+        path.unlink()
+    return candidates
 
 
 def audit(folder: Path) -> tuple[int, int, list[list[Path]]]:
-    if not folder.is_dir():
-        raise FileNotFoundError(f"打包目录不存在：{folder}")
     groups: dict[tuple[int, str], list[Path]] = defaultdict(list)
     total = 0
-    for path in folder.rglob("*"):
-        if not path.is_file() or path.suffix.lower() != ".dll" or not any(
-                name in path.name.lower() for name in CUDA_NAMES):
-            continue
+    for path in cuda_dlls(folder):
         size = path.stat().st_size
         total += size
         digest = hashlib.sha256()
@@ -35,7 +48,12 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("folder", type=Path)
     parser.add_argument("--max-duplicate-mib", type=int, default=256)
+    parser.add_argument("--prune-cpu-only", action="store_true")
     args = parser.parse_args()
+    if args.prune_cpu_only:
+        removed = prune_cpu_runtime(args.folder)
+        for path in removed:
+            print(f"CPU bundle excludes {path.relative_to(args.folder)}")
     total, duplicates, groups = audit(args.folder)
     print(f"CUDA DLL 总计 {total / 1024**2:.1f} MiB；精确重复 {duplicates / 1024**2:.1f} MiB。")
     for paths in groups[:8]:

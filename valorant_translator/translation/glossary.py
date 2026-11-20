@@ -8,6 +8,14 @@ from valorant_translator.config import APP_DIR
 
 GLOSSARY_FILE = Path(__file__).resolve().parents[2] / "config" / "glossary.json"
 CUSTOM_GLOSSARY_FILE = APP_DIR / "glossary_custom.json"
+GAMES = {"valorant": "Valorant", "cs2": "CS2", "apex": "Apex",
+         "overwatch2": "Overwatch 2", "general": "通用"}
+
+
+def game_glossary(game: str) -> Glossary:
+    if game == "valorant" or game not in GAMES:
+        return Glossary()
+    return Glossary(GLOSSARY_FILE.with_name(f"glossary_{game}.json"))
 
 
 class Glossary:
@@ -17,7 +25,18 @@ class Glossary:
             try:
                 custom = json.loads(CUSTOM_GLOSSARY_FILE.read_text(encoding="utf-8"))
                 if isinstance(custom, dict):
+                    legacy_file = GLOSSARY_FILE.with_name("glossary_legacy_b4.json")
+                    legacy = json.loads(legacy_file.read_text(encoding="utf-8")) if legacy_file.is_file() else {}
+                    # The b4 installer sometimes saved a full copy of the old built-in dictionary.
+                    # Keep actual edits from those copies without masking new b5 defaults.
+                    full_copy = bool(legacy and legacy.keys() <= custom.keys())
                     for key, value in custom.items():
+                        if full_copy:
+                            baseline = legacy.get(key)
+                            if isinstance(value, dict) and isinstance(baseline, dict):
+                                value = {k: v for k, v in value.items() if baseline.get(k) != v}
+                            elif isinstance(value, list) and isinstance(baseline, list):
+                                value = [item for item in value if item not in baseline]
                         if key not in self.data:
                             continue
                         if isinstance(value, dict) and isinstance(self.data[key], dict):
@@ -53,12 +72,14 @@ class Glossary:
         return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", text)).strip()
 
     def exact(self, source: str) -> str | None:
-        return self.data["exact_phrases"].get(self.normalize(source))
+        return self.data.get("exact_phrases", {}).get(self.normalize(source))
 
-    def callout(self, source: str, language: str) -> str | None:
+    def callout(self, source: str, language: str = "en") -> str | None:
         """Translate tightly matched English callouts, even if a short clip got the language wrong."""
+        if not self.data:
+            return None
         text = self.normalize(source)
-        exact = self.data["exact_phrases"].get(text)
+        exact = self.data.get("exact_phrases", {}).get(text)
         if exact:
             return exact
         if text in self.locations:
@@ -151,7 +172,7 @@ class Glossary:
 
     def postprocess(self, translated: str, original: str = "") -> str:
         text = translated.strip()
-        for source, target in self.data["target_replacements"].items():
+        for source, target in self.data.get("target_replacements", {}).items():
             text = re.sub(rf"(?i)(?<![\w]){re.escape(source)}(?![\w])", target, text)
         # Repair known literal model output only when the matching English phrase
         # is a complete utterance or a punctuated clause in the ASR transcript.
