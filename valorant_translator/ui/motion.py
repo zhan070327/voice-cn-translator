@@ -207,6 +207,14 @@ class CaptionLight(Effect):
         with QPainter(self) as painter:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             bounds = QRectF(self.rect()).adjusted(2, 2, -2, -2)
+            if bounds.isEmpty():
+                return
+            edge = QColor(self.accent)
+            edge.setAlpha(round(120 + 135 * (1 - self.opacity)))
+            painter.setPen(QPen(edge, 1))
+            x = round(bounds.left())
+            inset = min(t.RADIUS, bounds.height() / 3)
+            painter.drawLine(x, round(bounds.top() + inset), x, round(bounds.bottom() - inset))
             if self.pointer is not None and self.hoverOpacity:
                 # Tilt the lit rim only, keeping the solid text backing stationary.
                 offset = (self.pointer - bounds.center()).x() / max(1.0, bounds.width())

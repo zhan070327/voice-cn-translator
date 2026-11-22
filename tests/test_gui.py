@@ -4,7 +4,7 @@ import time
 from types import SimpleNamespace
 
 from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QColor, QEnterEvent, QHideEvent, QPalette, QShowEvent
+from PySide6.QtGui import QColor, QEnterEvent, QHideEvent, QPalette, QShowEvent, QTextLayout
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QVBoxLayout, QWidget
 
@@ -605,5 +605,42 @@ def test_upgrade_dock_uses_existing_actions_and_motion_can_be_reduced(qapp, monk
         window.result_icon.set_mode("done")
         assert window.result_icon.phase == DONE_PHASE
         assert not window.result_icon._timer.isActive()
+    finally:
+        window.close()
+
+
+
+def test_main_subtitle_card_shows_only_two_real_results(qapp, monkeypatch, tmp_path):
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        assert window.previous_caption.isHidden()
+        lines = ("中路两人。", "守住 B 点。", "转 A 点，安全。")
+        for index, line in enumerate(lines):
+            window._result(SubtitleResult("callout", line, "en", 0.2, 0.1, 0.35))
+            assert window.chinese_label.text() == line
+            if index:
+                assert window.previous_caption.isVisible()
+                assert window.previous_caption.text() == lines[index - 1]
+            else:
+                assert window.previous_caption.isHidden()
+    finally:
+        window.close()
+
+
+
+def test_bundled_display_fonts_and_equal_width_latency_digits(qapp, monkeypatch, tmp_path):
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        window._result(SubtitleResult("Go A", "转 A 点 123", "en", 0.2, 0.1, 0.35))
+        for label in (window.chinese_label, window.overlay.label):
+            text = QTextLayout(label.text(), label.font())
+            text.beginLayout()
+            text.createLine()
+            text.endLayout()
+            faces = {(run.rawFont().familyName(), run.rawFont().styleName()) for run in text.glyphRuns()}
+            assert ("Rajdhani", "Bold") in faces
+            assert ("Noto Sans CJK SC", "Black") in faces
+        metrics = window.latency_stat.fontMetrics()
+        assert len({metrics.horizontalAdvance(str(digit)) for digit in range(10)}) == 1
     finally:
         window.close()

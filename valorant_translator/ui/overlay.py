@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (QApplication, QFrame, QGraphicsOpacityEffect, QHB
 
 from valorant_translator.config import Settings
 from valorant_translator.ui import tokens as t
-from valorant_translator.ui.glass import GlassButton, accent_ink
+from valorant_translator.ui.fonts import display_style, track_caption
+from valorant_translator.ui.glass import GlassButton, accent_ink, glass_fill, rgba
 
 
 @dataclass(frozen=True)
@@ -110,20 +111,24 @@ class SubtitleOverlay(QWidget):
             self.setPalette(palette)
         line = accent_ink(self.settings.accent)
         alpha = max(0, min(255, round(self.settings.overlay_opacity * 2.55)))
-        rgb = ", ".join(str(part) for part in QColor(skin.panel).getRgb()[:3])
+        display = display_style()
         style = f"""
-            QFrame#captionCard {{ background: rgba({rgb}, {alpha});
-                border: 1px solid {line}; border-radius: {t.RADIUS}px; }}
+            QFrame#captionCard {{ background: {glass_fill(skin.panel, alpha) if alpha else "transparent"};
+                border: 1px solid {rgba(t.MUTED, t.GLASS_RIM_ALPHA)};
+                border-top-color: {rgba(t.MUTED, t.GLASS_HIGHLIGHT_ALPHA)};
+                border-left-color: {line}; border-radius: {t.RADIUS}px; }}
             QFrame#captionBacking {{ background: {skin.background}; border-radius: {t.CONTROL_RADIUS}px; }}
             QLabel {{ font-family: "{t.BODY_FONT}"; background: transparent; color: {t.MUTED};
                 font-size: {t.CAPTION}px; }}
-            QLabel#captionTranslation {{ color: {t.TEXT}; font-size: {self.settings.font_size}px; font-weight: 700; }}
+            QLabel#captionTranslation {{ color: {t.TEXT}; {display}
+                font-size: {self.settings.font_size}px; }}
             QPushButton {{ background: {skin.panel}; color: {t.TEXT}; border: 1px solid {t.EDGE};
                 border-radius: {t.CONTROL_RADIUS}px; font-size: {t.CAPTION}px; }}
             QPushButton:hover {{ border-color: {t.MUTED}; }}
         """
-        for panel, _, _, _, _, _ in self.rows:
+        for panel, badge, _, _, _, _ in self.rows:
             panel.setStyleSheet(style)
+            track_caption(badge)
         self._render()
 
     def showEvent(self, event) -> None:

@@ -110,9 +110,10 @@ def button_icon(name, color, frame=0):
 
 
 class LineIcon(QWidget):
-    def __init__(self, name):
+    def __init__(self, name, *, accented=False):
         super().__init__()
         self.name = name
+        self.accented = accented
         self.mode = "idle"
         self.accent = NEUTRAL
         self.highlighted = False
@@ -228,5 +229,5 @@ class LineIcon(QWidget):
     def paintEvent(self, event):
         if getattr(self, "name", None) in _LINES:
             with QPainter(self) as painter:
-                _draw(painter, self.name, self.accent if self.highlighted else NEUTRAL,
+                _draw(painter, self.name, self.accent if self.highlighted or self.accented else NEUTRAL,
                       self.mode, self.phase, self.level)

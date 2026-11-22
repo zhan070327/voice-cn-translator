@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QGroupBox, QHBoxLayout, QLabel, QPushButton, QSiz
                                QStylePainter, QVBoxLayout, QWidget)
 
 from valorant_translator.ui import tokens as t
+from valorant_translator.ui.fonts import display_style, track_caption
 from valorant_translator.ui.icons import NEUTRAL, SIZE, LineIcon, button_icon
 
 DEFAULT_ACCENT = t.DEFAULT_ACCENT
@@ -25,6 +26,7 @@ class BackgroundPalette:
     right_glow: str
     upper_glow: str
     origin: tuple[float, float] | None = None
+    horizontal: bool = False
 
 
 BACKGROUND_THEMES = {
@@ -36,7 +38,7 @@ def background_palette(theme: str, custom_color: str, game: str | None = None) -
     if theme == "default" and game is not None:
         skin = t.skin_for(game)
         return BackgroundPalette(skin.background, skin.panel, skin.accent,
-                                 skin.accent, t.EDGE, skin.light_origin)
+                                 skin.accent, t.EDGE, skin.light_origin, game == "general")
     if theme == "custom":
         color = QColor(custom_color if isinstance(custom_color, str) else "")
         if not color.isValid():
@@ -226,6 +228,9 @@ def tint_icons(parent, value):
         item.set_accent(accent, primary_ink(value) == t.TEXT)
     for item in parent.findChildren(LineIcon):
         item.set_accent(accent)
+    for label in parent.findChildren(QLabel):
+        if label.objectName() in ("muted", "statLabel", "modelTransfer") or label.property("metric"):
+            track_caption(label)
 
 
 class GlassSection(QGroupBox):
@@ -238,7 +243,7 @@ class GlassSection(QGroupBox):
         self.body.setSpacing(INLINE)
         header = QHBoxLayout()
         header.setSpacing(INLINE)
-        self.icon = LineIcon(icon)
+        self.icon = LineIcon(icon, accented=True)
         header.addWidget(self.icon)
         label = QLabel(title)
         label.setObjectName("sectionTitle")
@@ -293,14 +298,22 @@ def _background_pixmap(palette: BackgroundPalette) -> QPixmap:
     """Paint the soft lights once per palette and share the result across windows."""
     width, height = 1280, 800
     pixmap = QPixmap(width, height)
+    pixmap.fill(QColor(palette.top))
     with QPainter(pixmap) as painter:
         rect = pixmap.rect()
-        base = QLinearGradient(0, 0, width * 0.75, height)
+        base = QLinearGradient(0, 0, width if palette.horizontal else width * 0.75,
+                               0 if palette.horizontal else height)
         base.setColorAt(0, QColor(palette.top))
         base.setColorAt(1, QColor(palette.bottom))
+        if palette.horizontal:
+            color = QColor(palette.right_glow)
+            color.setAlpha(t.SKIN_GLOW_ALPHA // 2)
+            base.setColorAt(0.30, color)
         painter.fillRect(rect, base)
-        lights = ((palette.origin[0], palette.origin[1], 0.78, palette.right_glow, 80),
-                  (1 - palette.origin[0], 0.08, 0.63, palette.upper_glow, 55)) if palette.origin else (
+        if palette.horizontal:
+            return pixmap
+        lights = ((palette.origin[0], palette.origin[1], 0.92, palette.right_glow, t.SKIN_GLOW_ALPHA),
+                  (1 - palette.origin[0], 0.08, 0.63, palette.upper_glow, 78)) if palette.origin else (
             (0.055, 0.31, 0.59, palette.left_glow, 208),
             (0.61, -0.10, 0.62, palette.upper_glow, 154),
             (0.98, 0.95, 0.63, palette.right_glow, 215),
@@ -342,12 +355,26 @@ def primary_ink(value):
     return t.TEXT if luminance < 0.17 else t.skin_for("valorant").background
 
 
+def rgba(value, alpha):
+    color = QColor(value)
+    return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
+
+
+def glass_fill(panel, opacity=t.GLASS_FILL_ALPHA):
+    highlight = rgba(t.MUTED, round(opacity * 0.24))
+    fill = rgba(panel, opacity)
+    return f"qlineargradient(x1:0,y1:0,x2:0.24,y2:1, stop:0 {highlight}, stop:0.16 {fill}, stop:1 {fill})"
+
+
 def glass_styles(accent: str, game="valorant") -> str:
     accent = accent_color(accent)
     edge = accent_ink(accent)
     skin = t.skin_for(game)
     surface, panel = skin.background, skin.panel
     ink = primary_ink(accent)
+    display = display_style()
+    rim = rgba(t.MUTED, t.GLASS_RIM_ALPHA)
+    top = rgba(t.MUTED, t.GLASS_HIGHLIGHT_ALPHA)
     return f"""
         * {{ color: {t.TEXT}; font-family: "{t.BODY_FONT}"; font-size: {t.BODY}px; }}
         QLabel, QScrollArea, QScrollArea QWidget#pageBody, QTabWidget::pane {{
@@ -357,14 +384,18 @@ def glass_styles(accent: str, game="valorant") -> str:
             color: {t.MUTED}; font-size: {t.CAPTION}px;
         }}
         QLabel#lastDiscard {{ color: {t.WARNING}; }}
-        QLabel#title, QLabel#brand {{ font-size: {t.TITLE}px; font-weight: 600; }}
-        QLabel#translation {{ font-size: {t.SUBTITLE}px; font-weight: 700; }}
-        QLabel#translation[quiet="true"] {{ font-size: {t.TITLE}px; font-weight: 500; }}
+        QLabel#title, QLabel#brand, QLabel#sectionTitle, QLabel#translation, QLabel#previousCaption {{
+            {display}
+        }}
+        QLabel#title, QLabel#brand {{ font-size: {t.TITLE}px; }}
+        QLabel#sectionTitle {{ font-size: {t.SECTION}px; }}
+        QLabel#translation {{ font-size: {t.SUBTITLE}px; }}
+        QLabel#translation[quiet="true"] {{ font-size: {t.TITLE}px; }}
+        QLabel#previousCaption {{ font-size: {t.SECTION}px; color: {t.MUTED}; }}
         QLabel#statValue {{ font-size: {t.BODY}px; font-weight: 500; }}
         QLabel[metric="true"], QLabel#modelTransfer {{
-            font-family: "{t.NUMBER_FONT}", "{t.BODY_FONT}"; font-size: {t.CAPTION}px;
+            font-family: {t.NUMBER_STACK}, "{t.BODY_FONT}"; font-size: {t.CAPTION}px;
         }}
-        QLabel#sectionTitle {{ font-size: {t.SECTION}px; font-weight: 600; }}
         QFrame#warning, QFrame#updateStrip, QWidget#historyPage, QLabel#toast {{
             background: {panel}; border: 1px solid {t.EDGE}; border-radius: {t.CONTROL_RADIUS}px;
         }}
@@ -372,10 +403,20 @@ def glass_styles(accent: str, game="valorant") -> str:
         QLabel#toast {{ padding: {t.INLINE}px {t.INSET}px; color: {t.INFO}; }}
         QLabel#toast[success="true"] {{ color: {t.SUCCESS}; }}
         QFrame#hero, QFrame#sidebar, QFrame#glassCard, QGroupBox#glassSection, QFrame#dock {{
-            background: {panel}; border: 1px solid {t.EDGE}; border-top-color: {t.MUTED};
+            background: {glass_fill(panel)}; border: 1px solid {rim}; border-top-color: {top};
             border-radius: {t.RADIUS}px;
         }}
-        QFrame#hero {{ background: {surface}; border-color: {edge}; }}
+        QFrame#hero {{
+            background: {glass_fill(surface)}; border: 1px solid {rim}; border-top-color: {top};
+        }}
+        QFrame#captionWell {{ background: {surface}; border: 0; border-radius: {t.CONTROL_RADIUS}px; }}
+        QFrame#hero QPushButton {{ padding: {t.HERO_BUTTON_PAD_Y}px {t.INSET}px; }}
+        QPushButton[gamePill="true"]:checked {{
+            background: {rgba(accent, 58)}; border: 1px solid {edge};
+        }}
+        QPushButton[gamePill="true"]:checked:focus {{
+            background: {rgba(accent, 78)}; border: 1px solid {edge};
+        }}
         QGroupBox#glassSection {{ margin: 0; padding: 0; }}
         QPushButton, QComboBox, QSpinBox, QLineEdit {{
             background: {surface}; border: 1px solid {t.EDGE}; border-radius: {t.CONTROL_RADIUS}px;
@@ -406,6 +447,10 @@ def glass_styles(accent: str, game="valorant") -> str:
         }}
         QPushButton#primary:hover {{ border-color: {t.TEXT}; }}
         QPushButton[ghost="true"] {{ border-radius: {t.RADIUS}px; border-color: {t.MUTED}; }}
+        QPushButton#guideAction:enabled {{ border: 1px solid {rim}; }}
+        QPushButton#guideAction:enabled:focus, QPushButton#guideAction:enabled:hover {{
+            border: 1px solid {edge}; background: {rgba(accent, 36)};
+        }}
         QPushButton:disabled, QPushButton#primary:disabled, QPushButton[ghost="true"]:disabled {{
             color: {t.MUTED}; background: {panel}; border-color: {t.EDGE};
         }}
@@ -414,7 +459,7 @@ def glass_styles(accent: str, game="valorant") -> str:
         QFrame#skeleton {{ background: {t.EDGE}; border-radius: {t.TIGHT}px; }}
         QProgressBar {{
             border: 1px solid {t.EDGE}; border-radius: {t.TIGHT}px; background: {surface};
-            text-align: center; height: {t.INSET}px; font-family: "{t.NUMBER_FONT}";
+            text-align: center; height: {t.INSET}px; font-family: {t.NUMBER_STACK};
         }}
         QProgressBar::chunk {{ background: {t.EDGE}; border-radius: {t.TIGHT}px; }}
         QScrollBar:vertical {{ background: {surface}; width: {t.INLINE}px; }}

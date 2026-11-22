@@ -37,3 +37,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+### 安装包内的字体
+
+- Rajdhani Bold，Indian Type Foundry，[Google Fonts](https://github.com/google/fonts/tree/main/ofl/rajdhani)。
+- Noto Sans CJK SC Black，Noto CJK Sans 2.004，[Noto Fonts](https://github.com/notofonts/noto-cjk/tree/Sans2.004/Sans/OTF/SimplifiedChinese)。
+
+两项均按 SIL Open Font License 1.1 分发，原始授权文件随字体存放在 `assets/fonts/`。
