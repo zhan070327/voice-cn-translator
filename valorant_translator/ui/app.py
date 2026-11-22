@@ -7,6 +7,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from importlib.metadata import PackageNotFoundError, version
 
@@ -15,11 +16,11 @@ from packaging.version import Version
 from PySide6.QtCore import QObject, QSignalBlocker, Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout, QFrame,
-                               QHBoxLayout, QLabel, QLineEdit,
+                               QHeaderView, QHBoxLayout, QLabel, QLineEdit,
                                QMainWindow, QProgressBar,
                                QScrollArea, QSpinBox, QTabWidget,
                                QVBoxLayout, QWidget, QTableWidget,
-                               QTableWidgetItem, QAbstractItemView,
+                               QTableWidgetItem, QAbstractItemView, QTreeWidget, QTreeWidgetItem,
                                QButtonGroup, QColorDialog, QSizePolicy)
 
 from valorant_translator.audio.capture import list_devices, preferred_microphone
@@ -56,6 +57,8 @@ from valorant_translator.updates.windows import RESULT, start_silent_installer
 from valorant_translator.version import APP_VERSION
 
 LOG = logging.getLogger(__name__)
+FIRST_CAPTION_HINT = "开始翻译，看到第一条字幕"
+EMPTY_HISTORY = "暂无翻译历史。启用本地历史后，新的译文会显示在这里。"
 
 
 class Bridge(QObject):
@@ -97,6 +100,7 @@ class MainWindow(QMainWindow):
             self.settings.game_accents[self.settings.game] = accent_color(self.settings.accent)
         self.settings.accent = self._game_accent()
         self._has_result = False
+        self._has_live_result = False
         self._model_error = ""
         self._history_pending = False
         self._glossary_request = 0
@@ -169,7 +173,7 @@ class MainWindow(QMainWindow):
         self._build()
         self.tabs.currentChanged.connect(self._page_changed)
         self._refresh_history()
-        self.statusBar().showMessage("待机 · 尚无翻译")
+        self.statusBar()
         self.overlay = SubtitleOverlay(self.settings)
         self.overlay.position_changed.connect(self._overlay_moved)
         self.overlay.show()
@@ -190,7 +194,7 @@ class MainWindow(QMainWindow):
         main_page = QWidget()
         main_layout = QVBoxLayout(main_page)
         main_layout.setContentsMargins(GUTTER, 0, GUTTER, GUTTER)
-        main_layout.setSpacing(GAP)
+        main_layout.setSpacing(GUTTER)
 
         self.update_button = GlassButton("检查更新", icon="refresh")
         self.update_button.clicked.connect(self._check_update)
@@ -313,6 +317,9 @@ class MainWindow(QMainWindow):
         left_column.addWidget(display_group)
 
         run_group, run_layout = self._group("实时翻译", "play")
+        run_group.setProperty("compactRun", True)
+        run_layout.setContentsMargins(GUTTER, INLINE, GUTTER, INLINE)
+        run_layout.setSpacing(tokens.TIGHT)
         self.run_icon = run_group.icon
         run_row = QHBoxLayout()
         run_row.setSpacing(INLINE)
@@ -326,9 +333,11 @@ class MainWindow(QMainWindow):
         run_row.addWidget(self.stop_button)
         run_row.addStretch()
         self.status_label = self._compact("当前状态：待机")
+        self.status_label.hide()
         run_row.addWidget(self.status_label, 1)
         self.audio_icon = LineIcon("activity")
         self.audio_icon.setToolTip("音频输入电平")
+        self.audio_icon.hide()
         run_row.addWidget(self.audio_icon)
         self.volume = QProgressBar()
         self.volume.setRange(0, 100)
@@ -336,11 +345,14 @@ class MainWindow(QMainWindow):
         self.volume.setFixedWidth(tokens.VOLUME_WIDTH)
         self.volume.setAccessibleName("音频输入音量")
         self.volume.setToolTip("音频输入音量")
+        self.volume.hide()
         run_row.addWidget(self.volume)
         run_layout.addLayout(run_row)
         run_layout.addLayout(cards)
         self.runtime_label = self._compact("实际运行设备：模型尚未加载")
-        self.diagnostic_label = self._compact("处理进度：尚未开始")
+        self.diagnostic_label = self._compact("")
+        self.diagnostic_label.hide()
+        self.runtime_label.hide()
         metrics = QHBoxLayout()
         metrics.setSpacing(GAP)
         metrics.addWidget(self.runtime_label, 2)
@@ -389,7 +401,8 @@ class MainWindow(QMainWindow):
         self.caption_tools.clicked.connect(self._toggle_overlay)
         header.addWidget(self.caption_tools)
         result_layout.addLayout(header)
-        self.chinese_label = QLabel("等待队友语音")
+        self.chinese_label = QLabel()
+        self.chinese_label.hide()
         self.chinese_label.setObjectName("translation")
         self.chinese_label.setProperty("quiet", True)
         self.chinese_label.setTextFormat(Qt.TextFormat.PlainText)
@@ -399,18 +412,29 @@ class MainWindow(QMainWindow):
         captions = QVBoxLayout(caption_well)
         captions.setContentsMargins(INLINE, tokens.TIGHT, INLINE, tokens.TIGHT)
         captions.setSpacing(tokens.TIGHT)
-        captions.addWidget(self.chinese_label)
+        current = QHBoxLayout()
+        current.setSpacing(INLINE)
+        current.addWidget(self.chinese_label, 1)
+        current.addWidget(self.latency_stat, 0, Qt.AlignmentFlag.AlignVCenter)
+        captions.addLayout(current)
+        self.caption_loading = LoadingSkeleton()
+        captions.addWidget(self.caption_loading)
         self.previous_caption = self._compact("")
         self.previous_caption.setObjectName("previousCaption")
         self.previous_caption.setAccessibleName("上一条字幕")
         self.previous_caption.hide()
-        captions.addWidget(self.previous_caption)
+        self.previous_latency = QLabel()
+        self.previous_latency.setProperty("metric", True)
+        self.previous_latency.hide()
+        previous = QHBoxLayout()
+        previous.setSpacing(INLINE)
+        previous.addWidget(self.previous_caption, 1)
+        previous.addWidget(self.previous_latency, 0, Qt.AlignmentFlag.AlignVCenter)
+        captions.addLayout(previous)
         result_layout.addWidget(caption_well)
-        self.caption_hint = self._hint("选择声音来源，开始翻译后在这里查看字幕。")
+        self.caption_hint = self._hint(FIRST_CAPTION_HINT)
         self.caption_hint.setTextFormat(Qt.TextFormat.PlainText)
         result_layout.addWidget(self.caption_hint)
-        self.caption_loading = LoadingSkeleton()
-        result_layout.addWidget(self.caption_loading)
         self.original_label = self._compact("")
         self.language_label = QLabel()
         self.language_label.setTextFormat(Qt.TextFormat.PlainText)
@@ -420,16 +444,14 @@ class MainWindow(QMainWindow):
         self.original_label.hide()
         self.language_label.hide()
         self.failures_label = self._compact("")
-        result_layout.addWidget(self.original_label)
-        summary = QHBoxLayout()
-        summary.setSpacing(INLINE)
-        summary.addWidget(self.language_label)
-        summary.addWidget(self.latency_stat)
-        summary.addStretch()
+        source = QHBoxLayout()
+        source.setSpacing(INLINE)
+        source.addWidget(self.original_label, 1)
+        source.addWidget(self.language_label)
+        result_layout.addLayout(source)
         self.detail_toggle = GlassButton("识别详情")
         self.detail_toggle.setCheckable(True)
-        summary.addWidget(self.detail_toggle)
-        result_layout.addLayout(summary)
+        header.addWidget(self.detail_toggle)
         self.details_panel = QFrame()
         self.details_panel.setObjectName("glassCard")
         details = QVBoxLayout(self.details_panel)
@@ -446,6 +468,29 @@ class MainWindow(QMainWindow):
         result_layout.addWidget(self.details_panel)
         self.feedback_button = GlassButton("复制反馈信息", icon="copy")
         self.feedback_button.clicked.connect(self._copy_feedback)
+        recent_group, recent_layout = self._group("最近翻译", "clock")
+        recent_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        recent_layout.setContentsMargins(GUTTER, INLINE, GUTTER, INLINE)
+        self.recent_hint = self._hint(EMPTY_HISTORY)
+        recent_layout.addWidget(self.recent_hint)
+        self.recent_list = QTreeWidget()
+        self.recent_list.setObjectName("recentTranslations")
+        self.recent_list.setAccessibleName("最近翻译")
+        self.recent_list.setColumnCount(2)
+        self.recent_list.setHeaderLabels(("译文", "时间"))
+        self.recent_list.setHeaderHidden(True)
+        self.recent_list.setRootIsDecorated(False)
+        self.recent_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.recent_list.setUniformRowHeights(True)
+        self.recent_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.recent_list.header().setStretchLastSection(False)
+        self.recent_list.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.recent_list.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.recent_list.itemClicked.connect(self._open_recent_translation)
+        self.recent_list.itemActivated.connect(self._open_recent_translation)
+        self.recent_list.hide()
+        recent_layout.addWidget(self.recent_list)
+        right_column.addWidget(recent_group)
         right_column.addWidget(self.feedback_button, alignment=Qt.AlignmentFlag.AlignLeft)
         self.caption_light = CaptionLight(self.hero)
         main_layout.insertWidget(0, self.hero)
@@ -719,7 +764,7 @@ class MainWindow(QMainWindow):
                  self.caption_tools, self.detail_toggle, self.start_button, self.stop_button,
                  self.talk_button, self.reverse_copy, self.download_button, self.import_button,
                  self.model_pause_button, self.device_combo, self.refresh_button, self.mode_combo,
-                 self.test_button, self.show_button, self.position_button, self.feedback_button,
+                 self.test_button, self.show_button, self.position_button, self.recent_list, self.feedback_button,
                  *self.dock.buttons]
         for previous, following in zip(order, order[1:]):
             QWidget.setTabOrder(previous, following)
@@ -1035,7 +1080,8 @@ class MainWindow(QMainWindow):
         stopping = self._stop_thread is not None and self._stop_thread.is_alive()
         if (hasattr(self, "start_button") and self.pipeline is None and not stopping
                 and not getattr(self, "_model_busy", False)):
-            self.start_button.setEnabled(whisper and m2m)
+            self.start_button.setEnabled(True)
+            self.start_button.setToolTip("" if whisper and m2m else "请先下载或导入所选模型。")
 
     def _save_settings(self, *_):
         if not hasattr(self, "duration_spin"):
@@ -1060,7 +1106,7 @@ class MainWindow(QMainWindow):
         settings.overlay_x, settings.overlay_y = self.x_spin.value(), self.y_spin.value()
         settings.overlay_opacity = self.opacity_spin.value()
         settings.show_original = self.original_check.isChecked()
-        self.original_label.setVisible(self._has_result and settings.show_original)
+        self.original_label.setVisible(self._has_result and settings.show_original and bool(self.original_label.text()))
         settings.save_history = self.history_check.isChecked()
         settings.normal_window = self.mode_combo.currentData() == "desktop"
         settings.click_through = self.click_check.isChecked() and not settings.normal_window
@@ -1252,14 +1298,14 @@ class MainWindow(QMainWindow):
     def start_translation(self) -> None:
         self._save_settings()
         if not self._models_ready():
-            QMessageBox.warning(self, "请先下载模型", "请先在“本地模型”下载所选模型。")
+            QMessageBox.warning(self, "请先下载模型",
+                                "缺少所选识别模型或翻译模型。请在「本地模型」点击「一键下载模型」或「从文件夹导入」。")
             return
         if not self._torch_version_ok():
-            QMessageBox.warning(self, "PyTorch 版本过低",
-                                "请先关闭程序，在项目文件夹双击 repair_torch_windows.bat，更新完成后再打开。")
+            self._start_unavailable("PyTorch 版本过低。请先关闭程序，运行 repair_torch_windows.bat 后再打开。")
             return
         if not self.device_combo.currentData():
-            QMessageBox.warning(self, "未选择音频设备", "请在“声音来源”选择系统声音。")
+            self._start_unavailable("未选择音频设备。请在「声音来源」刷新设备并选择系统声音。")
             return
         self._recent_trace.clear()
         self._task_timings.clear()
@@ -1279,6 +1325,10 @@ class MainWindow(QMainWindow):
         self.stop_button.setEnabled(True)
         self.pipeline.start()
 
+    def _start_unavailable(self, message: str) -> None:
+        self._status("未开始翻译")
+        self._caption_state("error", message)
+
     def stop_translation(self) -> None:
         pipeline = self.pipeline
         if pipeline is None:
@@ -1289,10 +1339,12 @@ class MainWindow(QMainWindow):
         self.audio_icon.set_mode("idle")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(False)
-        self.volume.setValue(0)
+        self.volume.hide()
+        self.audio_icon.hide()
+        self.diagnostic_label.hide()
+        self._status("已停止翻译")
         self.device_stat.setText("已停止")
-        self._caption_state("default" if self._has_result else "empty",
-                            "" if self._has_result else "选择声音来源，开始翻译后在这里查看字幕。")
+        self._caption_state("default" if self._has_result else "empty", "" if self._has_result else FIRST_CAPTION_HINT)
 
         def task():
             pipeline.stop()
@@ -1309,18 +1361,17 @@ class MainWindow(QMainWindow):
             self.start_translation()
 
     def _caption_state(self, state, hint=""):
-        self.caption_loading.setVisible(state == "loading")
+        self.caption_loading.setVisible(state == "loading" or (state == "empty" and not self._has_result))
         self.caption_hint.setText(hint)
         self.caption_hint.setVisible(bool(hint))
-        if state != "default" and not self._has_result:
-            self.chinese_label.setText({
-                "loading": "正在加载",
-                "empty": "等待队友语音",
-                "error": "翻译暂不可用",
-            }[state])
+        if not self._has_result:
+            text = {"loading": "正在加载", "error": "翻译暂不可用"}.get(state, "")
+            self.chinese_label.setText(text)
+            self.chinese_label.setVisible(bool(text))
 
     def _status(self, message: str) -> None:
         self.status_label.setText(f"当前状态：{message}")
+        self.status_label.show()
         self.statusBar().showMessage(message)
         if message.startswith(("模型下载失败", "模型导入失败")):
             self._model_error = message
@@ -1337,6 +1388,7 @@ class MainWindow(QMainWindow):
 
     def _diagnostic(self, message: str) -> None:
         self.diagnostic_label.setText(f"处理进度：{message}")
+        self.diagnostic_label.show()
         self.statusBar().showMessage(message)
         if self.pipeline:
             self.failures_label.setText(f"翻译失败次数：{self.pipeline.failures}")
@@ -1378,18 +1430,47 @@ class MainWindow(QMainWindow):
             self._caption_state("default" if self._has_result else "empty",
                                 "" if self._has_result else "正在监听所选声音来源。")
         self.runtime_label.setText(f"实际运行设备：{message}")
+        self.runtime_label.show()
         runtime, marker, model = message.partition(" · Whisper ")
         devices = runtime.rsplit(" · ", 1)[0].replace("识别 ", "").replace("翻译 ", "")
         self.device_stat.setText(devices)
         if marker and model:
             self.model_stat.setText(model)
 
+    @staticmethod
+    def _set_caption_latency(label, seconds, hint):
+        valid = math.isfinite(seconds) and seconds >= 0
+        label.setText(f"{seconds:.2f} 秒" if valid else "")
+        label.setToolTip(hint if valid else "")
+        label.setVisible(valid)
+
+    def _show_caption(self, translated, original, language, seconds, *, historical=False):
+        self._has_result = True
+        self._caption_state("default")
+        self.language_label.setText(f"识别语言：{LANGUAGES.get(language, language)}" if language else "")
+        self.language_label.setVisible(bool(language))
+        self.original_label.setText(f"识别原文：{original}" if original else "")
+        self.original_label.setVisible(self.settings.show_original and bool(original))
+        if self.chinese_label.property("quiet"):
+            self.chinese_label.setProperty("quiet", False)
+            self.chinese_label.style().unpolish(self.chinese_label)
+            self.chinese_label.style().polish(self.chinese_label)
+        self.chinese_label.setText(translated)
+        self.chinese_label.show()
+        hint = "历史记录中的实际处理耗时" if historical else "音频结束至字幕显示的实测耗时"
+        self._set_caption_latency(self.latency_stat, seconds, hint)
+
     def _result(self, result: SubtitleResult) -> None:
         if self._has_result:
             self.previous_caption.setText(self.chinese_label.text())
             self.previous_caption.show()
-        self._has_result = True
-        self._caption_state("default")
+            self.previous_latency.setText(self.latency_stat.text())
+            self.previous_latency.setToolTip(self.latency_stat.toolTip())
+            self.previous_latency.setVisible(bool(self.previous_latency.text()))
+        self._has_live_result = True
+        self.overlay.add_subtitle(result.chinese, result.original)
+        total = result.total_seconds if result.audio_end_time is None else time.monotonic() - result.audio_end_time
+        self._show_caption(result.chinese, result.original, result.language, total)
         self.result_icon.set_mode("done", highlight=True, restart=True)
         self.caption_light.animate()
         confidence = result.confidence
@@ -1397,37 +1478,28 @@ class MainWindow(QMainWindow):
         self.confidence_label.setVisible(valid)
         if valid:
             self.confidence_label.setText(f"Whisper 语种置信度：{confidence:.1%}")
-        self.language_label.setText(f"识别语言：{LANGUAGES.get(result.language, result.language)}")
-        self.original_label.setText(f"识别原文：{result.original}")
-        self.language_label.show()
-        self.latency_stat.show()
-        self.original_label.setVisible(self.settings.show_original)
-        if self.chinese_label.property("quiet"):
-            self.chinese_label.setProperty("quiet", False)
-            self.chinese_label.style().unpolish(self.chinese_label)
-            self.chinese_label.style().polish(self.chinese_label)
-        self.chinese_label.setText(result.chinese)
-        self.failures_label.setText(f"翻译失败次数：{self.pipeline.failures if self.pipeline else 0}")
+        self.failures_label.setText(f"翻译失败次数：{self.pipeline.failures}" if self.pipeline else "")
         self.statusBar().showMessage(f"最近字幕：{result.chinese[:55]}")
-        self.overlay.add_subtitle(result.chinese, result.original)
-        total = result.total_seconds if result.audio_end_time is None else time.monotonic() - result.audio_end_time
-        self.latency_stat.setText(f"{total:.2f} 秒")
-        self.latency_stat.setToolTip("音频结束至字幕显示的实测耗时")
-        self.latency_label.setText(
-            f"识别 {result.asr_seconds:.2f}s · 翻译 {result.translation_seconds:.2f}s · 音频结束至显示 {total:.2f}s"
-        )
+        timings = (("识别", result.asr_seconds), ("翻译", result.translation_seconds), ("音频结束至显示", total))
+        self.latency_label.setText(" · ".join(f"{name} {seconds:.2f}s" for name, seconds in timings
+                                             if math.isfinite(seconds) and seconds >= 0))
         if result.task_id is not None:
             if self.pipeline is not None:
                 self.pipeline.diagnostics.add("字幕已显示")
             self._record_trace(TaskTrace(result.task_id, "界面已更新", f"字幕已显示，处理耗时 {total:.2f} 秒"))
         if self.tabs.currentWidget() is self.history_page:
             self._refresh_history()
+        elif self.settings.save_history:
+            self._refresh_recent_translations()
 
     def _refresh_run_icon(self):
         running = bool(self._active_icon_tasks) or self.start_button.text() == "模型加载中…"
         self.run_icon.set_mode("spin" if running else "idle", highlight=running)
 
     def _show_audio_level(self, level):
+        if self.pipeline is not None:
+            self.volume.show()
+            self.audio_icon.show()
         self.volume.setValue(int(level * 100))
         self.audio_icon.set_level(level)
         active = self.pipeline is not None and level >= 0.02
@@ -1586,6 +1658,60 @@ class MainWindow(QMainWindow):
             self._set_update_status(message)
             QMessageBox.warning(self, "更新结果", message)
 
+    def _open_recent_translation(self, *_):
+        self._navigate(self.tabs.indexOf(self.history_page))
+
+    def _refresh_recent_translations(self):
+        try:
+            entries = self.history.recent(5, target_language="zh") if self.history is not None else []
+            message = EMPTY_HISTORY if self.history is not None else "本地翻译历史暂不可用。"
+        except Exception:
+            LOG.exception("Could not read recent translations")
+            entries = []
+            message = "暂时读取不到翻译历史。"
+        self.recent_list.clear()
+        for entry in entries:
+            timestamp = entry.created_at
+            try:
+                timestamp = datetime.fromisoformat(timestamp).strftime("%H:%M:%S")
+            except ValueError:
+                pass
+            text = entry.corrected_chinese or entry.chinese
+            item = QTreeWidgetItem((text, timestamp))
+            item.setToolTip(0, text)
+            item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.recent_list.addTopLevelItem(item)
+        self.recent_hint.setText(message)
+        self.recent_hint.setVisible(not entries)
+        self.recent_list.setVisible(bool(entries))
+        if entries:
+            hint = self.recent_list.sizeHintForRow(0)
+            self.recent_list.setFixedHeight(max(hint, self.recent_list.fontMetrics().height()) * len(entries)
+                                            + 2 * self.recent_list.frameWidth())
+        if self._has_live_result or self.pipeline is not None:
+            return
+        self._restore_history_caption(entries)
+
+    def _restore_history_caption(self, entries):
+        self.previous_caption.hide()
+        self.previous_latency.hide()
+        if entries:
+            latest = entries[0]
+            self._show_caption(latest.corrected_chinese or latest.chinese, latest.original,
+                               latest.language, latest.total_seconds, historical=True)
+            if len(entries) > 1:
+                previous = entries[1]
+                self.previous_caption.setText(previous.corrected_chinese or previous.chinese)
+                self.previous_caption.show()
+                self._set_caption_latency(self.previous_latency, previous.total_seconds,
+                                          "历史记录中的实际处理耗时")
+        else:
+            self._has_result = False
+            self.original_label.hide()
+            self.language_label.hide()
+            self.latency_stat.hide()
+            self._caption_state("empty", FIRST_CAPTION_HINT)
+
     def _request_history(self):
         if self._history_pending:
             return
@@ -1598,6 +1724,7 @@ class MainWindow(QMainWindow):
     def _refresh_history(self) -> None:
         self._history_pending = False
         self.history_loading.hide()
+        self._refresh_recent_translations()
         if self.history is None:
             self.history_state.setText(f"历史记录暂不可用：{self.history_error}。请重新打开软件。")
             self.history_state.show()
@@ -1608,7 +1735,7 @@ class MainWindow(QMainWindow):
             self.history_state.setText(f"历史记录读取失败：{exc}。可点击刷新重试。")
             self.history_state.show()
             return
-        self.history_state.setText("暂无翻译历史。启用本地历史后，新的译文会显示在这里。")
+        self.history_state.setText(EMPTY_HISTORY)
         self.history_state.setVisible(not entries)
         self.history_table.setRowCount(len(entries))
         for row, entry in enumerate(entries):

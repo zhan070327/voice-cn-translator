@@ -61,7 +61,7 @@ def test_main_window_starts_without_models(qapp, monkeypatch, tmp_path):
     monkeypatch.setattr(ui.MainWindow, "_start_hotkey", lambda self: None)
     window = ui.MainWindow()
     assert "待机" in window.status_label.text()
-    assert not window.start_button.isEnabled()
+    assert window.start_button.isEnabled()
     assert "没有可用设备" in window.device_hint.text()
     from valorant_translator.audio.capture import AudioDevice
     monkeypatch.setattr(ui, "list_devices", lambda: [
@@ -104,8 +104,8 @@ def test_main_window_starts_without_models(qapp, monkeypatch, tmp_path):
     assert "Two A Main." in window.original_label.text()
     warnings = []
     monkeypatch.setattr(ui.QMessageBox, "warning", lambda *args: warnings.append(args))
-    window.start_translation()
-    assert warnings and "下载模型" in warnings[0][1]
+    window.start_button.click()
+    assert warnings and "下载模型" in warnings[0][1] and "从文件夹导入" in warnings[0][2]
     window.bridge.model_download_progress.emit(2_200_000_000, 2_428_144_996, 1_000_000.0)
     assert window.model_progress.value() == 90
     assert "剩余" in window.model_transfer.text()
@@ -546,7 +546,10 @@ def test_upgrade_truthful_loading_empty_and_errors(qapp, monkeypatch, tmp_path):
     from valorant_translator.ui import app as ui
     window = _launch_upgrade_preview(monkeypatch, tmp_path)
     try:
-        assert "等待队友语音" in window.chinese_label.text()
+        assert window.chinese_label.isHidden()
+        assert window.caption_hint.text() == "开始翻译，看到第一条字幕"
+        assert window.caption_loading.isVisible()
+        assert window.volume.isHidden()
         window._caption_state("loading", "正在加载本地模型。")
         assert window.caption_loading.isVisible() and "正在加载" in window.chinese_label.text()
         assert window.caption_loading.pulse.state().value
@@ -642,5 +645,99 @@ def test_bundled_display_fonts_and_equal_width_latency_digits(qapp, monkeypatch,
             assert ("Noto Sans CJK SC", "Black") in faces
         metrics = window.latency_stat.fontMetrics()
         assert len({metrics.horizontalAdvance(str(digit)) for digit in range(10)}) == 1
+    finally:
+        window.close()
+
+
+def test_quick_start_uses_persisted_chinese_history_and_opens_existing_page(qapp, monkeypatch, tmp_path):
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        assert "暂无翻译历史" in window.recent_hint.text()
+        for index in range(6):
+            window.history.add_result(SubtitleResult("callout", f"队友报点 {index}", "en",
+                                                     0.1, 0.1, index / 10))
+        latest = window.history.recent(1)[0]
+        window.history.correct(latest.id, "已修正的译文", apply_future=False)
+        window.history.add_result(SubtitleResult("转 A", "Rotate A", "zh", 0.1, 0.1, 0.2,
+                                                 target_language="en"))
+        window._refresh_history()
+        assert window.chinese_label.text() == "已修正的译文"
+        assert window.latency_stat.text() == "0.50 秒"
+        assert window.previous_caption.text() == "队友报点 4"
+        assert window.previous_latency.text() == "0.40 秒"
+        assert window.recent_list.topLevelItemCount() == 5
+        assert [window.recent_list.topLevelItem(i).text(0) for i in range(5)] == [
+            "已修正的译文", "队友报点 4", "队友报点 3", "队友报点 2", "队友报点 1",
+        ]
+        assert window.recent_list.topLevelItem(0).text(1) == latest.created_at[11:19]
+        item = window.recent_list.topLevelItem(0)
+        window.recent_list.itemClicked.emit(item, 0)
+        assert window.tabs.currentWidget() is window.history_page
+        window.history.clear_history()
+        window._refresh_history()
+        assert window.chinese_label.isHidden() and window.caption_loading.isVisibleTo(window.hero)
+        assert window.recent_list.isHidden()
+    finally:
+        window.close()
+
+
+def test_quick_start_has_no_dialog_before_first_live_caption(qapp, monkeypatch, tmp_path):
+    from valorant_translator.audio.capture import AudioDevice
+    from valorant_translator.ui import app as ui
+
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    warnings = []
+    monkeypatch.setattr(ui.QMessageBox, "warning", lambda *args: warnings.append(args))
+    monkeypatch.setattr(window, "_models_ready", lambda: True)
+    monkeypatch.setattr(window, "_torch_version_ok", lambda: True)
+    try:
+        window.start_button.click()
+        assert "刷新设备" in window.caption_hint.text()
+        assert not warnings
+        window._apply_devices([AudioDevice("speaker", "默认回环", True)])
+
+        class TestPipeline:
+            diagnostics = None
+            failures = 0
+
+            def __init__(self, settings, on_status, on_level, on_result, *args, **kwargs):
+                self.on_result = on_result
+
+            def start(self):
+                self.on_result(SubtitleResult("A main", "A 大。", "en", 0.2, 0.1, 0.35))
+
+            def stop(self):
+                pass
+
+        monkeypatch.setattr(ui, "Pipeline", TestPipeline)
+        window.start_button.click()
+        assert not warnings
+        assert window.chinese_label.text() == "A 大。"
+        assert window.latency_stat.text() == "0.35 秒" and window.previous_latency.isHidden()
+        assert not window.caption_loading.isVisible()
+        assert window.caption_light.animation.duration() == 200
+        assert window.caption_light.opacity < 1
+        assert _wait_for(lambda: window.caption_light.opacity == 1)
+    finally:
+        window.close()
+
+
+def test_onboarding_shows_step_and_only_detected_device_names(qapp, monkeypatch, tmp_path):
+    from valorant_translator.audio.capture import AudioDevice
+
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        window._show_onboarding()
+        guide = window.onboarding
+        assert guide.step_status.text() == "第 1 步，共 3 步"
+        assert "输入：" not in guide.details.text() and "麦克风：" not in guide.details.text()
+        window._apply_devices([AudioDevice("speaker", "扬声器", True)])
+        guide._refresh()
+        assert "扬声器" in guide.details.text()
+        assert "麦克风：" not in guide.details.text()
+        guide.step = 1
+        guide._refresh()
+        assert guide.step_status.text() == "第 2 步，共 3 步"
+        guide.close()
     finally:
         window.close()

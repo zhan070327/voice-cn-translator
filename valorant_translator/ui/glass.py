@@ -410,7 +410,9 @@ def glass_styles(accent: str, game="valorant") -> str:
             background: {glass_fill(surface)}; border: 1px solid {rim}; border-top-color: {top};
         }}
         QFrame#captionWell {{ background: {surface}; border: 0; border-radius: {t.CONTROL_RADIUS}px; }}
-        QFrame#hero QPushButton {{ padding: {t.HERO_BUTTON_PAD_Y}px {t.INSET}px; }}
+        QFrame#hero QPushButton, QGroupBox[compactRun="true"] QPushButton {{
+            padding: {t.HERO_BUTTON_PAD_Y}px {t.INSET}px;
+        }}
         QPushButton[gamePill="true"]:checked {{
             background: {rgba(accent, 58)}; border: 1px solid {edge};
         }}
@@ -469,5 +471,11 @@ def glass_styles(accent: str, game="valorant") -> str:
         QStatusBar, QHeaderView::section {{ background: {panel}; }}
         QStatusBar QLabel, QHeaderView::section {{ font-size: {t.CAPTION}px; }}
         QHeaderView::section {{ padding: {t.INLINE}px; }}
+        QTreeWidget#recentTranslations {{
+            background: {surface}; border: 1px solid {rim}; border-radius: {t.CONTROL_RADIUS}px;
+        }}
+        QTreeWidget#recentTranslations:focus {{ border-color: {edge}; }}
+        QTreeWidget#recentTranslations::item {{ padding: {t.TIGHT}px {t.INLINE}px; }}
+        QTreeWidget#recentTranslations::item:hover {{ background: {panel}; }}
         QTableWidget {{ background: {surface}; gridline-color: {t.EDGE}; }}
     """
