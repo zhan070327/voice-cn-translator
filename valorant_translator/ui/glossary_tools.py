@@ -183,7 +183,7 @@ def default_glossary(parent):
         else:
             rows.extend(items)
     if len(rows) == 1:
-        rows.append("此游戏目前没有默认词条。可切换到 Valorant 查看内置词库。")
+        rows.append("该游戏词库建设中，暂用通用翻译")
     preview(parent, "默认词库", "\n".join(rows))
 
 

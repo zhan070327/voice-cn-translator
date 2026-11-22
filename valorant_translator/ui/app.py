@@ -32,16 +32,18 @@ from valorant_translator.models.download import (download_models, import_models,
                                                  model_ready, WHISPER_FILES, M2M_FILES)
 from valorant_translator.pipeline import Pipeline, SubtitleResult, TaskTrace
 from valorant_translator.recognition.whisper import LANGUAGES
-from valorant_translator.translation.glossary import GAMES
+from valorant_translator.translation.glossary import GAMES, read_default_glossary
 from valorant_translator.translation.rules import Rule, RuleStore, now
 from valorant_translator.ui.dialogs import (GlassFileDialog as QFileDialog, GlassInputDialog as QInputDialog,
                                            GlassMessageBox as QMessageBox, apply_dialog_theme)
-from valorant_translator.ui.glass import (BACKGROUND_THEMES, DEFAULT_ACCENT, DEFAULT_BACKGROUND_COLOR,
+from valorant_translator.ui.glass import (BACKGROUND_THEMES, DEFAULT_BACKGROUND_COLOR,
                                         GAP, GUTTER, INLINE, CompactLabel, GlassButton, GlassSection,
                                         GlassSurface, accent_color, glass_styles, tint_icons)
 from valorant_translator.ui.glossary_tools import (default_glossary, entry_text, manage_rules, preview,
                                                    review_feedback, submit_feedback)
+from valorant_translator.ui import tokens
 from valorant_translator.ui.icons import LineIcon
+from valorant_translator.ui.motion import ActionDock, CaptionLight, DetailPanel, LoadingSkeleton, SelectionCapsule, Snapshot, Toast
 from valorant_translator.ui.onboarding import Onboarding
 from valorant_translator.ui.overlay import SubtitleOverlay
 from valorant_translator.ui.routing import RoutingWizard, routing_devices
@@ -89,6 +91,15 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = Settings.load()
+        if not isinstance(self.settings.game_accents, dict):
+            self.settings.game_accents = {}
+        if not self.settings.game_accents and accent_color(self.settings.accent).lower() != tokens.LEGACY_ACCENT:
+            self.settings.game_accents[self.settings.game] = accent_color(self.settings.accent)
+        self.settings.accent = self._game_accent()
+        self._has_result = False
+        self._model_error = ""
+        self._history_pending = False
+        self._glossary_request = 0
         self.custom_rules = RuleStore()
         self.feedback_store = FeedbackStore()
         self.audio_devices = []
@@ -156,7 +167,7 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon(str(Path(__file__).resolve().parents[2] / "assets" / "app_icon.ico")))
         self.resize(1160, 840)
         self._build()
-        self.tabs.currentChanged.connect(lambda _: self._refresh_history())
+        self.tabs.currentChanged.connect(self._page_changed)
         self._refresh_history()
         self.statusBar().showMessage("待机 · 尚无翻译")
         self.overlay = SubtitleOverlay(self.settings)
@@ -178,56 +189,46 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         main_page = QWidget()
         main_layout = QVBoxLayout(main_page)
-        main_layout.setContentsMargins(GUTTER, GAP, GUTTER, GUTTER)
+        main_layout.setContentsMargins(GUTTER, 0, GUTTER, GUTTER)
         main_layout.setSpacing(GAP)
 
-        hero = QFrame()
-        hero.setObjectName("hero")
-        hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(GUTTER, GAP, GUTTER, GAP)
-        hero_layout.setSpacing(INLINE)
-        hero_top = QHBoxLayout()
-        heading = QVBoxLayout()
-        heading.setSpacing(3)
-        title = QLabel("队友语音，实时看懂")
-        title.setObjectName("title")
-        heading.addWidget(title)
-        intro = self._hint("模型就绪后，可离线双向翻译。")
-        intro.setToolTip("首次下载模型需要联网。选择系统声音翻译队友，长按说话快捷键将中文转成英文。")
-        heading.addWidget(intro)
-        hero_top.addLayout(heading, 1)
         self.update_button = GlassButton("检查更新", icon="refresh")
         self.update_button.clicked.connect(self._check_update)
-        hero_top.addWidget(self.update_button)
-        hero_layout.addLayout(hero_top)
+        self.update_button.setFixedWidth(tokens.UPDATE_WIDTH)
+        update_strip = QFrame()
+        update_strip.setObjectName("updateStrip")
+        updates = QVBoxLayout(update_strip)
+        updates.setContentsMargins(GUTTER, tokens.TIGHT, GUTTER, tokens.TIGHT)
+        updates.setSpacing(INLINE)
         self.update_label = self._compact(f"当前版本：{APP_VERSION}")
-        hero_layout.addWidget(self.update_label)
+        updates.addWidget(self.update_label)
         self.update_bar = QProgressBar()
         self.update_bar.setRange(0, 100)
         self.update_bar.hide()
-        hero_layout.addWidget(self.update_bar)
+        updates.addWidget(self.update_bar)
         self.update_cancel_button = GlassButton("取消下载")
         self.update_cancel_button.setProperty("ghost", True)
         self.update_cancel_button.clicked.connect(self._cancel_update)
         self.update_cancel_button.hide()
-        hero_layout.addWidget(self.update_cancel_button, alignment=Qt.AlignmentFlag.AlignHCenter)
-        main_layout.addWidget(hero)
+        updates.addWidget(self.update_cancel_button, alignment=Qt.AlignmentFlag.AlignLeft)
         cards = QHBoxLayout()
-        cards.setSpacing(GAP)
-        self.model_stat, self.model_icon = self._stat(cards, "识别模型", "—", "layers")
-        self.device_stat, _ = self._stat(cards, "运行设备", "—", "chip")
-        self.latency_stat, _ = self._stat(cards, "延迟", "—", "clock")
+        cards.setSpacing(INLINE)
+        self.model_stat, self.model_icon = self._stat(cards, "识别模型", "未检测", "layers")
+        self.device_stat, _ = self._stat(cards, "运行设备", "未检测", "chip")
+        self.latency_stat = QLabel()
+        self.latency_stat.setProperty("metric", True)
+        self.latency_stat.hide()
         self.microphone_stat, self.microphone_icon = self._stat(cards, "麦克风", "未检测", "mic")
-        main_layout.addLayout(cards)
         warning = QFrame()
         warning.setObjectName("warning")
         warning.setToolTip("本工具未经 Riot 批准。游戏内字幕存在政策和反作弊风险，建议先在桌面或第二屏测试。")
         risk = QHBoxLayout(warning)
-        risk.setContentsMargins(GAP, 4, GAP, 4)
+        risk.setContentsMargins(GAP, tokens.TIGHT, GAP, tokens.TIGHT)
         risk.setSpacing(INLINE)
         risk.addWidget(LineIcon("shield"))
         risk.addWidget(QLabel("游戏内字幕有 Riot 合规风险，建议先在桌面测试。"), 1)
-        main_layout.addWidget(warning)
+        updates.addWidget(warning)
+        main_layout.addWidget(update_strip)
 
         columns = QHBoxLayout()
         columns.setSpacing(GAP)
@@ -242,6 +243,12 @@ class MainWindow(QMainWindow):
         model_group, model_layout = self._group("本地模型", "layers")
         self.model_status_label = self._compact("检查模型…")
         model_layout.addWidget(self.model_status_label)
+        self.model_loading = LoadingSkeleton()
+        model_layout.addWidget(self.model_loading)
+        self.model_state = self._hint("")
+        self.model_state.setTextFormat(Qt.TextFormat.PlainText)
+        self.model_state.hide()
+        model_layout.addWidget(self.model_state)
         model_row = QHBoxLayout()
         model_row.setSpacing(INLINE)
         self.download_button = GlassButton("一键下载模型", icon="download")
@@ -263,6 +270,7 @@ class MainWindow(QMainWindow):
         self.model_progress.hide()
         model_layout.addWidget(self.model_progress)
         self.model_transfer = QLabel()
+        self.model_transfer.setObjectName("modelTransfer")
         self.model_transfer.hide()
         model_layout.addWidget(self.model_transfer)
         self.download_button.setToolTip("按详细设置中的型号下载，下载后可离线使用。")
@@ -325,11 +333,12 @@ class MainWindow(QMainWindow):
         self.volume = QProgressBar()
         self.volume.setRange(0, 100)
         self.volume.setValue(0)
-        self.volume.setFixedWidth(94)
+        self.volume.setFixedWidth(tokens.VOLUME_WIDTH)
         self.volume.setAccessibleName("音频输入音量")
         self.volume.setToolTip("音频输入音量")
         run_row.addWidget(self.volume)
         run_layout.addLayout(run_row)
+        run_layout.addLayout(cards)
         self.runtime_label = self._compact("实际运行设备：模型尚未加载")
         self.diagnostic_label = self._compact("处理进度：尚未开始")
         metrics = QHBoxLayout()
@@ -343,13 +352,10 @@ class MainWindow(QMainWindow):
         run_layout.addWidget(self.last_discard)
         main_layout.insertWidget(main_layout.indexOf(columns), run_group)
 
-        talk_group, talk_layout = self._group("中文 → 英文", "mic")
-        self.reverse_icon = talk_group.icon
+        self.reverse_icon = LineIcon("mic")
         self.talk_state = self._compact("按住说话，松开翻译。")
-        talk_layout.addWidget(self.talk_state)
         self.microphone_level = self._compact("")
         self.microphone_level.hide()
-        talk_layout.addWidget(self.microphone_level)
         self.talk_button = GlassButton("按住说话", icon="mic")
         self.talk_button.setToolTip("按住按钮或设置中的说话快捷键，松开后翻译。")
         self.talk_button.pressed.connect(self._begin_talk)
@@ -358,37 +364,86 @@ class MainWindow(QMainWindow):
         self.reverse_copy.setEnabled(False)
         self.reverse_copy.clicked.connect(self._copy_english)
         talk_row = QHBoxLayout()
+        talk_row.setSpacing(INLINE)
+        talk_row.addWidget(self.reverse_icon)
+        talk_row.addWidget(self._hint("中文 → 英文"))
         talk_row.addWidget(self.talk_button)
         talk_row.addWidget(self.reverse_copy)
-        talk_layout.addLayout(talk_row)
+        talk_row.addWidget(self.talk_state, 1)
+        run_layout.addLayout(talk_row)
+        run_layout.addWidget(self.microphone_level)
 
-        result_group, result_layout = self._group("最近译文", "chat")
-        self.result_icon = result_group.icon
-        self.chinese_label = QLabel("等待语音…")
+        self.hero = QFrame()
+        self.hero.setObjectName("hero")
+        result_layout = QVBoxLayout(self.hero)
+        result_layout.setContentsMargins(GAP, GUTTER, GAP, GUTTER)
+        result_layout.setSpacing(INLINE)
+        header = QHBoxLayout()
+        self.result_icon = LineIcon("chat")
+        heading = QLabel("实时字幕")
+        heading.setObjectName("sectionTitle")
+        header.addWidget(self.result_icon)
+        header.addWidget(heading)
+        header.addStretch()
+        self.caption_tools = GlassButton("显示/隐藏字幕", icon="screen")
+        self.caption_tools.clicked.connect(self._toggle_overlay)
+        header.addWidget(self.caption_tools)
+        result_layout.addLayout(header)
+        self.chinese_label = QLabel("等待队友语音")
         self.chinese_label.setObjectName("translation")
+        self.chinese_label.setProperty("quiet", True)
+        self.chinese_label.setTextFormat(Qt.TextFormat.PlainText)
         self.chinese_label.setWordWrap(True)
+        self.chinese_label.setMinimumHeight(tokens.WIDE)
         result_layout.addWidget(self.chinese_label)
-        self.original_label = self._compact("识别原文：—")
-        self.language_label = self._compact("识别语言：—")
-        self.latency_label = self._compact("音频结束至显示：—")
-        for label in (self.original_label, self.language_label, self.latency_label):
-            label.hide()
-        self.failures_label = self._compact("翻译失败次数：0")
+        self.caption_hint = self._hint("选择声音来源，开始翻译后在这里查看字幕。")
+        self.caption_hint.setTextFormat(Qt.TextFormat.PlainText)
+        result_layout.addWidget(self.caption_hint)
+        self.caption_loading = LoadingSkeleton()
+        result_layout.addWidget(self.caption_loading)
+        self.original_label = self._compact("")
+        self.language_label = QLabel()
+        self.language_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.language_label.setProperty("metric", True)
+        self.latency_label = self._compact("")
+        self.latency_label.setProperty("metric", True)
+        self.original_label.hide()
+        self.language_label.hide()
+        self.failures_label = self._compact("")
         result_layout.addWidget(self.original_label)
         summary = QHBoxLayout()
         summary.setSpacing(INLINE)
-        summary.addWidget(self.language_label, 1)
-        summary.addWidget(self.failures_label, 1)
+        summary.addWidget(self.language_label)
+        summary.addWidget(self.latency_stat)
+        summary.addStretch()
+        self.detail_toggle = GlassButton("识别详情")
+        self.detail_toggle.setCheckable(True)
+        summary.addWidget(self.detail_toggle)
         result_layout.addLayout(summary)
-        result_layout.addWidget(self.latency_label)
+        self.details_panel = QFrame()
+        self.details_panel.setObjectName("glassCard")
+        details = QVBoxLayout(self.details_panel)
+        details.setContentsMargins(GUTTER, GUTTER, GUTTER, GUTTER)
+        details.setSpacing(INLINE)
+        details.addWidget(self.latency_label)
         self.confidence_label = self._compact("")
+        self.confidence_label.setProperty("metric", True)
         self.confidence_label.hide()
-        result_layout.addWidget(self.confidence_label)
+        details.addWidget(self.confidence_label)
+        details.addWidget(self.failures_label)
+        self.details_panel.hide()
+        self.detail_toggle.toggled.connect(self._toggle_details)
+        result_layout.addWidget(self.details_panel)
         self.feedback_button = GlassButton("复制反馈信息", icon="copy")
         self.feedback_button.clicked.connect(self._copy_feedback)
-        result_layout.addWidget(self.feedback_button, alignment=Qt.AlignmentFlag.AlignLeft)
-        right_column.addWidget(result_group)
-        right_column.addWidget(talk_group)
+        right_column.addWidget(self.feedback_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        self.caption_light = CaptionLight(self.hero)
+        main_layout.insertWidget(0, self.hero)
+        self.dock = ActionDock((
+            ("测试字幕", "play", self.test_button.click),
+            ("显示/隐藏字幕", "screen", self.show_button.click),
+            ("调整字幕位置", "settings", self.position_button.click),
+        ))
         left_column.addStretch()
         right_column.addStretch()
         self.tabs.addTab(self._scroll(main_page), "快速开始")
@@ -496,7 +551,14 @@ class MainWindow(QMainWindow):
         colors.addWidget(self.background_color_button)
         colors.addWidget(self.theme_reset_button)
         colors.addStretch()
+        self.game_accent_reset_button = GlassButton("恢复当前游戏点缀色")
+        self.game_accent_reset_button.clicked.connect(self._reset_game_accent)
+        self._row(form, "游戏皮肤", self.game_accent_reset_button)
         form.addRow(colors)
+        self.reduce_motion_check = QCheckBox("减少动效")
+        self.reduce_motion_check.setChecked(self.settings.reduce_motion)
+        self.reduce_motion_check.toggled.connect(self._set_reduce_motion)
+        form.addRow(self.reduce_motion_check)
         form = self._settings_card(settings_layout, "历史和隐私", "shield")
         self.history_check = self._check("保存本地历史", self.settings.save_history)
         self.history_check.setToolTip("只保存识别文字与译文，不保存音频。")
@@ -511,19 +573,27 @@ class MainWindow(QMainWindow):
             glossary_form.addRow(check)
         self.glossary_checks["teammate_only"].setToolTip(
             "只过滤词库中已核实的整句英雄台词。分流可避免游戏音效进入翻译器。")
-        glossary_form.addRow(self._hint("通过窗口顶部手动选择游戏。"))
+        self.glossary_status = self._hint("")
+        self.glossary_status.setTextFormat(Qt.TextFormat.PlainText)
+        glossary_form.addRow(self.glossary_status)
+        self.glossary_loading = LoadingSkeleton()
+        glossary_form.addRow(self.glossary_loading)
         self._glossary_actions(glossary_form)
         settings_layout.addStretch()
         self.tabs.addTab(self._scroll(settings_page), "详细设置")
 
         self.history_page = QWidget()
+        self.history_page.setObjectName("historyPage")
         history_layout = QVBoxLayout(self.history_page)
         history_layout.setContentsMargins(GUTTER, GAP, GUTTER, GUTTER)
         history_hint = self._hint("最近 1000 条 · 仅在本机保存")
         history_hint.setToolTip("只修正选中记录，或明确选择将译法保存到我的词库。")
         history_layout.addWidget(history_hint)
-        if self.history_error:
-            history_layout.addWidget(self._hint(f"历史记录暂不可用：{self.history_error}"))
+        self.history_state = self._hint("")
+        self.history_state.setTextFormat(Qt.TextFormat.PlainText)
+        history_layout.addWidget(self.history_state)
+        self.history_loading = LoadingSkeleton()
+        history_layout.addWidget(self.history_loading)
         self.history_table = QTableWidget(0, 5)
         self.history_table.setHorizontalHeaderLabels(("时间", "识别原文", "字幕译文", "语言", "延迟"))
         self.history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -536,7 +606,7 @@ class MainWindow(QMainWindow):
         self.history_table.horizontalHeader().setStretchLastSection(True)
         history_layout.addWidget(self.history_table)
         history_buttons = QHBoxLayout()
-        for label, callback in (("刷新", self._refresh_history),
+        for label, callback in (("刷新", self._request_history),
                                 ("修正选中译文", self._correct_history),
                                 ("导出 CSV", self._export_history),
                                 ("清空历史", self._clear_history),
@@ -567,9 +637,9 @@ class MainWindow(QMainWindow):
         shell.setSpacing(GAP)
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(164)
+        sidebar.setFixedWidth(tokens.SIDEBAR_WIDTH)
         side = QVBoxLayout(sidebar)
-        side.setContentsMargins(GAP, GUTTER, GAP, GUTTER)
+        side.setContentsMargins(GUTTER, GUTTER, GUTTER, GUTTER)
         side.setSpacing(INLINE)
         brand = QLabel("VoiceTrans")
         brand.setObjectName("brand")
@@ -583,13 +653,16 @@ class MainWindow(QMainWindow):
             self.nav.addButton(button, index)
             side.addWidget(button)
         self.nav.button(0).setChecked(True)
-        self.nav.idClicked.connect(self.tabs.setCurrentIndex)
+        self.nav.idClicked.connect(self._navigate)
         self.tabs.currentChanged.connect(lambda index: self.nav.button(index).setChecked(True))
         side.addStretch()
         guide = GlassButton("新手引导", icon="book")
         guide.clicked.connect(self._show_onboarding)
         side.addWidget(guide)
         side.addWidget(self._hint(f"v{APP_VERSION}"))
+        self.nav_capsule = SelectionCapsule(sidebar)
+        self.nav_capsule.select(self.nav.button(0), animated=False)
+        self.tabs.currentChanged.connect(lambda index: self.nav_capsule.select(self.nav.button(index)))
         shell.addWidget(sidebar)
         content = QVBoxLayout()
         content.setSpacing(GAP)
@@ -607,27 +680,50 @@ class MainWindow(QMainWindow):
             button.clicked.connect(lambda checked=False, game=key: self._select_game(game))
             self.game_group.addButton(button)
             games.addWidget(button)
+        self.game_capsule = SelectionCapsule(game_bar)
+        self.game_capsule.select(self.game_group.checkedButton(), animated=False)
+        self.game_group.buttonClicked.connect(self.game_capsule.select)
+        games.addWidget(self.update_button)
         content.addWidget(game_bar)
-        self.game_notice = self._hint("")
-        self.game_notice.hide()
-        content.addWidget(self.game_notice)
+        self.game_notice = Toast(self.surface)
         self.tabs.tabBar().hide()
         content.addWidget(self.tabs, 1)
+        dock_slot = QFrame()
+        dock_slot.setFixedHeight(tokens.WIDE + tokens.INLINE)
+        dock_row = QHBoxLayout(dock_slot)
+        dock_row.setContentsMargins(0, 0, 0, 0)
+        dock_row.addWidget(self.dock, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.tabs.currentChanged.connect(lambda index: self.dock.setVisible(index == 0))
+        content.addWidget(dock_slot)
         shell.addLayout(content, 1)
         self.setCentralWidget(self.surface)
-        self.setStyleSheet(glass_styles(self.settings.accent))
-        tint_icons(self, self.settings.accent)
+        self.page_snapshot = Snapshot(self.tabs)
+        self.skin_snapshot = Snapshot(self.surface)
+        self.toast_timer = QTimer(self, singleShot=True)
+        self.toast_timer.timeout.connect(self.game_notice.dismiss)
+        self.detail_effect = DetailPanel(self.hero)
+        self.detail_effect.hide()
+        self._apply_theme()
+        self._refresh_glossary()
+        order = [*self.nav.buttons(), guide, *self.game_group.buttons(), self.update_button,
+                 self.caption_tools, self.detail_toggle, self.start_button, self.stop_button,
+                 self.talk_button, self.reverse_copy, self.download_button, self.import_button,
+                 self.model_pause_button, self.device_combo, self.refresh_button, self.mode_combo,
+                 self.test_button, self.show_button, self.position_button, self.feedback_button,
+                 *self.dock.buttons]
+        for previous, following in zip(order, order[1:]):
+            QWidget.setTabOrder(previous, following)
 
     def _stat(self, row, title, initial, name):
         frame = QFrame()
-        frame.setObjectName("glassCard")
+        frame.setObjectName("controlStat")
         contents = QHBoxLayout(frame)
-        contents.setContentsMargins(GAP, GAP, GAP, GAP)
+        contents.setContentsMargins(INLINE, tokens.TIGHT, INLINE, tokens.TIGHT)
         contents.setSpacing(INLINE)
         icon = LineIcon(name)
         contents.addWidget(icon)
         text = QVBoxLayout()
-        text.setSpacing(2)
+        text.setSpacing(tokens.TIGHT)
         label = self._hint(title)
         label.setObjectName("statLabel")
         text.addWidget(label)
@@ -661,7 +757,7 @@ class MainWindow(QMainWindow):
     def _choose_accent(self):
         color = self._pick_theme_color(QColor(accent_color(self.settings.accent)), "选择点缀色")
         if color.isValid():
-            self.settings.accent = color.name()
+            self.settings.game_accents[self.settings.game] = color.name()
             self._save_theme()
 
     def _select_background(self):
@@ -682,28 +778,112 @@ class MainWindow(QMainWindow):
     def _reset_theme(self):
         self.settings.background_theme = "default"
         self.settings.background_color = ""
-        self.settings.accent = DEFAULT_ACCENT
+        self._reset_game_accent()
+
+    def _reset_game_accent(self):
+        self.settings.game_accents.pop(self.settings.game, None)
         self._save_theme()
 
+    def _game_accent(self):
+        return self.settings.game_accents.get(self.settings.game, tokens.skin_for(self.settings.game).accent)
+
     def _save_theme(self):
+        self.settings.accent = self._game_accent()
         with QSignalBlocker(self.background_combo):
             self.background_combo.setCurrentIndex(self.background_combo.findData(self.settings.background_theme))
         self.settings.save()
-        self.surface.set_background(self.settings.background_theme, self.settings.background_color)
-        stylesheet = glass_styles(self.settings.accent)
+        self._apply_theme()
+
+    def _apply_theme(self):
+        settings = self.settings
+        self.surface.set_background(settings.background_theme, settings.background_color, settings.game)
+        stylesheet = glass_styles(settings.accent, settings.game)
         if stylesheet != self.styleSheet():
             self.setStyleSheet(stylesheet)
-            tint_icons(self, self.settings.accent)
+        tint_icons(self, settings.accent)
+        for effect in (self.caption_light, self.nav_capsule, self.game_capsule):
+            effect.accent = accent_color(settings.accent)
+            effect.update()
         if self.onboarding is not None:
             self.onboarding.apply_theme()
+        if self.routing_wizard is not None:
+            apply_dialog_theme(self.routing_wizard, settings)
+        if hasattr(self, "overlay"):
+            self.overlay.refresh_theme()
+        self._sync_motion()
+
+    def _set_reduce_motion(self, checked):
+        self.settings.reduce_motion = checked
+        self.settings.save()
+        self._apply_theme()
+
+    def _sync_motion(self):
+        reduced = self.settings.reduce_motion
+        for item in (*self.findChildren(LoadingSkeleton), self.caption_light, self.nav_capsule,
+                     self.game_capsule, self.page_snapshot, self.skin_snapshot, self.detail_effect):
+            item.set_reduced(reduced)
+        for button in self.findChildren(GlassButton):
+            button.set_reduced_motion(reduced)
+        for icon in self.findChildren(LineIcon):
+            icon.set_reduced_motion(reduced)
+        self.dock.set_reduced(reduced)
+        self.game_notice.set_reduced(reduced)
+
+    def _navigate(self, index):
+        if self.tabs.currentIndex() == index:
+            return
+        image = self.page_snapshot.capture()
+        self.tabs.setCurrentIndex(index)
+        self.page_snapshot.reveal(image, tokens.PAGE_MS)
+
+    def _page_changed(self, index):
+        if index == 2:
+            self._request_history()
+        elif index == 1:
+            self._refresh_glossary()
+
+    def _toggle_details(self, opened):
+        if opened:
+            self.details_panel.show()
+            self.hero.layout().activate()
+        self.detail_effect.show_from(self.detail_toggle, self.details_panel.geometry(), opening=opened)
+        if not opened:
+            self.details_panel.hide()
+
+    def _announce(self, text, *, success=False):
+        self.game_notice.announce(text, reduced=self.settings.reduce_motion, success=success)
+        self.toast_timer.start(tokens.SUCCESS_MS if success else tokens.TOAST_MS)
+
+    def _refresh_glossary(self):
+        self._glossary_request += 1
+        request = self._glossary_request
+        self.glossary_status.setText("正在读取游戏词库…")
+        self.glossary_loading.show()
+        QTimer.singleShot(tokens.GLOSSARY_LOAD_MS, self, lambda: self._show_glossary(request))
+
+    def _show_glossary(self, request):
+        if request != self._glossary_request:
+            return
+        self.glossary_loading.hide()
+        try:
+            data = read_default_glossary(self.settings.game)
+        except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
+            LOG.warning("Could not read game glossary: %s", error)
+            text = "游戏词库读取失败。请尝试重新打开设置，或使用通用翻译。"
+        else:
+            text = ("已加载游戏词库" if any(value for value in data.values() if isinstance(value, (list, dict)))
+                    else "该游戏词库建设中，暂用通用翻译")
+        self.glossary_status.setText(text)
 
     def _select_game(self, game):
         if game == self.settings.game:
             return
+        image = self.skin_snapshot.capture()
         self.settings.game = game
-        self.settings.save()
-        self.game_notice.setText(f"已切换至 {GAMES[game]}")
-        self.game_notice.show()
+        self._save_theme()
+        self.skin_snapshot.reveal(image, tokens.SKIN_MS)
+        self._refresh_glossary()
+        self._announce(f"已切换至 {GAMES[game]}")
         if self.pipeline:
             self._restart_after_stop = True
             self.stop_translation()
@@ -838,6 +1018,9 @@ class MainWindow(QMainWindow):
             f"识别模型 {size}：{'已下载' if whisper else '未下载'}  ·  中文翻译模型：{'已下载' if m2m else '未下载'}"
             + ("  ·  PyTorch 需更新至 2.6 以上" if not self._torch_version_ok() else "")
         )
+        if not self._model_busy and not self._model_error:
+            self.model_state.setText("点击下载或导入所选模型。" if not (whisper and m2m) else "")
+            self.model_state.setVisible(not (whisper and m2m))
         self.download_button.setEnabled(not self._model_busy and not (whisper and m2m))
         stopping = self._stop_thread is not None and self._stop_thread.is_alive()
         if (hasattr(self, "start_button") and self.pipeline is None and not stopping
@@ -867,6 +1050,7 @@ class MainWindow(QMainWindow):
         settings.overlay_x, settings.overlay_y = self.x_spin.value(), self.y_spin.value()
         settings.overlay_opacity = self.opacity_spin.value()
         settings.show_original = self.original_check.isChecked()
+        self.original_label.setVisible(self._has_result and settings.show_original)
         settings.save_history = self.history_check.isChecked()
         settings.normal_window = self.mode_combo.currentData() == "desktop"
         settings.click_through = self.click_check.isChecked() and not settings.normal_window
@@ -1079,6 +1263,7 @@ class MainWindow(QMainWindow):
                                  custom_rules=self.custom_rules)
         self._last_diagnostics = self.pipeline.diagnostics
         self.start_button.setText("模型加载中…")
+        self._caption_state("loading", "模型加载完成后开始监听。")
         self.run_icon.set_mode("spin", highlight=True)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -1096,6 +1281,8 @@ class MainWindow(QMainWindow):
         self.stop_button.setEnabled(False)
         self.volume.setValue(0)
         self.device_stat.setText("已停止")
+        self._caption_state("default" if self._has_result else "empty",
+                            "" if self._has_result else "选择声音来源，开始翻译后在这里查看字幕。")
 
         def task():
             pipeline.stop()
@@ -1111,10 +1298,26 @@ class MainWindow(QMainWindow):
             self._restart_after_stop = False
             self.start_translation()
 
+    def _caption_state(self, state, hint=""):
+        self.caption_loading.setVisible(state == "loading")
+        self.caption_hint.setText(hint)
+        self.caption_hint.setVisible(bool(hint))
+        if state != "default" and not self._has_result:
+            self.chinese_label.setText({
+                "loading": "正在加载",
+                "empty": "等待队友语音",
+                "error": "翻译暂不可用",
+            }[state])
+
     def _status(self, message: str) -> None:
         self.status_label.setText(f"当前状态：{message}")
         self.statusBar().showMessage(message)
+        if message.startswith(("模型下载失败", "模型导入失败")):
+            self._model_error = message
+            self.model_state.setText(message + "。可以重试或导入本地模型。")
+            self.model_state.show()
         if message.startswith("运行失败"):
+            self._caption_state("error", message + "。可以检查音频设备与本地模型后重试。")
             self._active_icon_tasks.clear()
             self.run_icon.set_mode("idle")
             self.audio_icon.set_mode("idle")
@@ -1162,6 +1365,8 @@ class MainWindow(QMainWindow):
         if self.pipeline:
             self.start_button.setText("开始翻译")
             self._refresh_run_icon()
+            self._caption_state("default" if self._has_result else "empty",
+                                "" if self._has_result else "正在监听所选声音来源。")
         self.runtime_label.setText(f"实际运行设备：{message}")
         runtime, marker, model = message.partition(" · Whisper ")
         devices = runtime.rsplit(" · ", 1)[0].replace("识别 ", "").replace("翻译 ", "")
@@ -1170,7 +1375,10 @@ class MainWindow(QMainWindow):
             self.model_stat.setText(model)
 
     def _result(self, result: SubtitleResult) -> None:
+        self._has_result = True
+        self._caption_state("default")
         self.result_icon.set_mode("done", highlight=True, restart=True)
+        self.caption_light.animate()
         confidence = result.confidence
         valid = confidence is not None and math.isfinite(confidence) and 0 <= confidence <= 1
         self.confidence_label.setVisible(valid)
@@ -1178,14 +1386,20 @@ class MainWindow(QMainWindow):
             self.confidence_label.setText(f"Whisper 语种置信度：{confidence:.1%}")
         self.language_label.setText(f"识别语言：{LANGUAGES.get(result.language, result.language)}")
         self.original_label.setText(f"识别原文：{result.original}")
-        for label in (self.language_label, self.original_label, self.latency_label):
-            label.show()
+        self.language_label.show()
+        self.latency_stat.show()
+        self.original_label.setVisible(self.settings.show_original)
+        if self.chinese_label.property("quiet"):
+            self.chinese_label.setProperty("quiet", False)
+            self.chinese_label.style().unpolish(self.chinese_label)
+            self.chinese_label.style().polish(self.chinese_label)
         self.chinese_label.setText(result.chinese)
         self.failures_label.setText(f"翻译失败次数：{self.pipeline.failures if self.pipeline else 0}")
         self.statusBar().showMessage(f"最近字幕：{result.chinese[:55]}")
         self.overlay.add_subtitle(result.chinese, result.original)
         total = result.total_seconds if result.audio_end_time is None else time.monotonic() - result.audio_end_time
         self.latency_stat.setText(f"{total:.2f} 秒")
+        self.latency_stat.setToolTip("音频结束至字幕显示的实测耗时")
         self.latency_label.setText(
             f"识别 {result.asr_seconds:.2f}s · 翻译 {result.translation_seconds:.2f}s · 音频结束至显示 {total:.2f}s"
         )
@@ -1359,14 +1573,30 @@ class MainWindow(QMainWindow):
             self._set_update_status(message)
             QMessageBox.warning(self, "更新结果", message)
 
+    def _request_history(self):
+        if self._history_pending:
+            return
+        self._history_pending = True
+        self.history_state.setText("正在读取本地历史…")
+        self.history_state.show()
+        self.history_loading.show()
+        QTimer.singleShot(tokens.HISTORY_LOAD_MS, self, self._refresh_history)
+
     def _refresh_history(self) -> None:
-        if self.history is None or not hasattr(self, "history_table"):
+        self._history_pending = False
+        self.history_loading.hide()
+        if self.history is None:
+            self.history_state.setText(f"历史记录暂不可用：{self.history_error}。请重新打开软件。")
+            self.history_state.show()
             return
         try:
             entries = self.history.recent(100)
         except Exception as exc:
-            self.statusBar().showMessage(f"历史记录读取失败：{exc}")
+            self.history_state.setText(f"历史记录读取失败：{exc}。可点击刷新重试。")
+            self.history_state.show()
             return
+        self.history_state.setText("暂无翻译历史。启用本地历史后，新的译文会显示在这里。")
+        self.history_state.setVisible(not entries)
         self.history_table.setRowCount(len(entries))
         for row, entry in enumerate(entries):
             values = (entry.created_at.replace("T", " ")[:19], entry.original,
@@ -1596,7 +1826,11 @@ class MainWindow(QMainWindow):
         self.download_button.setEnabled(not busy)
         self.import_button.setEnabled(not busy)
         self.model_progress.setVisible(busy)
+        self.model_loading.setVisible(busy)
         if busy:
+            self._model_error = ""
+            self.model_state.setText("正在准备本地模型…")
+            self.model_state.show()
             self.model_icon.set_mode("spin", highlight=True)
             self.model_progress.setRange(0, 0)
             self.start_button.setEnabled(False)
@@ -1606,6 +1840,8 @@ class MainWindow(QMainWindow):
             self._refresh_model_status()
             complete = was_busy and self._models_ready()
             self.model_icon.set_mode("done" if complete else "idle", highlight=complete)
+            if complete:
+                self._announce("✓ 模型已就绪", success=True)
 
     def _download_done(self) -> None:
         self._set_model_busy(False)

@@ -84,9 +84,13 @@ class Onboarding(QDialog):
 
     def apply_theme(self):
         settings = self.window.settings
-        self.surface.set_background(settings.background_theme, settings.background_color)
+        self.surface.set_background(settings.background_theme, settings.background_color, settings.game)
         apply_dialog_theme(self, settings, painted_surface=True)
         tint_icons(self, settings.accent)
+        for button in self.findChildren(GlassButton):
+            button.set_reduced_motion(settings.reduce_motion)
+        for icon in self.step_icons:
+            icon.set_reduced_motion(settings.reduce_motion)
 
     def _update_step_icons(self):
         for index, icon in enumerate(self.step_icons):

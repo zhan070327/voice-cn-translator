@@ -4,7 +4,7 @@ import time
 from types import SimpleNamespace
 
 from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QColor, QEnterEvent, QHideEvent, QShowEvent
+from PySide6.QtGui import QColor, QEnterEvent, QHideEvent, QPalette, QShowEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QVBoxLayout, QWidget
 
@@ -25,6 +25,8 @@ from valorant_translator.ui.overlay import SubtitleOverlay
 
 def test_overlay_keeps_two_and_expires(qapp):
     overlay = SubtitleOverlay(Settings(subtitle_seconds=0.01))
+    assert overlay.autoFillBackground()
+    assert overlay.palette().color(QPalette.ColorRole.Window).lightness() < 60
     for i in range(3):
         overlay.add_subtitle(f"字幕 {i}")
     assert len(overlay.entries) == 2
@@ -179,11 +181,9 @@ def test_glass_button_animates_without_resizing(qapp):
     hit_target = button.geometry()
     point = QPointF(4, 4)
     qapp.sendEvent(button, QEnterEvent(point, point, point))
-    QTest.qWait(130)
-    assert abs(button.visualHover - 1.0) < 0.001
+    assert _wait_for(lambda: abs(button.visualHover - 1.0) < 0.001)
     qapp.sendEvent(button, QEvent(QEvent.Type.Leave))
-    QTest.qWait(130)
-    assert abs(button.visualHover) < 0.001
+    assert _wait_for(lambda: abs(button.visualHover) < 0.001)
     QTest.mousePress(button, Qt.MouseButton.LeftButton)
     QTest.qWait(110)
     assert abs(button.visualScale - 0.97) < 0.001
@@ -364,7 +364,7 @@ def test_theme_switches_are_independent_saved_and_shared_with_onboarding(qapp, m
         saved = Settings.load()
         assert saved.background_theme == "default" and saved.accent == DEFAULT_ACCENT
         assert saved.background_color == "" and saved.font_size == 34
-        assert reopened.surface._background == background_palette("default", "")
+        assert reopened.surface._background == background_palette("default", "", "valorant")
     finally:
         reopened.close()
 
@@ -490,5 +490,120 @@ def test_b6_history_correction_requires_explicit_scope(qapp, monkeypatch, tmp_pa
         [rule] = window.custom_rules.rules
         assert (rule.original, rule.translated, rule.game, rule.source, rule.target) == (
             "Go A", "全队去 A。", "valorant", "en", "zh")
+    finally:
+        window.close()
+
+
+def _launch_upgrade_preview(monkeypatch, tmp_path):
+    from valorant_translator import config
+    from valorant_translator.ui import app as ui
+
+    monkeypatch.setattr(config, "APP_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "settings.json")
+    monkeypatch.setattr(ui, "MODEL_DIR", tmp_path / "models")
+    monkeypatch.setattr(ui, "list_devices", lambda: [])
+    monkeypatch.setattr(ui, "load_channel", lambda: {})
+    monkeypatch.setattr(ui.MainWindow, "_start_hotkey", lambda self: None)
+    window = ui.MainWindow()
+    window.show()
+    return window
+
+
+def test_upgrade_switches_five_skins_twice_and_persists_override(qapp, monkeypatch, tmp_path):
+    from valorant_translator.ui.tokens import SKINS
+
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        qapp.processEvents()
+        position = window.hero.geometry()
+        monkeypatch.setattr(window, "_pick_theme_color", lambda *_: QColor("#117788"))
+        window._choose_accent()
+        buttons = dict(zip(SKINS, window.game_group.buttons()))
+        for game in list(SKINS) * 2:
+            buttons[game].click()
+            qapp.processEvents()
+            assert window.settings.game == game
+            assert buttons[game].isChecked()
+            assert window.hero.geometry() == position
+            assert window.surface._background.top == SKINS[game].background
+            expected = "#117788" if game == "valorant" else SKINS[game].accent
+            assert window.settings.accent == expected
+        assert _wait_for(lambda: window.game_capsule.target is buttons["general"]
+                         and not window.skin_snapshot.isVisible())
+        window.game_accent_reset_button.click()
+        assert Settings.load().game_accents == {"valorant": "#117788"}
+        window.reduce_motion_check.setChecked(True)
+        buttons["valorant"].click()
+        assert Settings.load().reduce_motion
+        assert window.settings.accent == "#117788"
+        assert not window.skin_snapshot.isVisible()
+        assert not window.game_capsule.animation.state().value
+    finally:
+        window.close()
+
+
+def test_upgrade_truthful_loading_empty_and_errors(qapp, monkeypatch, tmp_path):
+    from valorant_translator.ui import app as ui
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        assert "等待队友语音" in window.chinese_label.text()
+        window._caption_state("loading", "正在加载本地模型。")
+        assert window.caption_loading.isVisible() and "正在加载" in window.chinese_label.text()
+        assert window.caption_loading.pulse.state().value
+        window._status("运行失败：设备已断开")
+        assert not window.caption_loading.isVisible()
+        assert "设备已断开" in window.caption_hint.text()
+        assert window.latency_stat.isHidden()
+        window._result(SubtitleResult("A main", "A 大。", "en", 0.2, 0.1, 0.35))
+        assert window.chinese_label.text() == "A 大。"
+        assert window.language_label.width() > 0
+        assert window.latency_stat.isVisible() and "0.35" in window.latency_stat.text()
+        assert window.confidence_label.isHidden()
+        window.detail_toggle.click()
+        assert window.details_panel.isVisible()
+        assert "识别 0.20s" in window.latency_label.text()
+        window.detail_toggle.click()
+        assert _wait_for(window.details_panel.isHidden)
+        window._set_model_busy(True)
+        assert window.model_loading.isVisible()
+        window._status("模型下载失败：网络中断")
+        window._download_done()
+        assert not window.model_loading.isVisible() and "网络中断" in window.model_state.text()
+        window.nav.button(2).click()
+        assert window.history_loading.isVisible()
+        assert _wait_for(lambda: "暂无翻译历史" in window.history_state.text())
+        monkeypatch.setattr(window.history, "recent", lambda *_: (_ for _ in ()).throw(OSError("读写失败")))
+        window._request_history()
+        assert _wait_for(lambda: "读写失败" in window.history_state.text())
+        window.game_group.buttons()[1].click()
+        window.nav.button(1).click()
+        assert window.glossary_loading.isVisible()
+        assert _wait_for(lambda: window.glossary_status.text() == "该游戏词库建设中，暂用通用翻译")
+        monkeypatch.setattr(ui, "read_default_glossary", lambda *_: (_ for _ in ()).throw(ValueError("词库损坏")))
+        window._refresh_glossary()
+        assert _wait_for(lambda: "读取失败" in window.glossary_status.text())
+    finally:
+        window.close()
+
+
+def test_upgrade_dock_uses_existing_actions_and_motion_can_be_reduced(qapp, monkeypatch, tmp_path):
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        qapp.processEvents()
+        item, neighbor, _ = window.dock.buttons
+        assert item.accessibleName() == "测试字幕"
+        assert not item.text() and not item.icon().isNull()
+        point = QPointF(4, 4)
+        qapp.sendEvent(item, QEnterEvent(point, point, point))
+        assert _wait_for(lambda: item.dockOpacity >= 0.99 and neighbor.dockOpacity >= 0.44)
+        window.reduce_motion_check.setChecked(True)
+        assert item.dockOpacity == neighbor.dockOpacity == 0
+        item.click()
+        assert window.overlay.entries
+        window._caption_state("loading")
+        assert not window.caption_loading.pulse.state().value
+        window.result_icon.set_mode("done")
+        assert window.result_icon.phase == DONE_PHASE
+        assert not window.result_icon._timer.isActive()
     finally:
         window.close()
