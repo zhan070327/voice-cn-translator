@@ -81,7 +81,15 @@ def run_speech(args):
             pass
 
     rows, traces, statuses, displayed = {}, [], [], {}
+    recognized_text = {}
     notes = []
+
+    class BenchmarkPipeline(pipeline.Pipeline):
+        def _recognize(self, chunk, asr):
+            result, rejection, elapsed = super()._recognize(chunk, asr)
+            if result is not None:
+                recognized_text[chunk.task_id] = result.text
+            return result, rejection, elapsed
     terminal = threading.Event()
 
     def result(subtitle):
@@ -106,7 +114,7 @@ def run_speech(args):
     pipeline.AudioCapture = NoLiveCapture
     settings = Settings(device_id="benchmark", compute_device=args.device, whisper_model=args.model,
                         fast_mode=not args.accurate)
-    pipe = pipeline.Pipeline(settings, statuses.append, lambda _: None, result, notes.append, on_trace=trace)
+    pipe = BenchmarkPipeline(settings, statuses.append, lambda _: None, result, notes.append, on_trace=trace)
     items = json.loads(args.manifest.read_text(encoding="utf-8"))
     pipe.start()
     try:
@@ -122,7 +130,8 @@ def run_speech(args):
             pipe.model_session[0].glossary.hotwords = ""
 
         if args.match_wav:
-            return replay_match(pipe, load_audio(args.match_wav), items, rows, displayed, actual, traces, notes)
+            return replay_match(pipe, load_audio(args.match_wav), items, rows, displayed, actual, traces, notes,
+                                recognized_text=recognized_text)
         output = []
         for item in items:
             audio = load_audio(args.manifest.parent / item["file"])
@@ -162,7 +171,29 @@ def edit_distance(reference, actual):
     return previous[-1]
 
 
-def replay_match(pipe, audio, reference, rows, displayed, actual, traces, notes):
+def english_word_error_rates(teammates):
+    """Count missing ASR words and untranslated words in separate metrics."""
+    english = [row for row in teammates if row.get("language_ref", "en") == "en"]
+
+    def tokens(text):
+        return re.findall(r"[a-z0-9]+", text.lower())
+
+    reference = [(tokens(row["text"]), row) for row in english]
+    total_words = sum(len(words) for words, _ in reference)
+    return {
+        # Keep the legacy metric as a measure of the delivered subtitle path.
+        "teammate_english_wer": (
+            sum(edit_distance(words, tokens(row.get("asr", ""))) for words, row in reference) / total_words
+            if total_words else None
+        ),
+        "teammate_english_asr_wer": (
+            sum(edit_distance(words, tokens(row.get("recognized_asr", ""))) for words, row in reference)
+            / total_words if total_words else None
+        ),
+    }
+
+
+def replay_match(pipe, audio, reference, rows, displayed, actual, traces, notes, *, recognized_text):
     from collections import Counter
 
     limit = len(audio) / 16000
@@ -214,6 +245,8 @@ def replay_match(pipe, audio, reference, rows, displayed, actual, traces, notes)
         sample = audio[round(item["start"] * 16000):round(item["end"] * 16000)]
         frame_rms = [float(np.sqrt(np.mean(sample[i:i + 320] ** 2))) for i in range(0, len(sample), 320)]
         output = {**item, "task_id": task, "rms": quantiles(frame_rms), **row}
+        if task in recognized_text:
+            output["recognized_asr"] = recognized_text[task]
         if task in displayed:
             output["annotated_audio_end_to_display_seconds"] = displayed[task] - origin - item["end"]
             if item["kind"] == "teammate":
@@ -221,12 +254,6 @@ def replay_match(pipe, audio, reference, rows, displayed, actual, traces, notes)
         result.append(output)
 
     teammates = [row for row in result if row["kind"] == "teammate"]
-    english = [row for row in teammates if row.get("language_ref", "en") == "en"]
-    # Missed utterances count as deletions, so lowering recall cannot reduce this WER.
-    def tokens(text):
-        return re.findall(r"[a-z0-9]+", text.lower())
-    total_words = sum(len(tokens(item["text"])) for item in english)
-    word_errors = sum(edit_distance(tokens(item["text"]), tokens(item.get("asr", ""))) for item in english)
     observed = Counter(event.detail.split("；", 1)[0] for event in traces if event.discarded)
     observed["VAD 语音过短"] = sum(note.startswith("检测到的语音过短") for note in notes)
     for diagnostic in traces:
@@ -242,7 +269,7 @@ def replay_match(pipe, audio, reference, rows, displayed, actual, traces, notes)
             "teammate_references": len(teammates),
             "teammate_subtitles": sum(bool(item.get("final")) for item in teammates),
             "teammate_audio_end_to_display_seconds": quantiles(teammate_latencies),
-            "teammate_english_wer": word_errors / total_words if total_words else None,
+            **english_word_error_rates(teammates),
             "discard_and_queue_trace": dict(observed), "unassigned_results": unassigned,
             "diagnostics": real_stats.snapshot() if real_stats else None}
 

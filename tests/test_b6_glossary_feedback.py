@@ -290,3 +290,20 @@ def test_queue_limit_is_unchanged_and_drop_is_measured():
     assert snapshot["queues"]["识别队列"] == (4, 4)
     assert snapshot["drops"]["识别队列已满"] == 2
     assert "33.3%" in pipe.diagnostics.summary()
+
+
+
+def test_b6_benchmark_separates_asr_errors_from_missing_subtitles():
+    from scripts.benchmark_game_glossary import english_word_error_rates
+
+    cases = [
+        {"text": "Hold B!", "recognized_asr": "hold b", "asr": "hold b", "final": "守住 B。"},
+        {"text": "Go A.", "recognized_asr": "go C", "discarded": "翻译排队过期"},
+        {"text": "Hold mid.", "discarded": "无可用识别结果"},
+        {"language_ref": "ja", "text": "omitted from the English metric"},
+    ]
+    assert english_word_error_rates(cases) == {
+        "teammate_english_wer": pytest.approx(4 / 6),
+        "teammate_english_asr_wer": pytest.approx(3 / 6),
+    }
+    assert all(rate is None for rate in english_word_error_rates(cases[-1:]).values())
