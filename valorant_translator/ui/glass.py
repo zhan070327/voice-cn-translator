@@ -425,7 +425,7 @@ def glass_styles(accent: str, game="valorant") -> str:
         }}
         QGroupBox[compactQuickStart="true"] QPushButton, QGroupBox[compactQuickStart="true"] QComboBox,
         QPushButton#quickStartFeedback {{
-            font-size: {t.CAPTION}px; padding: {t.TIGHT}px {t.INLINE}px;
+            font-size: {t.CAPTION}px; padding: {t.TIGHT // 2}px {t.INLINE}px;
         }}
         QPushButton, QComboBox, QSpinBox, QLineEdit {{
             background: {surface}; border: 1px solid {t.EDGE}; border-radius: {t.CONTROL_RADIUS}px;
@@ -480,6 +480,7 @@ def glass_styles(accent: str, game="valorant") -> str:
         QHeaderView::section {{ padding: {t.INLINE}px; }}
         QTreeWidget#recentTranslations {{
             background: {surface}; border: 1px solid {rim}; border-radius: {t.CONTROL_RADIUS}px;
+            font-size: {t.CAPTION}px;
         }}
         QTreeWidget#recentTranslations:focus {{ border-color: {edge}; }}
         QTreeWidget#recentTranslations::item {{ padding: 0 {t.INLINE}px; }}

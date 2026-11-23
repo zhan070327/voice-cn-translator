@@ -195,7 +195,7 @@ class MainWindow(QMainWindow):
         main_page = QWidget()
         main_layout = QVBoxLayout(main_page)
         main_layout.setContentsMargins(GUTTER, 0, GUTTER + INLINE, 0)
-        main_layout.setSpacing(GUTTER)
+        main_layout.setSpacing(0)
 
         self.update_button = GlassButton("检查更新", icon="refresh")
         self.update_button.clicked.connect(self._check_update)
@@ -233,7 +233,6 @@ class MainWindow(QMainWindow):
         risk.addWidget(LineIcon("shield"))
         risk.addWidget(QLabel("游戏内字幕有 Riot 合规风险，建议先在桌面测试。"), 1)
         updates.addWidget(warning)
-        main_layout.addWidget(update_strip)
 
         columns = QHBoxLayout()
         columns.setSpacing(GAP)
@@ -243,7 +242,6 @@ class MainWindow(QMainWindow):
         right_column.setSpacing(tokens.TIGHT)
         columns.addLayout(left_column, 11)
         columns.addLayout(right_column, 9)
-        main_layout.addLayout(columns, 1)
 
         model_group, model_layout = self._quick_start_group("本地模型", "layers")
         self.model_status_label = self._compact("检查模型…")
@@ -364,7 +362,6 @@ class MainWindow(QMainWindow):
         self.last_discard.setObjectName("lastDiscard")
         self.last_discard.hide()
         run_layout.addWidget(self.last_discard)
-        main_layout.insertWidget(main_layout.indexOf(columns), run_group)
 
         self.reverse_icon = LineIcon("mic")
         self.talk_state = self._compact("按住说话，松开翻译。")
@@ -493,7 +490,13 @@ class MainWindow(QMainWindow):
         recent_layout.addWidget(self.recent_list)
         right_column.addWidget(recent_group)
         self.caption_light = CaptionLight(self.hero)
-        main_layout.insertWidget(0, self.hero)
+        main_layout.addWidget(self.hero)
+        main_layout.addSpacing(GUTTER)
+        main_layout.addWidget(update_strip)
+        main_layout.addSpacing(GUTTER)
+        main_layout.addWidget(run_group)
+        main_layout.addSpacing(tokens.TIGHT)
+        main_layout.addLayout(columns, 1)
         self.dock = ActionDock((
             ("测试字幕", "play", self.test_button.click),
             ("显示/隐藏字幕", "screen", self.show_button.click),

@@ -762,8 +762,18 @@ def test_quick_start_fits_live_captions_history_and_controls_at_default_size(qap
                     and not scroll.verticalScrollBar().isVisible()
                     and scroll.horizontalScrollBar().maximum() == 0)
 
+        def layout_details():
+            groups = scroll.widget().findChildren(QGroupBox)
+            heights = {group.title(): group.height() for group in groups if group.isVisible()}
+            return (f"viewport={viewport.size().toTuple()}, "
+                    f"vertical={scroll.verticalScrollBar().maximum()}, "
+                    f"horizontal={scroll.horizontalScrollBar().maximum()}, "
+                    f"hero={window.hero.height()}, groups={heights}, "
+                    f"recent rows={window.recent_list.topLevelItemCount()}, "
+                    f"row height={window.recent_list.sizeHintForRow(0)}, dock={window.dock.height()}")
+
         assert window.size().toTuple() == (1160, 840)
-        assert fits()
+        assert fits(), layout_details()
         window.pipeline = SimpleNamespace(failures=0, stop=lambda: None)
         window._status("正在翻译（识别 cpu，翻译 cpu）")
         window._runtime("识别 CPU · 翻译 CPU · 低延迟模式 · Whisper small")
@@ -774,7 +784,7 @@ def test_quick_start_fits_live_captions_history_and_controls_at_default_size(qap
             window.history.add_result(result)
             window._result(result)
         window._record_trace(TaskTrace(5, "结果丢弃", "语音太短", discarded=True))
-        assert fits()
+        assert fits(), layout_details()
         recent = window.recent_list
         assert recent.topLevelItemCount() == 3
         assert recent.verticalScrollBar().maximum() == 0
