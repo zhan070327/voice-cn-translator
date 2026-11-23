@@ -42,7 +42,10 @@ def window(qapp, monkeypatch, tmp_path):
 
 def assert_dark(dialog):
     assert dialog.isVisible()
-    assert dialog.grab().toImage().pixelColor(4, 4).lightness() < 75
+    image = dialog.grab().toImage()
+    # Sample the interior surface, clear of the rounded border and arrival outline.
+    background = image.pixelColor(image.width() // 2, round(7 * image.devicePixelRatio()))
+    assert background.lightness() < 75, background.name()
     assert "QDialog" in dialog.styleSheet()
     palette = dialog.palette()
     for background, foreground in ((QPalette.ColorRole.Window, QPalette.ColorRole.WindowText),

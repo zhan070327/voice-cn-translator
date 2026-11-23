@@ -239,7 +239,7 @@ class MainWindow(QMainWindow):
         left_column = QVBoxLayout()
         right_column = QVBoxLayout()
         left_column.setSpacing(QUICK_START_CARD_INSET)
-        right_column.setSpacing(tokens.TIGHT)
+        right_column.setSpacing(QUICK_START_CARD_INSET)
         columns.addLayout(left_column, 11)
         columns.addLayout(right_column, 9)
 
@@ -502,6 +502,7 @@ class MainWindow(QMainWindow):
             ("显示/隐藏字幕", "screen", self.show_button.click),
             ("调整字幕位置", "settings", self.position_button.click),
         ))
+        self.dock.layout().setContentsMargins(INLINE, 0, INLINE, 0)
         for button in self.dock.buttons:
             button.setFixedSize(tokens.SPACE, tokens.SPACE)
         quick_actions = QHBoxLayout()
@@ -1010,7 +1011,7 @@ class MainWindow(QMainWindow):
         group.setProperty("compactQuickStart", True)
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout.setContentsMargins(INLINE, QUICK_START_CARD_INSET, INLINE, QUICK_START_CARD_INSET)
-        layout.setSpacing(tokens.TIGHT)
+        layout.setSpacing(QUICK_START_CARD_INSET)
         return group, layout
 
     @staticmethod
