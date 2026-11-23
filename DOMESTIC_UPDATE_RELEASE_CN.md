@@ -90,3 +90,10 @@ Windows 每次构建并实机测试后，准备 `release_notes.txt`，设置当�
 安全边界：客户端只接受配置域名下的 HTTPS 地址并验证安装包 SHA-256。当前清单没有独立数字签名；若 COS 写权限被盗，攻击者可能同时改写清单和文件。正式大范围发行前应考虑独立签名及 Windows 代码签名。安装失败时更新脚本尝试重启旧程序并显示错误，但不能保证已覆盖文件完全回滚。
 
 腾讯云 SDK 参考：[上传对象](https://cloud.tencent.com/document/product/436/65820)、[查询对象元数据](https://cloud.tencent.com/document/product/436/65828)、[异常处理](https://cloud.tencent.com/document/product/436/35154)。
+
+## 独立发布国内模型
+
+1. 从 `main` 手动运行 **Whisper COS model assets**，保持 `publish_models` 未勾选。成功后查看打包日志和 `cos-model-assets`，其中有四个 Whisper ZIP、旧客户端兼容的 Small+M2M100 ZIP、大小和 SHA-256。
+2. 审阅后再次从同一个 `main` 提交运行工作流，勾选 `publish_models`，输入 `PUBLISH MODELS`，将首轮运行号填入 `package_run_id`。在 `cos-production` 审批。该环境需要 `COS_SECRET_ID` 和 `COS_SECRET_KEY`，临时凭证还需要 `COS_SESSION_TOKEN`。
+3. CAM 权限限定在本桶。存储桶级仅需读取版本状态和列出分块上传。对象级给 `models/*` 分块上传、读取与校验权限，另给 `latest.json` 读取及写入权限。模型工作流不需要 `releases/*` 的写权限。
+4. 流程核验每个 ZIP 后发布 `models/models.json`，再给 b5 的 `latest.json` 增加模型字段。原清单的安装包字段保留原字节。确认校验任务通过后，在中国 Windows 上用全新的测试账户启动国内或双渠道安装版，选择模型并点「一键下载模型」。

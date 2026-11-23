@@ -1,0 +1,127 @@
+name: Whisper COS model assets
+on:
+  workflow_dispatch:
+    inputs:
+      publish_models:
+        description: Publish verified models to COS after deployment approval
+        type: boolean
+        default: false
+      confirmation:
+        description: Type PUBLISH MODELS to publish
+        type: string
+      package_run_id:
+        description: Optional successful package-only run from this same main commit
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  package:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      run_id: ${{ steps.source.outputs.run_id }}
+    steps:
+      - name: Verify package source and confirmation
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.package_run_id }}
+          PUBLISH: ${{ inputs.publish_models }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          if [[ "$PUBLISH" == true && "$CONFIRMATION" != 'PUBLISH MODELS' ]]; then
+            echo 'Confirmation mismatch'
+            exit 1
+          fi
+          if [[ -n "$SOURCE_RUN" ]]; then
+            [[ "$PUBLISH" == true && "$SOURCE_RUN" =~ ^[0-9]+$ ]]
+            endpoint="repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN"
+            gh api "$endpoint" | jq -e --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" '
+              .status == "completed" and .conclusion == "success" and .event == "workflow_dispatch"
+              and .head_branch == "main" and .head_sha == $sha and .head_repository.full_name == $repo
+              and .path == ".github/workflows/whisper-model-assets.yml"' >/dev/null
+            gh api "$endpoint/artifacts" | jq -e '
+              [.artifacts[] | select(.name == "cos-model-assets" and .expired == false)] | length == 1' >/dev/null
+          fi
+          echo "run_id=${SOURCE_RUN:-$GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: inputs.package_run_id == ''
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        if: inputs.package_run_id == ''
+        with:
+          python-version: '3.11'
+      - name: Test model publication and check disk
+        if: inputs.package_run_id == ''
+        run: |
+          df -h .
+          test "$(df -Pk . | awk 'NR == 2 { print $4 }')" -ge 9000000
+          python -m pip install 'pytest>=8,<10' 'packaging>=24,<27' 'filelock>=3,<5' 'numpy>=1.26,<3' -r requirements_publish.txt
+          python -m pytest -q tests/test_cos_model_publish.py tests/test_cos_models.py
+      - name: Build and verify pinned model archives
+        if: inputs.package_run_id == ''
+        run: python -m scripts.package_whisper_models
+      - name: Inspect the public b5 installer pin without writing to COS
+        if: inputs.package_run_id == ''
+        continue-on-error: true
+        run: python -m scripts.publish_cos_models --preflight
+      - uses: actions/upload-artifact@v4
+        if: inputs.package_run_id == ''
+        with:
+          name: cos-model-assets
+          path: dist/model-assets/
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
+
+  publish:
+    if: inputs.publish_models && inputs.confirmation == 'PUBLISH MODELS' && github.ref == 'refs/heads/main'
+    needs: package
+    environment: cos-production
+    concurrency:
+      group: cos-production
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'packaging>=24,<27' 'filelock>=3,<5' 'numpy>=1.26,<3' -r requirements_publish.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: cos-model-assets
+          path: dist/model-assets
+          run-id: ${{ needs.package.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify and upload model assets before extending latest.json
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_SESSION_TOKEN: ${{ secrets.COS_SESSION_TOKEN }}
+        run: python -m scripts.publish_cos_models
+
+  verify:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'packaging>=24,<27' 'filelock>=3,<5' 'numpy>=1.26,<3' -r requirements_publish.txt
+      - name: Exercise the domestic downloader from a clean model directory
+        run: python -m scripts.publish_cos_models --smoke
