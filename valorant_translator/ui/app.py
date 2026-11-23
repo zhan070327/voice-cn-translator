@@ -59,6 +59,7 @@ from valorant_translator.version import APP_VERSION
 LOG = logging.getLogger(__name__)
 FIRST_CAPTION_HINT = "开始翻译，看到第一条字幕"
 EMPTY_HISTORY = "暂无翻译历史。启用本地历史后，新的译文会显示在这里。"
+QUICK_START_CARD_INSET = tokens.TIGHT // 2
 
 
 class Bridge(QObject):
@@ -193,7 +194,7 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         main_page = QWidget()
         main_layout = QVBoxLayout(main_page)
-        main_layout.setContentsMargins(GUTTER, 0, GUTTER, GUTTER)
+        main_layout.setContentsMargins(GUTTER, 0, GUTTER + INLINE, 0)
         main_layout.setSpacing(GUTTER)
 
         self.update_button = GlassButton("检查更新", icon="refresh")
@@ -238,15 +239,15 @@ class MainWindow(QMainWindow):
         columns.setSpacing(GAP)
         left_column = QVBoxLayout()
         right_column = QVBoxLayout()
-        left_column.setSpacing(GAP)
-        right_column.setSpacing(GAP)
+        left_column.setSpacing(QUICK_START_CARD_INSET)
+        right_column.setSpacing(tokens.TIGHT)
         columns.addLayout(left_column, 11)
         columns.addLayout(right_column, 9)
         main_layout.addLayout(columns, 1)
 
-        model_group, model_layout = self._group("本地模型", "layers")
+        model_group, model_layout = self._quick_start_group("本地模型", "layers")
         self.model_status_label = self._compact("检查模型…")
-        model_layout.addWidget(self.model_status_label)
+        model_group.header.addWidget(self.model_status_label, 2)
         self.model_loading = LoadingSkeleton()
         model_layout.addWidget(self.model_loading)
         self.model_state = self._hint("")
@@ -266,8 +267,7 @@ class MainWindow(QMainWindow):
         self.model_pause_button.clicked.connect(self._pause_model_download)
         self.model_pause_button.hide()
         model_row.addWidget(self.model_pause_button)
-        model_row.addStretch()
-        model_layout.addLayout(model_row)
+        model_group.header.addLayout(model_row)
         self.model_progress = QProgressBar()
         self.model_progress.setRange(0, 0)
         self.model_progress.setTextVisible(False)
@@ -281,28 +281,29 @@ class MainWindow(QMainWindow):
         self.import_button.setToolTip("选择已保存的本地模型文件夹。")
         left_column.addWidget(model_group)
 
-        audio_group, audio_layout = self._group("声音来源", "speaker")
+        audio_group, audio_layout = self._quick_start_group("声音来源", "speaker")
         device_row = QHBoxLayout()
         self.device_combo = QComboBox()
+        self.device_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.device_combo.currentIndexChanged.connect(self._save_settings)
         self.refresh_button = GlassButton("刷新设备", icon="refresh")
         self.refresh_button.clicked.connect(self._request_devices)
         device_row.addWidget(self.device_combo, 1)
         device_row.addWidget(self.refresh_button)
-        audio_layout.addLayout(device_row)
+        audio_group.header.addLayout(device_row, 3)
         self.device_hint = self._compact("")
         audio_layout.addWidget(self.device_hint)
         left_column.addWidget(audio_group)
 
-        display_group, display_layout = self._group("字幕显示", "screen")
+        display_group, display_layout = self._quick_start_group("字幕显示", "screen")
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("桌面 / 第二屏", "desktop")
         self.mode_combo.addItem("游戏内覆盖（实验）", "game")
         self.mode_combo.setCurrentIndex(0 if self.settings.normal_window else 1)
         self.mode_combo.currentIndexChanged.connect(self._mode_changed)
-        display_layout.addWidget(self.mode_combo)
+        display_group.header.addWidget(self.mode_combo, 3)
         self.mode_hint = self._compact("")
-        display_layout.addWidget(self.mode_hint)
+        display_group.header.addWidget(self.mode_hint, 2)
         overlay_row = QHBoxLayout()
         self.test_button = GlassButton("测试字幕（20 秒）", icon="screen")
         self.test_button.clicked.connect(self._test_overlay)
@@ -312,8 +313,9 @@ class MainWindow(QMainWindow):
         self.show_button.clicked.connect(self._toggle_overlay)
         overlay_row.addWidget(self.test_button)
         overlay_row.addWidget(self.show_button)
+        overlay_row.addWidget(self.position_button)
+        overlay_row.setSpacing(tokens.TIGHT)
         display_layout.addLayout(overlay_row)
-        display_layout.addWidget(self.position_button)
         left_column.addWidget(display_group)
 
         run_group, run_layout = self._group("实时翻译", "play")
@@ -467,10 +469,9 @@ class MainWindow(QMainWindow):
         self.detail_toggle.toggled.connect(self._toggle_details)
         result_layout.addWidget(self.details_panel)
         self.feedback_button = GlassButton("复制反馈信息", icon="copy")
+        self.feedback_button.setObjectName("quickStartFeedback")
         self.feedback_button.clicked.connect(self._copy_feedback)
-        recent_group, recent_layout = self._group("最近翻译", "clock")
-        recent_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        recent_layout.setContentsMargins(GUTTER, INLINE, GUTTER, INLINE)
+        recent_group, recent_layout = self._quick_start_group("最近翻译", "clock")
         self.recent_hint = self._hint(EMPTY_HISTORY)
         recent_layout.addWidget(self.recent_hint)
         self.recent_list = QTreeWidget()
@@ -491,7 +492,6 @@ class MainWindow(QMainWindow):
         self.recent_list.hide()
         recent_layout.addWidget(self.recent_list)
         right_column.addWidget(recent_group)
-        right_column.addWidget(self.feedback_button, alignment=Qt.AlignmentFlag.AlignLeft)
         self.caption_light = CaptionLight(self.hero)
         main_layout.insertWidget(0, self.hero)
         self.dock = ActionDock((
@@ -499,6 +499,13 @@ class MainWindow(QMainWindow):
             ("显示/隐藏字幕", "screen", self.show_button.click),
             ("调整字幕位置", "settings", self.position_button.click),
         ))
+        for button in self.dock.buttons:
+            button.setFixedSize(tokens.SPACE, tokens.SPACE)
+        quick_actions = QHBoxLayout()
+        quick_actions.addWidget(self.feedback_button)
+        quick_actions.addStretch()
+        quick_actions.addWidget(self.dock)
+        right_column.addLayout(quick_actions)
         left_column.addStretch()
         right_column.addStretch()
         self.tabs.addTab(self._scroll(main_page), "快速开始")
@@ -743,13 +750,6 @@ class MainWindow(QMainWindow):
         self.game_notice = Toast(self.surface)
         self.tabs.tabBar().hide()
         content.addWidget(self.tabs, 1)
-        dock_slot = QFrame()
-        dock_slot.setFixedHeight(tokens.WIDE + tokens.INLINE)
-        dock_row = QHBoxLayout(dock_slot)
-        dock_row.setContentsMargins(0, 0, 0, 0)
-        dock_row.addWidget(self.dock, alignment=Qt.AlignmentFlag.AlignCenter)
-        self.tabs.currentChanged.connect(lambda index: self.dock.setVisible(index == 0))
-        content.addWidget(dock_slot)
         shell.addLayout(content, 1)
         self.setCentralWidget(self.surface)
         self.page_snapshot = Snapshot(self.tabs)
@@ -1001,6 +1001,15 @@ class MainWindow(QMainWindow):
         group = GlassSection(title, icon)
         return group, group.body
 
+    @classmethod
+    def _quick_start_group(cls, title, icon):
+        group, layout = cls._group(title, icon)
+        group.setProperty("compactQuickStart", True)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        layout.setContentsMargins(INLINE, QUICK_START_CARD_INSET, INLINE, QUICK_START_CARD_INSET)
+        layout.setSpacing(tokens.TIGHT)
+        return group, layout
+
     @staticmethod
     def _compact(text):
         label = CompactLabel(text)
@@ -1069,10 +1078,13 @@ class MainWindow(QMainWindow):
         m2m = model_ready(m2m_dir, M2M_FILES)
         if self.pipeline is None:
             self.model_stat.setText(size if whisper else "未下载")
-        self.model_status_label.setText(
+        model_status = (
             f"识别模型 {size}：{'已下载' if whisper else '未下载'}  ·  中文翻译模型：{'已下载' if m2m else '未下载'}"
             + ("  ·  PyTorch 需更新至 2.6 以上" if not self._torch_version_ok() else "")
         )
+        self.model_status_label.setText(f"{size} {'✓' if whisper else '×'} · 翻译 {'✓' if m2m else '×'}")
+        self.model_status_label.setToolTip(model_status)
+        self.model_status_label.setAccessibleDescription(model_status)
         if not self._model_busy and not self._model_error:
             self.model_state.setText("点击下载或导入所选模型。" if not (whisper and m2m) else "")
             self.model_state.setVisible(not (whisper and m2m))
@@ -1663,7 +1675,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_recent_translations(self):
         try:
-            entries = self.history.recent(5, target_language="zh") if self.history is not None else []
+            entries = self.history.recent(3, target_language="zh") if self.history is not None else []
             message = EMPTY_HISTORY if self.history is not None else "本地翻译历史暂不可用。"
         except Exception:
             LOG.exception("Could not read recent translations")

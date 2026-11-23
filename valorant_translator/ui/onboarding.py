@@ -150,7 +150,7 @@ class Onboarding(QDialog):
             models = [f"{model} · {sizes[model] / 1024**2:,.1f} MiB" if sizes.get(model) else model
                       for model in models]
             status = w.model_transfer.text() if w._model_busy and not w.model_transfer.isHidden() else w.status_label.text()
-            self._set_details("\n".join([*models, w.model_status_label.text()]))
+            self._set_details("\n".join([*models, w.model_status_label.toolTip()]))
             show_transfer = status != "当前状态：待机"
             if show_transfer:
                 self.transfer.setText(status.removeprefix("当前状态："))

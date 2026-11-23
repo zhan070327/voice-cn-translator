@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from types import SimpleNamespace
 
-from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QColor, QEnterEvent, QHideEvent, QPalette, QShowEvent, QTextLayout
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QVBoxLayout, QWidget
@@ -665,10 +665,11 @@ def test_quick_start_uses_persisted_chinese_history_and_opens_existing_page(qapp
         assert window.latency_stat.text() == "0.50 秒"
         assert window.previous_caption.text() == "队友报点 4"
         assert window.previous_latency.text() == "0.40 秒"
-        assert window.recent_list.topLevelItemCount() == 5
-        assert [window.recent_list.topLevelItem(i).text(0) for i in range(5)] == [
-            "已修正的译文", "队友报点 4", "队友报点 3", "队友报点 2", "队友报点 1",
+        assert window.recent_list.topLevelItemCount() == 3
+        assert [window.recent_list.topLevelItem(i).text(0) for i in range(3)] == [
+            "已修正的译文", "队友报点 4", "队友报点 3",
         ]
+        assert window.history_table.rowCount() == 7
         assert window.recent_list.topLevelItem(0).text(1) == latest.created_at[11:19]
         item = window.recent_list.topLevelItem(0)
         window.recent_list.itemClicked.emit(item, 0)
@@ -739,5 +740,50 @@ def test_onboarding_shows_step_and_only_detected_device_names(qapp, monkeypatch,
         guide._refresh()
         assert guide.step_status.text() == "第 2 步，共 3 步"
         guide.close()
+    finally:
+        window.close()
+
+
+
+def test_quick_start_fits_live_captions_history_and_controls_at_default_size(qapp, monkeypatch, tmp_path):
+    from valorant_translator.audio.capture import AudioDevice
+    from valorant_translator.ui import app as ui
+
+    monkeypatch.setattr(ui, "model_ready", lambda *_: True)
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        window._apply_devices([AudioDevice("speaker", "系统回环播放设备", True)])
+        scroll = window.tabs.widget(0)
+        viewport = scroll.viewport()
+
+        def fits():
+            qapp.processEvents()
+            return (scroll.verticalScrollBar().maximum() == 0
+                    and not scroll.verticalScrollBar().isVisible()
+                    and scroll.horizontalScrollBar().maximum() == 0)
+
+        assert window.size().toTuple() == (1160, 840)
+        assert fits()
+        window.pipeline = SimpleNamespace(failures=0, stop=lambda: None)
+        window._status("正在翻译（识别 cpu，翻译 cpu）")
+        window._runtime("识别 CPU · 翻译 CPU · 低延迟模式 · Whisper small")
+        window._diagnostic("翻译已显示在字幕窗口")
+        window._show_audio_level(0.2)
+        for line in ("守住 A 点。", "敌人在中路。", "听到我们后面的脚步在门口。", "能给我发一把 Vandal 吗？"):
+            result = SubtitleResult("a callout", line, "en", 0.2, 0.1, 0.5)
+            window.history.add_result(result)
+            window._result(result)
+        window._record_trace(TaskTrace(5, "结果丢弃", "语音太短", discarded=True))
+        assert fits()
+        recent = window.recent_list
+        assert recent.topLevelItemCount() == 3
+        assert recent.verticalScrollBar().maximum() == 0
+        assert recent.viewport().rect().contains(recent.visualItemRect(recent.topLevelItem(2)))
+        controls = (recent.parentWidget(), window.download_button, window.import_button, window.device_combo,
+                    window.refresh_button, window.mode_combo, window.test_button, window.show_button,
+                    window.position_button, window.feedback_button, window.dock)
+        for control in controls:
+            assert control.isVisible()
+            assert viewport.rect().contains(QRect(control.mapTo(viewport, QPoint()), control.size()))
     finally:
         window.close()

@@ -241,14 +241,14 @@ class GlassSection(QGroupBox):
         self.body = QVBoxLayout(self)
         self.body.setContentsMargins(GUTTER, GAP, GUTTER, GAP)
         self.body.setSpacing(INLINE)
-        header = QHBoxLayout()
-        header.setSpacing(INLINE)
+        self.header = QHBoxLayout()
+        self.header.setSpacing(INLINE)
         self.icon = LineIcon(icon, accented=True)
-        header.addWidget(self.icon)
+        self.header.addWidget(self.icon)
         label = QLabel(title)
         label.setObjectName("sectionTitle")
-        header.addWidget(label, 1)
-        self.body.addLayout(header)
+        self.header.addWidget(label, 1)
+        self.body.addLayout(self.header)
 
     def paintEvent(self, event):
         with QStylePainter(self) as painter:
@@ -420,6 +420,13 @@ def glass_styles(accent: str, game="valorant") -> str:
             background: {rgba(accent, 78)}; border: 1px solid {edge};
         }}
         QGroupBox#glassSection {{ margin: 0; padding: 0; }}
+        QGroupBox[compactQuickStart="true"] QLabel#sectionTitle {{
+            font-size: {t.BODY}px;
+        }}
+        QGroupBox[compactQuickStart="true"] QPushButton, QGroupBox[compactQuickStart="true"] QComboBox,
+        QPushButton#quickStartFeedback {{
+            font-size: {t.CAPTION}px; padding: {t.TIGHT}px {t.INLINE}px;
+        }}
         QPushButton, QComboBox, QSpinBox, QLineEdit {{
             background: {surface}; border: 1px solid {t.EDGE}; border-radius: {t.CONTROL_RADIUS}px;
             padding: {t.INSET}px;
@@ -475,7 +482,7 @@ def glass_styles(accent: str, game="valorant") -> str:
             background: {surface}; border: 1px solid {rim}; border-radius: {t.CONTROL_RADIUS}px;
         }}
         QTreeWidget#recentTranslations:focus {{ border-color: {edge}; }}
-        QTreeWidget#recentTranslations::item {{ padding: {t.TIGHT}px {t.INLINE}px; }}
+        QTreeWidget#recentTranslations::item {{ padding: 0 {t.INLINE}px; }}
         QTreeWidget#recentTranslations::item:hover {{ background: {panel}; }}
         QTableWidget {{ background: {surface}; gridline-color: {t.EDGE}; }}
     """
