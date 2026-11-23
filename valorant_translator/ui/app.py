@@ -59,7 +59,7 @@ from valorant_translator.version import APP_VERSION
 LOG = logging.getLogger(__name__)
 FIRST_CAPTION_HINT = "开始翻译，看到第一条字幕"
 EMPTY_HISTORY = "暂无翻译历史。启用本地历史后，新的译文会显示在这里。"
-QUICK_START_CARD_INSET = tokens.TIGHT // 2
+QUICK_START_GAP = tokens.TIGHT // 2
 
 
 class Bridge(QObject):
@@ -238,8 +238,8 @@ class MainWindow(QMainWindow):
         columns.setSpacing(GAP)
         left_column = QVBoxLayout()
         right_column = QVBoxLayout()
-        left_column.setSpacing(QUICK_START_CARD_INSET)
-        right_column.setSpacing(QUICK_START_CARD_INSET)
+        left_column.setSpacing(QUICK_START_GAP)
+        right_column.setSpacing(tokens.TIGHT)
         columns.addLayout(left_column, 11)
         columns.addLayout(right_column, 9)
 
@@ -495,14 +495,13 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(update_strip)
         main_layout.addSpacing(GUTTER)
         main_layout.addWidget(run_group)
-        main_layout.addSpacing(tokens.TIGHT)
+        main_layout.addSpacing(QUICK_START_GAP)
         main_layout.addLayout(columns, 1)
         self.dock = ActionDock((
             ("测试字幕", "play", self.test_button.click),
             ("显示/隐藏字幕", "screen", self.show_button.click),
             ("调整字幕位置", "settings", self.position_button.click),
         ))
-        self.dock.layout().setContentsMargins(INLINE, 0, INLINE, 0)
         for button in self.dock.buttons:
             button.setFixedSize(tokens.SPACE, tokens.SPACE)
         quick_actions = QHBoxLayout()
@@ -1010,8 +1009,8 @@ class MainWindow(QMainWindow):
         group, layout = cls._group(title, icon)
         group.setProperty("compactQuickStart", True)
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        layout.setContentsMargins(INLINE, QUICK_START_CARD_INSET, INLINE, QUICK_START_CARD_INSET)
-        layout.setSpacing(QUICK_START_CARD_INSET)
+        layout.setContentsMargins(INLINE, 1, INLINE, 1)
+        layout.setSpacing(QUICK_START_GAP)
         return group, layout
 
     @staticmethod

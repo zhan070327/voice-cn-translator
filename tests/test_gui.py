@@ -764,11 +764,12 @@ def test_quick_start_fits_live_captions_history_and_controls_at_default_size(qap
 
         def layout_details():
             groups = scroll.widget().findChildren(QGroupBox)
-            heights = {group.title(): group.height() for group in groups if group.isVisible()}
+            bounds = {group.title(): (group.mapTo(viewport, QPoint()).y(), group.height())
+                      for group in groups if group.isVisible()}
             return (f"viewport={viewport.size().toTuple()}, "
                     f"vertical={scroll.verticalScrollBar().maximum()}, "
                     f"horizontal={scroll.horizontalScrollBar().maximum()}, "
-                    f"hero={window.hero.height()}, groups={heights}, "
+                    f"hero={window.hero.height()}, group (y, height)={bounds}, "
                     f"recent rows={window.recent_list.topLevelItemCount()}, "
                     f"row height={window.recent_list.sizeHintForRow(0)}, dock={window.dock.height()}")
 

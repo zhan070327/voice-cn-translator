@@ -423,7 +423,9 @@ def glass_styles(accent: str, game="valorant") -> str:
         QGroupBox[compactQuickStart="true"] QLabel#sectionTitle {{
             font-size: {t.BODY}px;
         }}
-        QGroupBox[compactQuickStart="true"] QPushButton, QGroupBox[compactQuickStart="true"] QComboBox,
+        QGroupBox[compactQuickStart="true"] QPushButton, QGroupBox[compactQuickStart="true"] QComboBox {{
+            font-size: {t.CAPTION}px; padding: 1px {t.INLINE}px;
+        }}
         QPushButton#quickStartFeedback {{
             font-size: {t.CAPTION}px; padding: {t.TIGHT // 2}px {t.INLINE}px;
         }}
