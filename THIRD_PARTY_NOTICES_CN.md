@@ -5,7 +5,7 @@
 | 项目 | 来源 | 页面标注 |
 |---|---|---|
 | M2M100 418M 翻译模型 | https://huggingface.co/facebook/m2m100_418M | MIT |
-| faster-whisper-small 识别模型 | https://huggingface.co/Systran/faster-whisper-small | MIT |
+| faster-whisper tiny / base / small / medium 识别模型 | [Tiny](https://huggingface.co/Systran/faster-whisper-tiny) · [Base](https://huggingface.co/Systran/faster-whisper-base) · [Small](https://huggingface.co/Systran/faster-whisper-small) · [Medium](https://huggingface.co/Systran/faster-whisper-medium) | MIT |
 | OpenCC Python 简繁转换 | https://pypi.org/project/opencc-python-reimplemented/ | Apache Software License |
 
 旧版 NLLB-200 distilled 600M 不再由实时版下载、加载或打包。升级用户本机已有的 NLLB 文件不会被新版读取。其他 Python 依赖仍需在正式发布前完成许可证清单核对，并保留各项目要求的版权与许可证声明。
@@ -15,7 +15,7 @@
 ## 模型版权与 MIT 声明
 
 - M2M100 418M（原项目 [fairseq](https://raw.githubusercontent.com/facebookresearch/fairseq/main/LICENSE)）：Copyright (c) Facebook, Inc. and its affiliates.
-- Whisper small（原项目 [Whisper](https://raw.githubusercontent.com/openai/whisper/main/LICENSE)）：Copyright (c) 2022 OpenAI
+- Whisper tiny / base / small / medium（原项目 [Whisper](https://raw.githubusercontent.com/openai/whisper/main/LICENSE)）：Copyright (c) 2022 OpenAI
 - faster-whisper 的 CTranslate2 转换与相关代码（[SYSTRAN](https://raw.githubusercontent.com/SYSTRAN/faster-whisper/master/LICENSE)）：Copyright (c) 2023 SYSTRAN
 
 MIT License
