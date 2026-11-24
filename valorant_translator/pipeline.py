@@ -16,6 +16,8 @@ from valorant_translator.audio.capture import AudioCapture
 from valorant_translator.audio.segmenter import SpeechChunk, SpeechSegmenter
 from valorant_translator.config import Settings
 from valorant_translator.diagnostics import Diagnostics
+from valorant_translator.languages import DEFAULT_LANGUAGES, LanguageCatalog
+from valorant_translator.models.providers import ModelManager, default_model_manager, translate_pair
 from valorant_translator.recognition.whisper import LocalWhisper, Recognition
 from valorant_translator.translation.enhancement import GameEnhancer
 from valorant_translator.translation.glossary import Glossary, game_glossary
@@ -69,8 +71,12 @@ class Pipeline:
                  on_diagnostic: Callable[[str], None] | None = None,
                  on_runtime: Callable[[str], None] | None = None,
                  history=None, *, on_trace: Callable[[TaskTrace], None] | None = None,
-                 custom_rules=None):
+                 custom_rules=None, languages: LanguageCatalog | None = None,
+                 models: ModelManager | None = None, games=None):
         self.settings = settings
+        self.languages = languages or DEFAULT_LANGUAGES
+        self.models = models
+        self.games = games
         self.asr_lock = threading.Lock()
         self.mt_lock = threading.Lock()
         self.model_session = None
@@ -198,7 +204,7 @@ class Pipeline:
                             识别等锁=started - t0)
                 asr.on_rejection = rejected
                 try:
-                    result = asr.transcribe(chunk.audio, self.settings.language)
+                    result = asr.transcribe(chunk.audio, self.languages.source(self.settings.source_language))
                 except Exception as exc:
                     elapsed = time.monotonic() - started
                     self._trace(chunk, "推理结束", f"耗时 {elapsed:.3f} 秒，异常 {exc}", 识别=elapsed)
@@ -262,14 +268,23 @@ class Pipeline:
 
     def _work(self) -> None:
         try:
+            self.languages.source(self.settings.source_language)
+            self.languages.target(self.settings.target_language)
+            models = self.models or default_model_manager(
+                lambda s: LocalWhisper(s.whisper_model, s.compute_device, s.fast_mode),
+                lambda s: LocalM2M(s.compute_device, s.fast_mode))
             self.on_status("加载本地识别模型…")
-            asr = LocalWhisper(self.settings.whisper_model, self.settings.compute_device,
-                               self.settings.fast_mode)
+            asr = models.create_asr(self.settings)
             self.on_status("加载本地翻译模型…")
-            translator = LocalM2M(self.settings.compute_device, self.settings.fast_mode)
+            translator = models.create_translation(self.settings)
             self._report_runtime(asr, translator)
-            glossary = game_glossary(self.settings.game)
+            if self.games is None:
+                glossary = game_glossary(self.settings.game)
+            else:
+                glossary = Glossary(self.games.path(self.settings.game))
             asr.glossary = glossary
+            asr.languages = self.languages
+            translator.languages = self.languages
             self.enhancer = enhancer = GameEnhancer(self.settings.game, glossary, self.custom_rules)
             self.model_session = (asr, translator)
             if self.stop_event.is_set():
@@ -378,11 +393,12 @@ class Pipeline:
                     self._discard(chunk, f"重复报点已合并（距上次 {duplicate_age:.2f} 秒 / 窗口 1.5 秒）")
                     continue
                 started = time.monotonic()
-                matched = enhancer.match(recognized.text, recognized.language, "zh", self.settings,
+                target = self.settings.target_language
+                matched = enhancer.match(recognized.text, recognized.language, target, self.settings,
                                          filter_speech=False)
                 translated, used = matched.translation, matched.rules
                 raw_translation = None
-                if self.history is not None and self.settings.game == "valorant":
+                if self.history is not None and self.settings.game == "valorant" and target == "zh":
                     try:
                         legacy = self.history.lookup_correction(normalized, recognized.language)
                         if legacy:
@@ -390,16 +406,16 @@ class Pipeline:
                     except Exception:
                         LOG.exception("Could not read translation correction")
                 if translated is None:
-                    if recognized.language == "zh":
-                        translated = self.chinese_converter.convert(matched.text)
+                    if recognized.language == target:
+                        translated = self.chinese_converter.convert(matched.text) if target == "zh" else matched.text
                     else:
                         lock_start = time.monotonic()
                         with self.mt_lock:
                             lock_wait = time.monotonic() - lock_start
-                            raw_translation = translator.translate(matched.text, recognized.language)
+                            raw_translation = translate_pair(translator, matched.text, recognized.language, target)
                         self._trace(chunk, "翻译推理", f"等锁 {lock_wait:.3f} 秒", 翻译等锁=lock_wait)
                         translated = raw_translation
-                        if translated and self.settings.game_terms and recognized.language == "en":
+                        if translated and self.settings.game_terms and recognized.language == "en" and target == "zh":
                             try:
                                 translated = glossary.postprocess(translated, matched.text)
                                 if translated != raw_translation:
@@ -421,7 +437,7 @@ class Pipeline:
                 if not translated:
                     self._discard(chunk, f"翻译结果为空（翻译 {translation_seconds:.2f} 秒）")
                     continue
-                if not re.search(r"[\u4e00-\u9fff]", translated):
+                if target == "zh" and not re.search(r"[\u4e00-\u9fff]", translated):
                     self.failures += 1
                     self._discard(chunk, f"翻译未生成中文（翻译 {translation_seconds:.2f} 秒），已过滤")
                     continue
@@ -434,7 +450,7 @@ class Pipeline:
                                         task_id=chunk.task_id, audio_end_time=chunk.end_time,
                                         corrected_original=matched.text if matched.text != recognized.text else "",
                                         machine_translation=raw_translation, game=self.settings.game,
-                                        glossary_rules=used)
+                                        glossary_rules=used, target_language=target)
                 self.last_text = normalized
                 self.last_result_time = finished
                 if self.history is not None and self.settings.save_history:
