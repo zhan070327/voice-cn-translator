@@ -1,5 +1,6 @@
 """Guide users through routing game chat via a Windows playback endpoint."""
 from __future__ import annotations
+from valorant_translator.ui.texts import tr
 
 from threading import Event, Thread
 
@@ -30,14 +31,14 @@ def probe_source(device_id: str) -> str:
 
     def status(message):
         if not ready.is_set():
-            results.append("" if message.startswith("音频设备已连接") else message)
+            results.append("" if message.startswith(tr("routing.0001")) else message)
             ready.set()
 
     capture = AudioCapture(device_id, lambda *_: None, lambda *_: None, status)
     try:
         capture.start()
         if not ready.wait(5):
-            return "等候设备响应超时。请检查设备是否已启用或被其他应用独占。"
+            return tr("routing.0002")
         return results[0]
     finally:
         capture.stop()
@@ -50,7 +51,7 @@ class RoutingWizard(QDialog):
 
     def __init__(self, window):
         super().__init__(window)
-        self.setWindowTitle("语音分流设置")
+        self.setWindowTitle(tr("routing.0003"))
         apply_dialog_theme(self, window.settings)
         self.resize(625, 685)
         self._source_request = None
@@ -61,22 +62,22 @@ class RoutingWizard(QDialog):
         layout.addWidget(self.state)
 
         links = QHBoxLayout()
-        for label, url in (("Sonar 官方说明", SONAR_GUIDE), ("VB-CABLE 官方下载", VB_CABLE)):
+        for label, url in ((tr("routing.0004"), SONAR_GUIDE), (tr("routing.0005"), VB_CABLE)):
             button = GlassButton(label)
             button.clicked.connect(lambda checked=False, link=url: self._open_link(link))
             links.addWidget(button)
-        self.refresh_button = GlassButton("刷新设备", icon="refresh")
+        self.refresh_button = GlassButton(tr("routing.0006"), icon="refresh")
         self.refresh_button.clicked.connect(self._refresh_devices)
         links.addWidget(self.refresh_button)
         layout.addLayout(links)
 
         self.devices = QListWidget()
-        self.devices.setAccessibleName("可选虚拟声音设备")
+        self.devices.setAccessibleName(tr("routing.0007"))
         self.devices.setMaximumHeight(104)
         self.devices.currentItemChanged.connect(self._device_changed)
         layout.addWidget(self.devices)
 
-        self.select_button = GlassButton("使用此声音来源")
+        self.select_button = GlassButton(tr("routing.0008"))
         self.select_button.clicked.connect(self._select)
         layout.addWidget(self.select_button)
         self.action_status = QLabel()
@@ -93,14 +94,10 @@ class RoutingWizard(QDialog):
         scroll.setWidget(body)
         layout.addWidget(scroll, 1)
         for title, content in (
-            ("1  准备虚拟声音设备", "任选 SteelSeries Sonar Chat 或 VB-CABLE。装好后点击刷新。"),
-            ("2  在 VALORANT 设置语音输出", "Audio → Voice Chat → Output Device。选择 Sonar Chat 或 CABLE Input。"
-             "游戏的主输出保持原样。Sonar 将 Game 与 Chat 输出到耳机。"
-             "使用 VB-CABLE 时，在 Windows 声音控制面板的录制设备中打开 CABLE Output → 属性 → 侦听，"
-             "选择原来的耳机或扬声器，避免听不到队友。Discord 可在语音设置中选择同一个输出。"),
-            ("3  选择同一个系统声音", "先确认耳机还能听到队友和游戏，再从上方选设备并点击「使用此声音来源」。"),
-            ("4  分开测游戏和队友语音", "先在没有队友说话时播放游戏音效，再请队友说话。"
-             "观察两次采样，确认队友语音有信号且单独游戏音效无信号后再确认。"),
+            (tr("routing.0009"), tr("routing.0010")),
+            (tr("routing.0011"), tr("routing.0012")),
+            (tr("routing.0013"), tr("routing.0014")),
+            (tr("routing.0015"), tr("routing.0016")),
         ):
             heading = QLabel(title)
             heading.setObjectName("translation")
@@ -111,11 +108,11 @@ class RoutingWizard(QDialog):
         steps.addStretch()
 
         samples = QHBoxLayout()
-        self.game_sample = GlassButton("采样游戏音效")
-        self.voice_sample = GlassButton("采样队友语音")
-        self.verify_button = GlassButton("我已确认分流")
-        self.game_sample.clicked.connect(lambda: self._sample("游戏音效"))
-        self.voice_sample.clicked.connect(lambda: self._sample("队友语音"))
+        self.game_sample = GlassButton(tr("routing.0017"))
+        self.voice_sample = GlassButton(tr("routing.0018"))
+        self.verify_button = GlassButton(tr("routing.0019"))
+        self.game_sample.clicked.connect(lambda: self._sample(tr("routing.0020")))
+        self.voice_sample.clicked.connect(lambda: self._sample(tr("routing.0021")))
         self.verify_button.clicked.connect(self._verify)
         for button in (self.game_sample, self.voice_sample, self.verify_button):
             samples.addWidget(button)
@@ -127,7 +124,7 @@ class RoutingWizard(QDialog):
         self.sample_status = QLabel()
         self.sample_status.setWordWrap(True)
         layout.addWidget(self.sample_status)
-        close = GlassButton("完成或跳过")
+        close = GlassButton(tr("routing.0022"))
         close.clicked.connect(self.accept)
         layout.addWidget(close, alignment=Qt.AlignmentFlag.AlignRight)
 
@@ -161,7 +158,7 @@ class RoutingWizard(QDialog):
         self.action_status.setVisible(bool(message))
 
     def _refresh_devices(self):
-        self._report("正在查找虚拟声音设备…")
+        self._report(tr("routing.0023"))
         self.parentWidget()._request_devices()
 
     def _selected_device(self):
@@ -174,7 +171,7 @@ class RoutingWizard(QDialog):
 
     def refresh(self, success=True):
         if not success:
-            self._report("设备刷新失败，请检查音频驱动。")
+            self._report(tr("routing.0024"))
             return
         selected = self._selected_device()
         window = self.parentWidget()
@@ -192,9 +189,9 @@ class RoutingWizard(QDialog):
             elif not selected and self.devices.count():
                 self.devices.setCurrentRow(0)
         if selected and not match:
-            self._report(f"「{selected.name}」已断开或已禁用。请重新连接后刷新，或另选一个设备。")
-        elif self.action_status.text() == "正在查找虚拟声音设备…":
-            self._report("已刷新虚拟声音设备。")
+            self._report(tr("routing.0025", p0=selected.name))
+        elif self.action_status.text() == tr("routing.0026"):
+            self._report(tr("routing.0027"))
         self._update_state()
 
     def _update_state(self):
@@ -209,43 +206,43 @@ class RoutingWizard(QDialog):
         self.select_button.setEnabled(not running)
         for button in (self.game_sample, self.voice_sample):
             button.setEnabled(selected and not running)
-        game = self._peaks.get((device_id, "游戏音效"))
-        voice = self._peaks.get((device_id, "队友语音"))
+        game = self._peaks.get((device_id, tr("routing.0028")))
+        voice = self._peaks.get((device_id, tr("routing.0029")))
         self.verify_button.setEnabled(selected and not running and game is not None
                                       and voice is not None and voice > max(game, 0.0005))
         if self.devices.count() == 0:
-            self.state.setText("未检测到 Sonar Chat 或 VB-CABLE。安装并启用播放设备后刷新。")
+            self.state.setText(tr("routing.0030"))
         elif not device:
-            self.state.setText("请选择一个虚拟声音设备。")
+            self.state.setText(tr("routing.0031"))
         elif verified:
-            self.state.setText(f"已选中：{device.name} · 当前来源 · 上次已确认分流")
+            self.state.setText(tr("routing.0032", p0=device.name))
         elif selected:
-            self.state.setText(f"已选中：{device.name} · 当前分流来源（待验证）")
+            self.state.setText(tr("routing.0033", p0=device.name))
         else:
-            self.state.setText(f"已选中：{device.name} · 尚未设为当前声音来源")
+            self.state.setText(tr("routing.0034", p0=device.name))
 
     def _open_link(self, url):
         if QDesktopServices.openUrl(QUrl(url)):
-            self._report("已请求在默认浏览器中打开官方网页。")
+            self._report(tr("routing.0035"))
             return
-        self._report("系统未能打开浏览器。请复制链接后手动打开。")
+        self._report(tr("routing.0036"))
         dialog = QDialog(self)
-        dialog.setWindowTitle("无法打开官方网页")
+        dialog.setWindowTitle(tr("routing.0037"))
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.resize(565, 145)
         apply_dialog_theme(dialog)
         box = QVBoxLayout(dialog)
-        box.addWidget(QLabel("请复制下面的官方网址，再粘贴到浏览器。"))
+        box.addWidget(QLabel(tr("routing.0038")))
         address = QLineEdit(url)
         address.setReadOnly(True)
         box.addWidget(address)
         actions = QHBoxLayout()
-        copy = GlassButton("复制链接")
-        close = GlassButton("关闭")
+        copy = GlassButton(tr("routing.0039"))
+        close = GlassButton(tr("routing.0040"))
 
         def copy_link():
             QApplication.clipboard().setText(url)
-            self._report("官方链接已复制，可粘贴到浏览器打开。")
+            self._report(tr("routing.0041"))
             dialog.accept()
 
         copy.clicked.connect(copy_link)
@@ -265,14 +262,14 @@ class RoutingWizard(QDialog):
     def _select(self):
         device = self._selected_device()
         if not device:
-            self._report("请先选一个虚拟声音设备。若列表为空，请安装或启用设备后刷新。")
+            self._report(tr("routing.0042"))
             return
         if self._find_source(device) < 0:
-            self._report(f"「{device.name}」已断开或已禁用，请刷新后重试。")
+            self._report(tr("routing.0043", p0=device.name))
             return
         request = (object(), device)
         self._source_request = request
-        self._report(f"正在检查「{device.name}」能否采集…")
+        self._report(tr("routing.0044", p0=device.name))
         self._update_state()
 
         def task():
@@ -296,9 +293,9 @@ class RoutingWizard(QDialog):
         combo = window.device_combo
         index = self._find_source(device)
         if error:
-            self._report(f"无法使用「{device.name}」：{error}。请检查设备是否启用、已连接或被独占。")
+            self._report(tr("routing.0045", p0=device.name, p1=error))
         elif index < 0:
-            self._report(f"「{device.name}」已断开或已禁用，请刷新后重试。")
+            self._report(tr("routing.0046", p0=device.name))
         else:
             previous_index, previous_id = combo.currentIndex(), window.settings.device_id
             with QSignalBlocker(combo):
@@ -309,9 +306,9 @@ class RoutingWizard(QDialog):
                     combo.setCurrentIndex(previous_index)
                     window.settings.device_id = previous_id
                     window._update_device_hint()
-                    self._report(f"无法保存声音来源：{exc}")
+                    self._report(tr("routing.0047", p0=exc))
                 else:
-                    self._report(f"当前声音来源：{device.name}。请采样确认分流。")
+                    self._report(tr("routing.0048", p0=device.name))
         self._update_state()
 
     def _sample(self, category):
@@ -326,7 +323,7 @@ class RoutingWizard(QDialog):
         self._error = ""
         self.meter.setValue(0)
         self.meter.show()
-        self.sample_status.setText(f"正在采样 {category}，请在接下来的 5 秒播放对应声音。")
+        self.sample_status.setText(tr("routing.0049", p0=category))
         self._capture = AudioCapture(device_id, lambda *_: None, self.level.emit, self.capture_status.emit)
         try:
             self._capture.start()
@@ -338,7 +335,7 @@ class RoutingWizard(QDialog):
         self._update_state()
 
     def _capture_status(self, message):
-        if self._capture is not None and ("失败" in message or "断开" in message):
+        if self._capture is not None and (tr("routing.0050") in message or tr("routing.0051") in message):
             self._error = message
 
     def _on_level(self, level):
@@ -354,9 +351,9 @@ class RoutingWizard(QDialog):
             capture.stop()
         if not self._error and self._frames:
             self._peaks[self._sample_key] = self._peak
-        readings = [f"{title}音量峰值 {self._peaks[(self._sample_key[0], title)]:.1%}"
-                    for title in ("游戏音效", "队友语音") if (self._sample_key[0], title) in self._peaks]
-        self.sample_status.setText(self._error or " · ".join(readings) or "未收到采样帧，请检查设备后重试。")
+        readings = [tr("routing.0052", p0=title, p1=self._peaks[(self._sample_key[0], title)])
+                    for title in (tr("routing.0053"), tr("routing.0054")) if (self._sample_key[0], title) in self._peaks]
+        self.sample_status.setText(self._error or " · ".join(readings) or tr("routing.0055"))
         self._update_state()
 
     def _verify(self):

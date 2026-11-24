@@ -1,6 +1,8 @@
 """Shared visual tokens for the desktop window, dialogs, and subtitles."""
 from dataclasses import dataclass
 
+from valorant_translator.ui.texts import tr
+
 
 @dataclass(frozen=True)
 class Skin:
@@ -20,9 +22,9 @@ SKINS = {
 
 # Legacy background preferences remain independent of the current game's skin.
 BACKGROUND_PRESETS = {
-    "default": ("默认深色", ("#131729", "#101323", "#347a9d", "#984257", "#56548a")),
-    "crimson": ("瓦红", ("#251921", "#17121e", "#8f4751", "#9c493e", "#5b4e83")),
-    "indigo": ("蓝紫", ("#121b2d", "#171329", "#367ea3", "#68449d", "#4e65a3")),
+    "default": (tr("glass.default_skin"), ("#131729", "#101323", "#347a9d", "#984257", "#56548a")),
+    "crimson": (tr("glass.0002"), ("#251921", "#17121e", "#8f4751", "#9c493e", "#5b4e83")),
+    "indigo": (tr("glass.0003"), ("#121b2d", "#171329", "#367ea3", "#68449d", "#4e65a3")),
 }
 DEFAULT_BACKGROUND_COLOR = "#47768f"
 

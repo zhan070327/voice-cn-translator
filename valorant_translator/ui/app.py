@@ -1,4 +1,5 @@
 from __future__ import annotations
+from valorant_translator.ui.texts import tr
 
 import logging
 import math
@@ -57,8 +58,8 @@ from valorant_translator.updates.windows import RESULT, start_silent_installer
 from valorant_translator.version import APP_VERSION
 
 LOG = logging.getLogger(__name__)
-FIRST_CAPTION_HINT = "开始翻译，看到第一条字幕"
-EMPTY_HISTORY = "暂无翻译历史。启用本地历史后，新的译文会显示在这里。"
+FIRST_CAPTION_HINT = tr("app.first_caption_hint")
+EMPTY_HISTORY = tr("app.empty_recent_history")
 QUICK_START_GAP = tokens.TIGHT // 2
 
 
@@ -168,7 +169,7 @@ class MainWindow(QMainWindow):
         self.bridge.update_error.connect(self._update_error)
         self.bridge.update_speed.connect(self._update_speed)
         self.bridge.update_cancelled.connect(self._update_cancelled)
-        self.setWindowTitle("VALORANT AI 实时语音翻译器")
+        self.setWindowTitle(tr("app.0001"))
         self.setWindowIcon(QIcon(str(Path(__file__).resolve().parents[2] / "assets" / "app_icon.ico")))
         self.resize(1160, 840)
         self._build()
@@ -197,7 +198,7 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(GUTTER, 0, GUTTER + INLINE, 0)
         main_layout.setSpacing(0)
 
-        self.update_button = GlassButton("检查更新", icon="refresh")
+        self.update_button = GlassButton(tr("app.0006"), icon="refresh")
         self.update_button.clicked.connect(self._check_update)
         self.update_button.setFixedWidth(tokens.UPDATE_WIDTH)
         update_strip = QFrame()
@@ -205,33 +206,33 @@ class MainWindow(QMainWindow):
         updates = QVBoxLayout(update_strip)
         updates.setContentsMargins(GUTTER, tokens.TIGHT, GUTTER, tokens.TIGHT)
         updates.setSpacing(INLINE)
-        self.update_label = self._compact(f"当前版本：{APP_VERSION}")
+        self.update_label = self._compact(tr("app.0007", p0=APP_VERSION))
         updates.addWidget(self.update_label)
         self.update_bar = QProgressBar()
         self.update_bar.setRange(0, 100)
         self.update_bar.hide()
         updates.addWidget(self.update_bar)
-        self.update_cancel_button = GlassButton("取消下载")
+        self.update_cancel_button = GlassButton(tr("app.0008"))
         self.update_cancel_button.setProperty("ghost", True)
         self.update_cancel_button.clicked.connect(self._cancel_update)
         self.update_cancel_button.hide()
         updates.addWidget(self.update_cancel_button, alignment=Qt.AlignmentFlag.AlignLeft)
         cards = QHBoxLayout()
         cards.setSpacing(INLINE)
-        self.model_stat, self.model_icon = self._stat(cards, "识别模型", "未检测", "layers")
-        self.device_stat, _ = self._stat(cards, "运行设备", "未检测", "chip")
+        self.model_stat, self.model_icon = self._stat(cards, tr("app.0009"), tr("app.0013"), "layers")
+        self.device_stat, _ = self._stat(cards, tr("app.0010"), tr("app.0013"), "chip")
         self.latency_stat = QLabel()
         self.latency_stat.setProperty("metric", True)
         self.latency_stat.hide()
-        self.microphone_stat, self.microphone_icon = self._stat(cards, "麦克风", "未检测", "mic")
+        self.microphone_stat, self.microphone_icon = self._stat(cards, tr("app.0012"), tr("app.0013"), "mic")
         warning = QFrame()
         warning.setObjectName("warning")
-        warning.setToolTip("本工具未经 Riot 批准。游戏内字幕存在政策和反作弊风险，建议先在桌面或第二屏测试。")
+        warning.setToolTip(tr("app.0014"))
         risk = QHBoxLayout(warning)
         risk.setContentsMargins(GAP, tokens.TIGHT, GAP, tokens.TIGHT)
         risk.setSpacing(INLINE)
         risk.addWidget(LineIcon("shield"))
-        risk.addWidget(QLabel("游戏内字幕有 Riot 合规风险，建议先在桌面测试。"), 1)
+        risk.addWidget(QLabel(tr("app.0015")), 1)
         updates.addWidget(warning)
 
         columns = QHBoxLayout()
@@ -243,8 +244,8 @@ class MainWindow(QMainWindow):
         columns.addLayout(left_column, 11)
         columns.addLayout(right_column, 9)
 
-        model_group, model_layout = self._quick_start_group("本地模型", "layers")
-        self.model_status_label = self._compact("检查模型…")
+        model_group, model_layout = self._quick_start_group(tr("app.0016"), "layers")
+        self.model_status_label = self._compact(tr("app.0017"))
         model_group.header.addWidget(self.model_status_label, 2)
         self.model_loading = LoadingSkeleton()
         model_layout.addWidget(self.model_loading)
@@ -254,13 +255,13 @@ class MainWindow(QMainWindow):
         model_layout.addWidget(self.model_state)
         model_row = QHBoxLayout()
         model_row.setSpacing(INLINE)
-        self.download_button = GlassButton("一键下载模型", icon="download")
+        self.download_button = GlassButton(tr("app.0018"), icon="download")
         self.download_button.clicked.connect(self._download)
-        self.import_button = GlassButton("从文件夹导入", icon="folder")
+        self.import_button = GlassButton(tr("app.0019"), icon="folder")
         self.import_button.clicked.connect(self._import_models)
         model_row.addWidget(self.download_button)
         model_row.addWidget(self.import_button)
-        self.model_pause_button = GlassButton("暂停下载")
+        self.model_pause_button = GlassButton(tr("app.0020"))
         self.model_pause_button.setProperty("ghost", True)
         self.model_pause_button.clicked.connect(self._pause_model_download)
         self.model_pause_button.hide()
@@ -275,16 +276,16 @@ class MainWindow(QMainWindow):
         self.model_transfer.setObjectName("modelTransfer")
         self.model_transfer.hide()
         model_layout.addWidget(self.model_transfer)
-        self.download_button.setToolTip("按详细设置中的型号下载，下载后可离线使用。")
-        self.import_button.setToolTip("选择已保存的本地模型文件夹。")
+        self.download_button.setToolTip(tr("app.0021"))
+        self.import_button.setToolTip(tr("app.0022"))
         left_column.addWidget(model_group)
 
-        audio_group, audio_layout = self._quick_start_group("声音来源", "speaker")
+        audio_group, audio_layout = self._quick_start_group(tr("app.0023"), "speaker")
         device_row = QHBoxLayout()
         self.device_combo = QComboBox()
         self.device_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.device_combo.currentIndexChanged.connect(self._save_settings)
-        self.refresh_button = GlassButton("刷新设备", icon="refresh")
+        self.refresh_button = GlassButton(tr("app.0024"), icon="refresh")
         self.refresh_button.clicked.connect(self._request_devices)
         device_row.addWidget(self.device_combo, 1)
         device_row.addWidget(self.refresh_button)
@@ -293,21 +294,21 @@ class MainWindow(QMainWindow):
         audio_layout.addWidget(self.device_hint)
         left_column.addWidget(audio_group)
 
-        display_group, display_layout = self._quick_start_group("字幕显示", "screen")
+        display_group, display_layout = self._quick_start_group(tr("app.0025"), "screen")
         self.mode_combo = QComboBox()
-        self.mode_combo.addItem("桌面 / 第二屏", "desktop")
-        self.mode_combo.addItem("游戏内覆盖（实验）", "game")
+        self.mode_combo.addItem(tr("app.0026"), "desktop")
+        self.mode_combo.addItem(tr("app.0027"), "game")
         self.mode_combo.setCurrentIndex(0 if self.settings.normal_window else 1)
         self.mode_combo.currentIndexChanged.connect(self._mode_changed)
         display_group.header.addWidget(self.mode_combo, 3)
         self.mode_hint = self._compact("")
         display_group.header.addWidget(self.mode_hint, 2)
         overlay_row = QHBoxLayout()
-        self.test_button = GlassButton("测试字幕（20 秒）", icon="screen")
+        self.test_button = GlassButton(tr("app.0028"), icon="screen")
         self.test_button.clicked.connect(self._test_overlay)
-        self.position_button = GlassButton("拖动字幕调整位置")
+        self.position_button = GlassButton(tr("app.0029"))
         self.position_button.clicked.connect(self._toggle_position_edit)
-        self.show_button = GlassButton("隐藏字幕窗口")
+        self.show_button = GlassButton(tr("app.0030"))
         self.show_button.clicked.connect(self._toggle_overlay)
         overlay_row.addWidget(self.test_button)
         overlay_row.addWidget(self.show_button)
@@ -316,40 +317,40 @@ class MainWindow(QMainWindow):
         display_layout.addLayout(overlay_row)
         left_column.addWidget(display_group)
 
-        run_group, run_layout = self._group("实时翻译", "play")
+        run_group, run_layout = self._group(tr("app.0031"), "play")
         run_group.setProperty("compactRun", True)
         run_layout.setContentsMargins(GUTTER, INLINE, GUTTER, INLINE)
         run_layout.setSpacing(tokens.TIGHT)
         self.run_icon = run_group.icon
         run_row = QHBoxLayout()
         run_row.setSpacing(INLINE)
-        self.start_button = GlassButton("开始翻译", icon="play")
+        self.start_button = GlassButton(tr("app.0032"), icon="play")
         self.start_button.setObjectName("primary")
         self.start_button.clicked.connect(self.start_translation)
-        self.stop_button = GlassButton("停止翻译", icon="stop")
+        self.stop_button = GlassButton(tr("app.0033"), icon="stop")
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(self.stop_translation)
         run_row.addWidget(self.start_button)
         run_row.addWidget(self.stop_button)
         run_row.addStretch()
-        self.status_label = self._compact("当前状态：待机")
+        self.status_label = self._compact(tr("app.0034"))
         self.status_label.hide()
         run_row.addWidget(self.status_label, 1)
         self.audio_icon = LineIcon("activity")
-        self.audio_icon.setToolTip("音频输入电平")
+        self.audio_icon.setToolTip(tr("app.0035"))
         self.audio_icon.hide()
         run_row.addWidget(self.audio_icon)
         self.volume = QProgressBar()
         self.volume.setRange(0, 100)
         self.volume.setValue(0)
         self.volume.setFixedWidth(tokens.VOLUME_WIDTH)
-        self.volume.setAccessibleName("音频输入音量")
-        self.volume.setToolTip("音频输入音量")
+        self.volume.setAccessibleName(tr("app.0036"))
+        self.volume.setToolTip(tr("app.0037"))
         self.volume.hide()
         run_row.addWidget(self.volume)
         run_layout.addLayout(run_row)
         run_layout.addLayout(cards)
-        self.runtime_label = self._compact("实际运行设备：模型尚未加载")
+        self.runtime_label = self._compact(tr("app.0038"))
         self.diagnostic_label = self._compact("")
         self.diagnostic_label.hide()
         self.runtime_label.hide()
@@ -364,20 +365,20 @@ class MainWindow(QMainWindow):
         run_layout.addWidget(self.last_discard)
 
         self.reverse_icon = LineIcon("mic")
-        self.talk_state = self._compact("按住说话，松开翻译。")
+        self.talk_state = self._compact(tr("app.0041"))
         self.microphone_level = self._compact("")
         self.microphone_level.hide()
-        self.talk_button = GlassButton("按住说话", icon="mic")
-        self.talk_button.setToolTip("按住按钮或设置中的说话快捷键，松开后翻译。")
+        self.talk_button = GlassButton(tr("app.0042"), icon="mic")
+        self.talk_button.setToolTip(tr("app.0043"))
         self.talk_button.pressed.connect(self._begin_talk)
         self.talk_button.released.connect(self.talk.end)
-        self.reverse_copy = GlassButton("复制英文", icon="copy")
+        self.reverse_copy = GlassButton(tr("app.0044"), icon="copy")
         self.reverse_copy.setEnabled(False)
         self.reverse_copy.clicked.connect(self._copy_english)
         talk_row = QHBoxLayout()
         talk_row.setSpacing(INLINE)
         talk_row.addWidget(self.reverse_icon)
-        talk_row.addWidget(self._hint("中文 → 英文"))
+        talk_row.addWidget(self._hint(tr("app.0040")))
         talk_row.addWidget(self.talk_button)
         talk_row.addWidget(self.reverse_copy)
         talk_row.addWidget(self.talk_state, 1)
@@ -391,12 +392,12 @@ class MainWindow(QMainWindow):
         result_layout.setSpacing(INLINE)
         header = QHBoxLayout()
         self.result_icon = LineIcon("chat", accented=True)
-        heading = QLabel("实时字幕")
+        heading = QLabel(tr("app.caption_heading"))
         heading.setObjectName("sectionTitle")
         header.addWidget(self.result_icon)
         header.addWidget(heading)
         header.addStretch()
-        self.caption_tools = GlassButton("显示/隐藏字幕", icon="screen")
+        self.caption_tools = GlassButton(tr("app.caption_visibility"), icon="screen")
         self.caption_tools.clicked.connect(self._toggle_overlay)
         header.addWidget(self.caption_tools)
         result_layout.addLayout(header)
@@ -420,7 +421,7 @@ class MainWindow(QMainWindow):
         captions.addWidget(self.caption_loading)
         self.previous_caption = self._compact("")
         self.previous_caption.setObjectName("previousCaption")
-        self.previous_caption.setAccessibleName("上一条字幕")
+        self.previous_caption.setAccessibleName(tr("app.previous_caption"))
         self.previous_caption.hide()
         self.previous_latency = QLabel()
         self.previous_latency.setProperty("metric", True)
@@ -448,7 +449,7 @@ class MainWindow(QMainWindow):
         source.addWidget(self.original_label, 1)
         source.addWidget(self.language_label)
         result_layout.addLayout(source)
-        self.detail_toggle = GlassButton("识别详情")
+        self.detail_toggle = GlassButton(tr("app.recognition_details"))
         self.detail_toggle.setCheckable(True)
         header.addWidget(self.detail_toggle)
         self.details_panel = QFrame()
@@ -465,17 +466,17 @@ class MainWindow(QMainWindow):
         self.details_panel.hide()
         self.detail_toggle.toggled.connect(self._toggle_details)
         result_layout.addWidget(self.details_panel)
-        self.feedback_button = GlassButton("复制反馈信息", icon="copy")
+        self.feedback_button = GlassButton(tr("app.0051"), icon="copy")
         self.feedback_button.setObjectName("quickStartFeedback")
         self.feedback_button.clicked.connect(self._copy_feedback)
-        recent_group, recent_layout = self._quick_start_group("最近翻译", "clock")
+        recent_group, recent_layout = self._quick_start_group(tr("app.recent_translations"), "clock")
         self.recent_hint = self._hint(EMPTY_HISTORY)
         recent_layout.addWidget(self.recent_hint)
         self.recent_list = QTreeWidget()
         self.recent_list.setObjectName("recentTranslations")
-        self.recent_list.setAccessibleName("最近翻译")
+        self.recent_list.setAccessibleName(tr("app.recent_translations"))
         self.recent_list.setColumnCount(2)
-        self.recent_list.setHeaderLabels(("译文", "时间"))
+        self.recent_list.setHeaderLabels((tr("app.recent_translation_column"), tr("app.0114")))
         self.recent_list.setHeaderHidden(True)
         self.recent_list.setRootIsDecorated(False)
         self.recent_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -498,9 +499,9 @@ class MainWindow(QMainWindow):
         main_layout.addSpacing(QUICK_START_GAP)
         main_layout.addLayout(columns, 1)
         self.dock = ActionDock((
-            ("测试字幕", "play", self.test_button.click),
-            ("显示/隐藏字幕", "screen", self.show_button.click),
-            ("调整字幕位置", "settings", self.position_button.click),
+            (tr("app.test_caption_action"), "play", self.test_button.click),
+            (tr("app.caption_visibility"), "screen", self.show_button.click),
+            (tr("app.position_caption_action"), "settings", self.position_button.click),
         ))
         for button in self.dock.buttons:
             button.setFixedSize(tokens.SPACE, tokens.SPACE)
@@ -511,133 +512,133 @@ class MainWindow(QMainWindow):
         right_column.addLayout(quick_actions)
         left_column.addStretch()
         right_column.addStretch()
-        self.tabs.addTab(self._scroll(main_page), "快速开始")
+        self.tabs.addTab(self._scroll(main_page), tr("app.0052"))
 
         settings_page = QWidget()
         settings_layout = QVBoxLayout(settings_page)
         settings_layout.setContentsMargins(GUTTER, GAP, GUTTER, GUTTER)
         settings_layout.setSpacing(GAP)
-        form = self._settings_card(settings_layout, "软件更新", "download")
-        self.settings_update_button = GlassButton("检查更新", icon="refresh")
+        form = self._settings_card(settings_layout, tr("app.0053"), "download")
+        self.settings_update_button = GlassButton(tr("app.0054"), icon="refresh")
         self.settings_update_button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.settings_update_button.clicked.connect(self._check_update)
         form.addRow(self.settings_update_button)
-        self.update_version_label = self._hint(f"当前版本：{APP_VERSION}；最新版本：尚未检查")
+        self.update_version_label = self._hint(tr("app.0055", p0=APP_VERSION))
         form.addRow(self.update_version_label)
-        self.update_notes_label = self._hint("更新日志：检查后显示")
+        self.update_notes_label = self._hint(tr("app.0056"))
         form.addRow(self.update_notes_label)
-        form = self._settings_card(settings_layout, "识别和翻译", "chip")
-        self.language_combo = self._combo([("自动检测", "auto"),
+        form = self._settings_card(settings_layout, tr("app.0057"), "chip")
+        self.language_combo = self._combo([(tr("app.0058"), "auto"),
                                             *[(name, code) for code, name in LANGUAGES.items()]], self.settings.language)
-        self._row(form, "识别语言", self.language_combo)
+        self._row(form, tr("app.0059"), self.language_combo)
         self.model_combo = self._combo([(name, name) for name in ("tiny", "base", "small", "medium")],
                                        self.settings.whisper_model)
-        self._row(form, "识别模型", self.model_combo)
+        self._row(form, tr("app.0060"), self.model_combo)
         if self._model_channel and self._model_channel["channel"] == "dual":
-            self.model_source = self._combo([("国内 COS", "cos"), ("国际 Hugging Face", "huggingface")],
+            self.model_source = self._combo([(tr("app.0061"), "cos"), (tr("app.0062"), "huggingface")],
                                             self.settings.model_source)
-            self._row(form, "下载来源", self.model_source)
-        self._row(form, "翻译模型", QLabel("M2M100 418M（本地）"))
-        self.compute_combo = self._combo([("自动：优先 GPU", "auto"), ("GPU", "cuda"), ("CPU", "cpu")],
+            self._row(form, tr("app.0063"), self.model_source)
+        self._row(form, tr("app.0064"), QLabel(tr("app.0065")))
+        self.compute_combo = self._combo([(tr("app.0066"), "auto"), ("GPU", "cuda"), ("CPU", "cpu")],
                                          self.settings.compute_device)
-        self._row(form, "运行设备", self.compute_combo)
-        self.fast_check = self._check("低延迟模式", self.settings.fast_mode)
-        self.fast_check.setToolTip("可能略降识别和翻译质量。")
+        self._row(form, tr("app.0067"), self.compute_combo)
+        self.fast_check = self._check(tr("app.0068"), self.settings.fast_mode)
+        self.fast_check.setToolTip(tr("app.0069"))
         form.addRow(self.fast_check)
         self.ptt_hotkey_edit = QLineEdit(self.settings.ptt_hotkey)
         self.ptt_hotkey_edit.editingFinished.connect(self._save_settings)
-        self._row(form, "说话快捷键", self.ptt_hotkey_edit)
+        self._row(form, tr("app.0070"), self.ptt_hotkey_edit)
         self.mic_combo = QComboBox()
         self.mic_combo.currentIndexChanged.connect(self._save_settings)
-        self._row(form, "麦克风", self.mic_combo)
-        self.routing_button = GlassButton("语音分流设置", icon="speaker")
+        self._row(form, tr("app.0071"), self.mic_combo)
+        self.routing_button = GlassButton(tr("app.0072"), icon="speaker")
         self.routing_button.clicked.connect(self._open_routing)
         form.addRow(self.routing_button)
         self.routing_status = self._hint("")
         form.addRow(self.routing_status)
-        self.advanced_button = GlassButton("高级设置", icon="settings")
+        self.advanced_button = GlassButton(tr("app.0073"), icon="settings")
         self.advanced_button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.advanced_button.setCheckable(True)
-        self.advanced_button.setToolTip("展开或收起语音检测和超时选项。")
+        self.advanced_button.setToolTip(tr("app.0074"))
         form.addRow(self.advanced_button)
         self.advanced_fields = QWidget()
         advanced = self._form(self.advanced_fields)
         advanced.setContentsMargins(0, 0, 0, 0)
         self.vad_spin = self._spin(self.settings.vad_level, 0, 3)
-        self._row(advanced, "语音检测", self.vad_spin, "数字越大越严格，短报点建议 1。")
+        self._row(advanced, tr("app.0075"), self.vad_spin, tr("app.0076"))
         self.timeout_spin = self._spin(int(self.settings.translation_timeout), 1, 30)
-        self._row(advanced, "翻译超时（秒）", self.timeout_spin)
+        self._row(advanced, tr("app.0077"), self.timeout_spin)
         self.age_spin = self._spin(int(self.settings.max_task_age), 2, 30)
-        self._row(advanced, "过期丢弃（秒）", self.age_spin, "从音频结束起计算字幕时限。")
+        self._row(advanced, tr("app.0078"), self.age_spin, tr("app.0079"))
         self.advanced_fields.hide()
         self.advanced_button.toggled.connect(self.advanced_fields.setVisible)
         form.addRow(self.advanced_fields)
-        form = self._settings_card(settings_layout, "字幕", "screen")
+        form = self._settings_card(settings_layout, tr("app.0080"), "screen")
         self.screen_combo = QComboBox()
         for index, screen in enumerate(QApplication.screens()):
-            self.screen_combo.addItem(f"显示器 {index + 1}：{screen.name()}", index)
+            self.screen_combo.addItem(tr("app.0081", p0=index + 1, p1=screen.name()), index)
         self.screen_combo.setCurrentIndex(min(self.settings.overlay_screen, max(0, self.screen_combo.count() - 1)))
         self.screen_combo.currentIndexChanged.connect(self._save_settings)
-        self._row(form, "显示器", self.screen_combo)
+        self._row(form, tr("app.0082"), self.screen_combo)
         self.x_spin = self._spin(self.settings.overlay_x, -5000, 5000)
         self.y_spin = self._spin(self.settings.overlay_y, -5000, 5000)
-        self._row(form, "横向位置", self.x_spin)
-        self._row(form, "纵向位置", self.y_spin)
+        self._row(form, tr("app.0083"), self.x_spin)
+        self._row(form, tr("app.0084"), self.y_spin)
         self.font_spin = self._spin(self.settings.font_size, 14, 60)
-        self._row(form, "字号", self.font_spin)
+        self._row(form, tr("app.0085"), self.font_spin)
         self.opacity_spin = self._spin(self.settings.overlay_opacity, 0, 100)
-        self._row(form, "背景不透明度", self.opacity_spin)
-        self.original_check = self._check("同时显示识别原文", self.settings.show_original)
-        self.click_check = self._check("鼠标穿透", self.settings.click_through)
-        self.click_check.setToolTip("拖动字幕时关闭穿透。")
+        self._row(form, tr("app.0086"), self.opacity_spin)
+        self.original_check = self._check(tr("app.0087"), self.settings.show_original)
+        self.click_check = self._check(tr("app.0088"), self.settings.click_through)
+        self.click_check.setToolTip(tr("app.0089"))
         form.addRow(self.original_check)
         form.addRow(self.click_check)
         self.hotkey_edit = QLineEdit(self.settings.hotkey)
         self.hotkey_edit.editingFinished.connect(self._save_settings)
-        self._row(form, "字幕快捷键", self.hotkey_edit)
-        theme = GlassButton("选择点缀色")
+        self._row(form, tr("app.0090"), self.hotkey_edit)
+        theme = GlassButton(tr("app.0091"))
         theme.clicked.connect(self._choose_accent)
-        self._row(form, "点缀色", theme)
+        self._row(form, tr("app.0092"), theme)
         self.duration_spin = self._spin(int(self.settings.subtitle_seconds), 1, 30)
-        self._row(form, "显示时长（秒）", self.duration_spin)
-        self.model_combo.setToolTip("更改识别模型后需下载对应模型。")
+        self._row(form, tr("app.0093"), self.duration_spin)
+        self.model_combo.setToolTip(tr("app.0094"))
         self.background_combo = QComboBox()
         for key, (label, _) in BACKGROUND_THEMES.items():
             self.background_combo.addItem(label, key)
-        self.background_combo.addItem("自定义", "custom")
+        self.background_combo.addItem(tr("app.0095"), "custom")
         self.background_combo.setCurrentIndex(max(0, self.background_combo.findData(self.settings.background_theme)))
         self.background_combo.currentIndexChanged.connect(self._select_background)
-        self._row(form, "背景主题", self.background_combo)
+        self._row(form, tr("app.0096"), self.background_combo)
         colors = QHBoxLayout()
-        self.background_color_button = GlassButton("自定义背景色")
+        self.background_color_button = GlassButton(tr("app.0097"))
         self.background_color_button.clicked.connect(self._choose_background)
-        self.theme_reset_button = GlassButton("恢复默认")
+        self.theme_reset_button = GlassButton(tr("app.0098"))
         self.theme_reset_button.clicked.connect(self._reset_theme)
         colors.addWidget(self.background_color_button)
         colors.addWidget(self.theme_reset_button)
         colors.addStretch()
-        self.game_accent_reset_button = GlassButton("恢复当前游戏点缀色")
+        self.game_accent_reset_button = GlassButton(tr("app.reset_game_accent"))
         self.game_accent_reset_button.clicked.connect(self._reset_game_accent)
-        self._row(form, "游戏皮肤", self.game_accent_reset_button)
+        self._row(form, tr("app.game_skin"), self.game_accent_reset_button)
         form.addRow(colors)
-        self.reduce_motion_check = QCheckBox("减少动效")
+        self.reduce_motion_check = QCheckBox(tr("app.reduce_motion"))
         self.reduce_motion_check.setChecked(self.settings.reduce_motion)
         self.reduce_motion_check.toggled.connect(self._set_reduce_motion)
         form.addRow(self.reduce_motion_check)
-        form = self._settings_card(settings_layout, "历史和隐私", "shield")
-        self.history_check = self._check("保存本地历史", self.settings.save_history)
-        self.history_check.setToolTip("只保存识别文字与译文，不保存音频。")
+        form = self._settings_card(settings_layout, tr("app.0099"), "shield")
+        self.history_check = self._check(tr("app.0100"), self.settings.save_history)
+        self.history_check.setToolTip(tr("app.0101"))
         form.addRow(self.history_check)
-        self.feedback_button.setToolTip("诊断仅本次运行保留，分享前可检查是否包含对话原文。")
-        glossary_form = self._settings_card(settings_layout, "游戏词库", "settings")
+        self.feedback_button.setToolTip(tr("app.0102"))
+        glossary_form = self._settings_card(settings_layout, tr("app.0103"), "settings")
         self.glossary_checks = {}
-        for key, title in (("game_terms", "启用游戏术语优化"), ("official_lines", "启用官方台词匹配"),
-                           ("asr_correction", "启用语音识别纠错"), ("teammate_only", "只翻译队友语音（过滤英雄语音）")):
+        for key, title in (("game_terms", tr("app.0104")), ("official_lines", tr("app.0105")),
+                           ("asr_correction", tr("app.0106")), ("teammate_only", tr("app.0107"))):
             check = self._check(title, getattr(self.settings, key))
             self.glossary_checks[key] = check
             glossary_form.addRow(check)
         self.glossary_checks["teammate_only"].setToolTip(
-            "只过滤词库中已核实的整句英雄台词。分流可避免游戏音效进入翻译器。")
+            tr("app.0108"))
         self.glossary_status = self._hint("")
         self.glossary_status.setTextFormat(Qt.TextFormat.PlainText)
         glossary_form.addRow(self.glossary_status)
@@ -645,14 +646,14 @@ class MainWindow(QMainWindow):
         glossary_form.addRow(self.glossary_loading)
         self._glossary_actions(glossary_form)
         settings_layout.addStretch()
-        self.tabs.addTab(self._scroll(settings_page), "详细设置")
+        self.tabs.addTab(self._scroll(settings_page), tr("app.0110"))
 
         self.history_page = QWidget()
         self.history_page.setObjectName("historyPage")
         history_layout = QVBoxLayout(self.history_page)
         history_layout.setContentsMargins(GUTTER, GAP, GUTTER, GUTTER)
-        history_hint = self._hint("最近 1000 条 · 仅在本机保存")
-        history_hint.setToolTip("只修正选中记录，或明确选择将译法保存到我的词库。")
+        history_hint = self._hint(tr("app.0111"))
+        history_hint.setToolTip(tr("app.0112"))
         history_layout.addWidget(history_hint)
         self.history_state = self._hint("")
         self.history_state.setTextFormat(Qt.TextFormat.PlainText)
@@ -660,7 +661,7 @@ class MainWindow(QMainWindow):
         self.history_loading = LoadingSkeleton()
         history_layout.addWidget(self.history_loading)
         self.history_table = QTableWidget(0, 5)
-        self.history_table.setHorizontalHeaderLabels(("时间", "识别原文", "字幕译文", "语言", "延迟"))
+        self.history_table.setHorizontalHeaderLabels((tr("app.0114"), tr("app.0115"), tr("app.0116"), tr("app.0117"), tr("app.0118")))
         self.history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.history_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -671,11 +672,11 @@ class MainWindow(QMainWindow):
         self.history_table.horizontalHeader().setStretchLastSection(True)
         history_layout.addWidget(self.history_table)
         history_buttons = QHBoxLayout()
-        for label, callback in (("刷新", self._request_history),
-                                ("修正选中译文", self._correct_history),
-                                ("导出 CSV", self._export_history),
-                                ("清空历史", self._clear_history),
-                                ("删除历史和修正", self._clear_all_history)):
+        for label, callback in ((tr("app.0119"), self._request_history),
+                                (tr("app.0120"), self._correct_history),
+                                (tr("app.0121"), self._export_history),
+                                (tr("app.0122"), self._clear_history),
+                                (tr("app.0123"), self._clear_all_history)):
             button = GlassButton(label)
             button.clicked.connect(callback)
             button.setEnabled(self.history is not None)
@@ -683,16 +684,16 @@ class MainWindow(QMainWindow):
         history_buttons.addStretch()
         history_layout.addLayout(history_buttons)
         extra = QHBoxLayout()
-        for label, action in (("查看详情", self._history_details), ("反馈翻译错误", self._feedback_history),
-                              ("反馈与审核", self._review_feedback), ("导入旧 CSV", self._import_history)):
+        for label, action in ((tr("app.0124"), self._history_details), (tr("app.0125"), self._feedback_history),
+                              (tr("app.0126"), self._review_feedback), (tr("app.0127"), self._import_history)):
             button = GlassButton(label)
             button.clicked.connect(action)
-            button.setEnabled(self.history is not None or label == "反馈与审核")
+            button.setEnabled(self.history is not None or label == tr("app.0128"))
             extra.addWidget(button)
         extra.addStretch()
         history_layout.addLayout(extra)
         self.history_table.doubleClicked.connect(self._history_details)
-        self.tabs.addTab(self.history_page, "翻译历史")
+        self.tabs.addTab(self.history_page, tr("app.0129"))
         self._build_shell()
 
     def _build_shell(self):
@@ -721,7 +722,7 @@ class MainWindow(QMainWindow):
         self.nav.idClicked.connect(self._navigate)
         self.tabs.currentChanged.connect(lambda index: self.nav.button(index).setChecked(True))
         side.addStretch()
-        guide = GlassButton("新手引导", icon="book")
+        guide = GlassButton(tr("app.0130"), icon="book")
         guide.clicked.connect(self._show_onboarding)
         side.addWidget(guide)
         side.addWidget(self._hint(f"v{APP_VERSION}"))
@@ -737,8 +738,9 @@ class MainWindow(QMainWindow):
         games.setContentsMargins(GAP, INLINE, GAP, INLINE)
         games.setSpacing(INLINE)
         self.game_group = QButtonGroup(self)
-        for key, name in GAMES.items():
-            button = GlassButton(name)
+        game_order = {key: index for index, key in enumerate(tokens.SKINS)}
+        for key in sorted(GAMES, key=lambda key: game_order.get(key, len(game_order))):
+            button = GlassButton(GAMES[key])
             button.setProperty("gamePill", True)
             button.setCheckable(True)
             button.setChecked(key == self.settings.game)
@@ -813,7 +815,7 @@ class MainWindow(QMainWindow):
             picker.deleteLater()
 
     def _choose_accent(self):
-        color = self._pick_theme_color(QColor(accent_color(self.settings.accent)), "选择点缀色")
+        color = self._pick_theme_color(QColor(accent_color(self.settings.accent)), tr("app.0131"))
         if color.isValid():
             self.settings.game_accents[self.settings.game] = color.name()
             self._save_theme()
@@ -827,7 +829,7 @@ class MainWindow(QMainWindow):
         current = QColor(stored if isinstance(stored, str) else "")
         if not current.isValid():
             current = QColor(DEFAULT_BACKGROUND_COLOR)
-        color = self._pick_theme_color(current, "自定义背景色")
+        color = self._pick_theme_color(current, tr("app.0132"))
         if color.isValid():
             self.settings.background_color = color.name()
             self.settings.background_theme = "custom"
@@ -915,7 +917,7 @@ class MainWindow(QMainWindow):
     def _refresh_glossary(self):
         self._glossary_request += 1
         request = self._glossary_request
-        self.glossary_status.setText("正在读取游戏词库…")
+        self.glossary_status.setText(tr("app.loading_game_glossary"))
         self.glossary_loading.show()
         QTimer.singleShot(tokens.GLOSSARY_LOAD_MS, self, lambda: self._show_glossary(request))
 
@@ -927,10 +929,10 @@ class MainWindow(QMainWindow):
             data = read_default_glossary(self.settings.game)
         except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
             LOG.warning("Could not read game glossary: %s", error)
-            text = "游戏词库读取失败。请尝试重新打开设置，或使用通用翻译。"
+            text = tr("app.game_glossary_read_failed")
         else:
-            text = ("已加载游戏词库" if any(value for value in data.values() if isinstance(value, (list, dict)))
-                    else "该游戏词库建设中，暂用通用翻译")
+            text = (tr("app.game_glossary_ready") if any(value for value in data.values() if isinstance(value, (list, dict)))
+                    else tr("app.game_glossary_pending"))
         self.glossary_status.setText(text)
 
     def _select_game(self, game):
@@ -941,7 +943,7 @@ class MainWindow(QMainWindow):
         self._save_theme()
         self.skin_snapshot.reveal(image, tokens.SKIN_MS)
         self._refresh_glossary()
-        self._announce(f"已切换至 {GAMES[game]}")
+        self._announce(tr("app.0133", p0=GAMES[game]))
         if self.pipeline:
             self._restart_after_stop = True
             self.stop_translation()
@@ -1080,23 +1082,23 @@ class MainWindow(QMainWindow):
         m2m_dir = MODEL_DIR / "m2m100_418M"
         m2m = model_ready(m2m_dir, M2M_FILES)
         if self.pipeline is None:
-            self.model_stat.setText(size if whisper else "未下载")
+            self.model_stat.setText(size if whisper else tr("app.0134"))
         model_status = (
-            f"识别模型 {size}：{'已下载' if whisper else '未下载'}  ·  中文翻译模型：{'已下载' if m2m else '未下载'}"
-            + ("  ·  PyTorch 需更新至 2.6 以上" if not self._torch_version_ok() else "")
+            tr("app.0135", p0=size, p1=tr('app.0313') if whisper else tr('app.0134'), p2=tr('app.0313') if m2m else tr('app.0134'))
+            + (tr("app.0136") if not self._torch_version_ok() else "")
         )
-        self.model_status_label.setText(f"{size} {'✓' if whisper else '×'} · 翻译 {'✓' if m2m else '×'}")
+        self.model_status_label.setText(tr("app.model_status_compact", p0=size, p1='✓' if whisper else '×', p2='✓' if m2m else '×'))
         self.model_status_label.setToolTip(model_status)
         self.model_status_label.setAccessibleDescription(model_status)
         if not self._model_busy and not self._model_error:
-            self.model_state.setText("点击下载或导入所选模型。" if not (whisper and m2m) else "")
+            self.model_state.setText(tr("app.model_download_or_import") if not (whisper and m2m) else "")
             self.model_state.setVisible(not (whisper and m2m))
         self.download_button.setEnabled(not self._model_busy and not (whisper and m2m))
         stopping = self._stop_thread is not None and self._stop_thread.is_alive()
         if (hasattr(self, "start_button") and self.pipeline is None and not stopping
                 and not getattr(self, "_model_busy", False)):
             self.start_button.setEnabled(True)
-            self.start_button.setToolTip("" if whisper and m2m else "请先下载或导入所选模型。")
+            self.start_button.setToolTip("" if whisper and m2m else tr("app.start_models_missing"))
 
     def _save_settings(self, *_):
         if not hasattr(self, "duration_spin"):
@@ -1175,48 +1177,48 @@ class MainWindow(QMainWindow):
     def _update_mode_hint(self) -> None:
         if self.mode_combo.currentData() == "game":
             self.click_check.setEnabled(True)
-            self.mode_hint.setText("游戏内建议用无边框窗口。")
-            self.mode_hint.setToolTip("先用测试字幕定位，再开始翻译。独占全屏或 Vanguard 可能让字幕窗口不可见。")
+            self.mode_hint.setText(tr("app.0137"))
+            self.mode_hint.setToolTip(tr("app.0138"))
             self.mode_combo.setToolTip(self.mode_hint.toolTip())
             self.mode_hint.show()
-            self.position_button.setText("调整位置（暂时关闭穿透）" if self.click_check.isChecked() else "完成调整（开启穿透）")
+            self.position_button.setText(tr("app.0139") if self.click_check.isChecked() else tr("app.0140"))
         else:
             self.click_check.setEnabled(False)
-            self.mode_hint.setText("字幕可拖到桌面或第二屏。")
+            self.mode_hint.setText(tr("app.0141"))
             self.mode_combo.setToolTip(self.mode_hint.text())
             self.mode_hint.hide()
-            self.position_button.setText("拖动字幕调整位置")
+            self.position_button.setText(tr("app.0142"))
 
     def _toggle_position_edit(self) -> None:
         if self.mode_combo.currentData() == "game":
             self.click_check.setChecked(not self.click_check.isChecked())
             self._update_mode_hint()
-        self.overlay.add_subtitle("拖动字幕到不遮挡准星和地图的位置", duration=30)
+        self.overlay.add_subtitle(tr("app.0143"), duration=30)
         self.overlay.show()
-        self.show_button.setText("隐藏字幕窗口")
+        self.show_button.setText(tr("app.0144"))
 
     def _test_overlay(self) -> None:
-        self.overlay.add_subtitle("字幕预览：A 大两个。", "Two A main", duration=20)
+        self.overlay.add_subtitle(tr("app.0145"), "Two A main", duration=20)
         self.overlay.show()
         self.overlay.raise_()
-        self.show_button.setText("隐藏字幕窗口")
+        self.show_button.setText(tr("app.0146"))
 
     def _toggle_overlay(self) -> None:
         self.overlay.setVisible(not self.overlay.isVisible())
-        self.show_button.setText("隐藏字幕窗口" if self.overlay.isVisible() else "显示字幕窗口")
+        self.show_button.setText(tr("app.0147") if self.overlay.isVisible() else tr("app.0148"))
 
     def refresh_devices(self) -> None:
         try:
             devices = list_devices()
         except Exception as exc:
-            self._status(f"设备枚举失败：{exc}")
+            self._status(tr("app.0149", p0=exc))
             return
         self._apply_devices(devices)
 
     def _request_devices(self) -> None:
         if not self.refresh_button.isEnabled():
             return
-        self.refresh_button.setText("加载中…")
+        self.refresh_button.setText(tr("app.0150"))
         self.refresh_button.setEnabled(False)
 
         def task():
@@ -1226,7 +1228,7 @@ class MainWindow(QMainWindow):
                     com = windll.ole32
                     hr = com.CoInitializeEx(None, 0)
                     if hr < 0:
-                        raise OSError(f"CoInitializeEx 失败（0x{hr & 0xffffffff:08X}）")
+                        raise OSError(tr("app.0151", p0=hr & 0xffffffff))
                     try:
                         devices = list_devices()
                     finally:
@@ -1240,10 +1242,10 @@ class MainWindow(QMainWindow):
         threading.Thread(target=task, name="refresh-audio-devices", daemon=True).start()
 
     def _finish_device_refresh(self, devices, error: str) -> None:
-        self.refresh_button.setText("刷新设备")
+        self.refresh_button.setText(tr("app.0152"))
         self.refresh_button.setEnabled(True)
         if error:
-            self._status(f"设备枚举失败：{error}")
+            self._status(tr("app.0153", p0=error))
         else:
             self._apply_devices(devices)
         self.devices_refreshed.emit(not error)
@@ -1254,7 +1256,7 @@ class MainWindow(QMainWindow):
         self.device_combo.blockSignals(True)
         self.device_combo.clear()
         for device in devices:
-            prefix = "系统声音" if device.loopback else "麦克风"
+            prefix = tr("app.0154") if device.loopback else tr("app.0155")
             self.device_combo.addItem(f"{prefix}：{device.name}", device.id)
             self.device_combo.setItemData(self.device_combo.count() - 1, device.loopback,
                                           Qt.ItemDataRole.UserRole + 1)
@@ -1268,7 +1270,7 @@ class MainWindow(QMainWindow):
         old = self.settings.microphone_id
         self._save_settings()
         if microphone and old != microphone.id:
-            self.statusBar().showMessage(f"已自动使用麦克风：{microphone.name}", 5000)
+            self.statusBar().showMessage(tr("app.0156", p0=microphone.name), 5000)
 
     def _apply_microphones(self, devices, microphone):
         with QSignalBlocker(self.mic_combo):
@@ -1281,22 +1283,22 @@ class MainWindow(QMainWindow):
 
     def _update_device_hint(self) -> None:
         mic = self.mic_combo.currentText()
-        self.microphone_stat.setText(f"{mic} · 可用" if mic else "未检测到")
+        self.microphone_stat.setText(tr("app.0157", p0=mic) if mic else tr("app.0158"))
         route = next((device for device in routing_devices(self.audio_devices)
                       if device.id == self.device_combo.currentData()), None)
         routed = route is not None and route.id == self.settings.routing_verified_id
-        self.routing_status.setText(f"上次已确认分流 · {route.name}" if routed else
-                                    f"分流来源 · {route.name}（待验证）" if route else "未分流")
+        self.routing_status.setText(tr("app.0159", p0=route.name) if routed else
+                                    tr("app.0160", p0=route.name) if route else tr("app.0161"))
         self.device_hint.show()
         if self.device_combo.currentIndex() < 0:
-            self.device_hint.setText("没有可用设备，连接后刷新。")
+            self.device_hint.setText(tr("app.0162"))
             self.device_hint.setStyleSheet("color: #ffd699;")
         elif not self.device_combo.currentData(Qt.ItemDataRole.UserRole + 1):
             self.device_hint.setText(
-                "当前选的是麦克风。翻译队友请选择系统声音。")
+                tr("app.0163"))
             self.device_hint.setStyleSheet("color: #ffd699;")
         else:
-            self.device_hint.setText("正在听系统播放声音。")
+            self.device_hint.setText(tr("app.0164"))
             self.device_hint.setStyleSheet("")
             self.device_hint.hide()
         self.device_combo.setToolTip(self.device_hint.text())
@@ -1313,14 +1315,14 @@ class MainWindow(QMainWindow):
     def start_translation(self) -> None:
         self._save_settings()
         if not self._models_ready():
-            QMessageBox.warning(self, "请先下载模型",
-                                "缺少所选识别模型或翻译模型。请在「本地模型」点击「一键下载模型」或「从文件夹导入」。")
+            QMessageBox.warning(self, tr("app.0165"),
+                                tr("app.choose_models_before_start"))
             return
         if not self._torch_version_ok():
-            self._start_unavailable("PyTorch 版本过低。请先关闭程序，运行 repair_torch_windows.bat 后再打开。")
+            self._start_unavailable(tr("app.start_pytorch_too_old"))
             return
         if not self.device_combo.currentData():
-            self._start_unavailable("未选择音频设备。请在「声音来源」刷新设备并选择系统声音。")
+            self._start_unavailable(tr("app.start_device_missing"))
             return
         self._recent_trace.clear()
         self._task_timings.clear()
@@ -1333,15 +1335,15 @@ class MainWindow(QMainWindow):
                                  on_trace=lambda trace: self.bridge.trace.emit((token, trace)),
                                  custom_rules=self.custom_rules)
         self._last_diagnostics = self.pipeline.diagnostics
-        self.start_button.setText("模型加载中…")
-        self._caption_state("loading", "模型加载完成后开始监听。")
+        self.start_button.setText(tr("app.0171"))
+        self._caption_state("loading", tr("app.caption_models_loading"))
         self.run_icon.set_mode("spin", highlight=True)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.pipeline.start()
 
     def _start_unavailable(self, message: str) -> None:
-        self._status("未开始翻译")
+        self._status(tr("app.translation_not_started"))
         self._caption_state("error", message)
 
     def stop_translation(self) -> None:
@@ -1357,8 +1359,8 @@ class MainWindow(QMainWindow):
         self.volume.hide()
         self.audio_icon.hide()
         self.diagnostic_label.hide()
-        self._status("已停止翻译")
-        self.device_stat.setText("已停止")
+        self._status(tr("app.translation_stopped"))
+        self.device_stat.setText(tr("app.0172"))
         self._caption_state("default" if self._has_result else "empty", "" if self._has_result else FIRST_CAPTION_HINT)
 
         def task():
@@ -1369,7 +1371,7 @@ class MainWindow(QMainWindow):
         self._stop_thread.start()
 
     def _on_stopped(self) -> None:
-        self.start_button.setText("开始翻译")
+        self.start_button.setText(tr("app.0173"))
         self.start_button.setEnabled(True)
         if self._restart_after_stop:
             self._restart_after_stop = False
@@ -1380,35 +1382,35 @@ class MainWindow(QMainWindow):
         self.caption_hint.setText(hint)
         self.caption_hint.setVisible(bool(hint))
         if not self._has_result:
-            text = {"loading": "正在加载", "error": "翻译暂不可用"}.get(state, "")
+            text = {"loading": tr("app.caption_loading"), "error": tr("app.caption_unavailable")}.get(state, "")
             self.chinese_label.setText(text)
             self.chinese_label.setVisible(bool(text))
 
     def _status(self, message: str) -> None:
-        self.status_label.setText(f"当前状态：{message}")
+        self.status_label.setText(tr("app.0174", p0=message))
         self.status_label.show()
         self.statusBar().showMessage(message)
-        if message.startswith(("模型下载失败", "模型导入失败")):
+        if message.startswith((tr("app.model_download_failed_prefix"), tr("app.model_import_failed_prefix"))):
             self._model_error = message
-            self.model_state.setText(message + "。可以重试或导入本地模型。")
+            self.model_state.setText(message + tr("app.model_error_retry"))
             self.model_state.show()
-        if message.startswith("运行失败"):
-            self._caption_state("error", message + "。可以检查音频设备与本地模型后重试。")
+        if message.startswith(tr("app.0175")):
+            self._caption_state("error", message + tr("app.caption_error_retry"))
             self._active_icon_tasks.clear()
             self.run_icon.set_mode("idle")
             self.audio_icon.set_mode("idle")
-            self.start_button.setText("开始翻译")
+            self.start_button.setText(tr("app.0176"))
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
 
     def _diagnostic(self, message: str) -> None:
-        self.diagnostic_label.setText(f"处理进度：{message}")
+        self.diagnostic_label.setText(tr("app.0177", p0=message))
         self.diagnostic_label.show()
         self.statusBar().showMessage(message)
         if self.pipeline:
-            self.failures_label.setText(f"翻译失败次数：{self.pipeline.failures}")
-        if message.startswith("检测到的语音过短"):
-            self._record_trace(TaskTrace(0, "VAD 分段丢弃", message, discarded=True))
+            self.failures_label.setText(tr("app.0178", p0=self.pipeline.failures))
+        if message.startswith(tr("app.0179")):
+            self._record_trace(TaskTrace(0, tr("app.0180"), message, discarded=True))
 
     def _receive_trace(self, payload) -> None:
         token, trace = payload
@@ -1418,18 +1420,18 @@ class MainWindow(QMainWindow):
     def _record_trace(self, trace: TaskTrace) -> None:
         self._recent_trace.append(trace)
         if self.pipeline is not None:
-            if trace.stage == "推理开始":
+            if trace.stage == tr("app.0181"):
                 self._active_icon_tasks.add((trace.task_id, "asr"))
-            elif trace.stage == "翻译出队":
+            elif trace.stage == tr("app.0182"):
                 self._active_icon_tasks.add((trace.task_id, "translation"))
-            if trace.stage in {"推理结束", "结果丢弃"}:
+            if trace.stage in {tr("app.0183"), tr("app.0184")}:
                 self._active_icon_tasks.discard((trace.task_id, "asr"))
-            if trace.stage in {"翻译结束", "结果丢弃"}:
+            if trace.stage in {tr("app.0185"), tr("app.0186")}:
                 self._active_icon_tasks.discard((trace.task_id, "translation"))
             self._refresh_run_icon()
         if trace.discarded:
             task = f" #{trace.task_id}" if trace.task_id else ""
-            self.last_discard.setText(f"最近丢弃{task}：{trace.detail}")
+            self.last_discard.setText(tr("app.0187", p0=task, p1=trace.detail))
             self.last_discard.show()
         if trace.timings:
             times = self._task_timings.pop(trace.task_id, {})
@@ -1440,14 +1442,14 @@ class MainWindow(QMainWindow):
 
     def _runtime(self, message: str) -> None:
         if self.pipeline:
-            self.start_button.setText("开始翻译")
+            self.start_button.setText(tr("app.0188"))
             self._refresh_run_icon()
             self._caption_state("default" if self._has_result else "empty",
-                                "" if self._has_result else "正在监听所选声音来源。")
-        self.runtime_label.setText(f"实际运行设备：{message}")
+                                "" if self._has_result else tr("app.caption_listening"))
+        self.runtime_label.setText(tr("app.0189", p0=message))
         self.runtime_label.show()
         runtime, marker, model = message.partition(" · Whisper ")
-        devices = runtime.rsplit(" · ", 1)[0].replace("识别 ", "").replace("翻译 ", "")
+        devices = runtime.rsplit(" · ", 1)[0].replace(tr("app.0190"), "").replace(tr("app.0191"), "")
         self.device_stat.setText(devices)
         if marker and model:
             self.model_stat.setText(model)
@@ -1455,16 +1457,16 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _set_caption_latency(label, seconds, hint):
         valid = math.isfinite(seconds) and seconds >= 0
-        label.setText(f"{seconds:.2f} 秒" if valid else "")
+        label.setText(tr("app.0197", p0=seconds) if valid else "")
         label.setToolTip(hint if valid else "")
         label.setVisible(valid)
 
     def _show_caption(self, translated, original, language, seconds, *, historical=False):
         self._has_result = True
         self._caption_state("default")
-        self.language_label.setText(f"识别语言：{LANGUAGES.get(language, language)}" if language else "")
+        self.language_label.setText(tr("app.0193", p0=LANGUAGES.get(language, language)) if language else "")
         self.language_label.setVisible(bool(language))
-        self.original_label.setText(f"识别原文：{original}" if original else "")
+        self.original_label.setText(tr("app.0194", p0=original) if original else "")
         self.original_label.setVisible(self.settings.show_original and bool(original))
         if self.chinese_label.property("quiet"):
             self.chinese_label.setProperty("quiet", False)
@@ -1472,7 +1474,7 @@ class MainWindow(QMainWindow):
             self.chinese_label.style().polish(self.chinese_label)
         self.chinese_label.setText(translated)
         self.chinese_label.show()
-        hint = "历史记录中的实际处理耗时" if historical else "音频结束至字幕显示的实测耗时"
+        hint = tr("app.caption_latency_historical") if historical else tr("app.caption_latency_measured")
         self._set_caption_latency(self.latency_stat, seconds, hint)
 
     def _result(self, result: SubtitleResult) -> None:
@@ -1492,23 +1494,23 @@ class MainWindow(QMainWindow):
         valid = confidence is not None and math.isfinite(confidence) and 0 <= confidence <= 1
         self.confidence_label.setVisible(valid)
         if valid:
-            self.confidence_label.setText(f"Whisper 语种置信度：{confidence:.1%}")
-        self.failures_label.setText(f"翻译失败次数：{self.pipeline.failures}" if self.pipeline else "")
-        self.statusBar().showMessage(f"最近字幕：{result.chinese[:55]}")
-        timings = (("识别", result.asr_seconds), ("翻译", result.translation_seconds), ("音频结束至显示", total))
+            self.confidence_label.setText(tr("app.0192", p0=confidence))
+        self.failures_label.setText(tr("app.0178", p0=self.pipeline.failures) if self.pipeline else "")
+        self.statusBar().showMessage(tr("app.0196", p0=result.chinese[:55]))
+        timings = ((tr("app.recognition_timing"), result.asr_seconds), (tr("app.translation_timing"), result.translation_seconds), (tr("app.caption_timing"), total))
         self.latency_label.setText(" · ".join(f"{name} {seconds:.2f}s" for name, seconds in timings
                                              if math.isfinite(seconds) and seconds >= 0))
         if result.task_id is not None:
             if self.pipeline is not None:
-                self.pipeline.diagnostics.add("字幕已显示")
-            self._record_trace(TaskTrace(result.task_id, "界面已更新", f"字幕已显示，处理耗时 {total:.2f} 秒"))
+                self.pipeline.diagnostics.add(tr("app.0199"))
+            self._record_trace(TaskTrace(result.task_id, tr("app.0200"), tr("app.0201", p0=total)))
         if self.tabs.currentWidget() is self.history_page:
             self._refresh_history()
         elif self.settings.save_history:
             self._refresh_recent_translations()
 
     def _refresh_run_icon(self):
-        running = bool(self._active_icon_tasks) or self.start_button.text() == "模型加载中…"
+        running = bool(self._active_icon_tasks) or self.start_button.text() == tr("app.0202")
         self.run_icon.set_mode("spin" if running else "idle", highlight=running)
 
     def _show_audio_level(self, level):
@@ -1522,35 +1524,35 @@ class MainWindow(QMainWindow):
 
     def _copy_feedback(self) -> None:
         report = "\n".join((
-            "队友语音翻译器公开测试反馈",
-            "问题类型（漏识别/错译/延迟/字幕/安装）：请填写",
-            "实际听到的话：请填写",
-            f"软件识别原文：{self.original_label.text().removeprefix('识别原文：')}",
-            f"软件中文字幕：{self.chinese_label.text()}",
-            f"识别语言：{self.language_label.text().removeprefix('识别语言：')}",
-            f"运行设备：{self.runtime_label.text().removeprefix('实际运行设备：')}",
-            f"耗时：{self.latency_label.text()}",
-            f"处理进度：{self.diagnostic_label.text().removeprefix('处理进度：')}",
-            f"识别模型：{self.settings.whisper_model}",
-            "补充说明：请填写",
+            tr("app.0203"),
+            tr("app.0204"),
+            tr("app.0205"),
+            tr("app.0206", p0=self.original_label.text().removeprefix(tr("app.0316"))),
+            tr("app.0207", p0=self.chinese_label.text()),
+            tr("app.0208", p0=self.language_label.text().removeprefix(tr("app.0317"))),
+            tr("app.0209", p0=self.runtime_label.text().removeprefix(tr("app.0318"))),
+            tr("app.0210", p0=self.latency_label.text()),
+            tr("app.0211", p0=self.diagnostic_label.text().removeprefix(tr("app.0319"))),
+            tr("app.0212", p0=self.settings.whisper_model),
+            tr("app.0213"),
         ))
-        report += "\n\n最近 10 条诊断（可能包含识别文字）\n"
-        report += "\n".join(trace.line() for trace in self._recent_trace) or "暂无"
-        report += "\n\n最近各句分段耗时\n"
+        report += tr("app.0214")
+        report += "\n".join(trace.line() for trace in self._recent_trace) or tr("app.0215")
+        report += tr("app.0216")
         for task_id, times in self._task_timings.items():
-            report += f"#{task_id} " + " · ".join(f"{name} {value:.3f} 秒" for name, value in times.items()) + "\n"
+            report += f"#{task_id} " + " · ".join(tr("app.0217", p0=name, p1=value) for name, value in times.items()) + "\n"
         if not self._task_timings:
-            report += "暂无"
+            report += tr("app.0218")
         if self._last_diagnostics:
-            report += "\n\n最近会话队列与丢弃统计\n" + self._last_diagnostics.summary()
+            report += tr("app.0219") + self._last_diagnostics.summary()
         QApplication.clipboard().setText(report)
-        QMessageBox.information(self, "已复制反馈信息", "可粘贴给开发者；发送前请检查是否含有不想公开的对话文字。")
+        QMessageBox.information(self, tr("app.0220"), tr("app.0221"))
 
     def _check_update(self) -> None:
         if self._update_busy:
             return
         if sys.platform != "win32" or not getattr(sys, "frozen", False):
-            QMessageBox.information(self, "仅安装版支持", "请在 Windows 安装版 EXE 中检查更新。源码版需重新打包。")
+            QMessageBox.information(self, tr("app.0222"), tr("app.0223"))
             return
         self._set_update_busy(True)
         try:
@@ -1559,7 +1561,7 @@ class MainWindow(QMainWindow):
             self._update_error(str(exc))
             return
         self._domestic_update = channel["channel"] == "domestic"
-        self._set_update_status("正在检查可用更新通道…")
+        self._set_update_status(tr("app.0224"))
 
         def task():
             try:
@@ -1575,27 +1577,25 @@ class MainWindow(QMainWindow):
             self._domestic_update = release.source == "domestic"
         if release is None:
             self._set_update_busy(False)
-            self.update_version_label.setText(f"当前版本：{APP_VERSION}；最新版本：{APP_VERSION}")
-            self._set_update_status(f"当前版本 {APP_VERSION} 已是最新可用版本。")
+            self.update_version_label.setText(tr("app.0225", p0=APP_VERSION, p1=APP_VERSION))
+            self._set_update_status(tr("app.0226", p0=APP_VERSION))
             return
-        self.update_version_label.setText(f"当前版本：{APP_VERSION}；最新版本：{release.version}")
-        self.update_notes_label.setText(f"更新日志：{release.notes[:600] or '发布者没有填写更新说明。'}")
-        self._set_update_status(f"发现新版 {release.version}，等待你选择是否安装。")
+        self.update_version_label.setText(tr("app.0227", p0=APP_VERSION, p1=release.version))
+        self.update_notes_label.setText(tr("app.0228", p0=release.notes[:600] or tr("app.0315")))
+        self._set_update_status(tr("app.0229", p0=release.version))
         box = QMessageBox(self)
-        box.setWindowTitle("发现新版")
+        box.setWindowTitle(tr("app.0230"))
         box.setTextFormat(Qt.TextFormat.PlainText)
-        install_hint = ("安装后程序会自动重新启动。" if self._domestic_update else
-                        "程序会关闭并打开 Windows 安装程序。")
-        box.setText(f"当前版本：{APP_VERSION}\n新版：{release.version}\n\n"
-                    f"更新说明：\n{release.notes[:600] or '发布者没有填写更新说明。'}\n\n"
-                    f"是否下载并安装？{install_hint}")
+        install_hint = (tr("app.0231") if self._domestic_update else
+                        tr("app.0232"))
+        box.setText(tr("app.0233", p0=APP_VERSION, p1=release.version, p2=release.notes[:600] or tr("app.0315"), p3=install_hint))
         box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if box.exec() != QMessageBox.StandardButton.Yes:
             self._set_update_busy(False)
             return
-        self._set_update_status(f"正在下载并校验 {release.version}…")
+        self._set_update_status(tr("app.0234", p0=release.version))
         for button in (self.update_button, self.settings_update_button):
-            button.setText("下载中…")
+            button.setText(tr("app.0235"))
         self.update_bar.setValue(0)
         self.update_bar.show()
         self.update_cancel_button.show()
@@ -1620,16 +1620,16 @@ class MainWindow(QMainWindow):
 
     def _update_speed(self, bytes_per_second: float) -> None:
         self._set_update_status(
-            f"下载进度 {self.update_bar.value()}% · {bytes_per_second / 1024**2:.1f} MB/s")
+            tr("app.0236", p0=self.update_bar.value(), p1=bytes_per_second / 1024**2))
 
     def _cancel_update(self) -> None:
         self._update_cancel_event.set()
         self.update_cancel_button.setEnabled(False)
-        self._set_update_status("正在取消下载…")
+        self._set_update_status(tr("app.0237"))
 
     def _update_cancelled(self) -> None:
         self._set_update_busy(False)
-        self._set_update_status("下载已取消；点击“检查更新”可重试。")
+        self._set_update_status(tr("app.0238"))
 
     def _update_ready(self, payload: tuple[Path, object]) -> None:
         path, release = payload
@@ -1639,21 +1639,21 @@ class MainWindow(QMainWindow):
             else:
                 start_installer(path, release)
         except Exception as exc:
-            self._update_error(f"无法启动安装程序：{exc}")
+            self._update_error(tr("app.0239", p0=exc))
             return
-        self._set_update_status("安装包已校验，正在关闭软件并启动安装程序…")
+        self._set_update_status(tr("app.0240"))
         self.close()
         QApplication.quit()
 
     def _update_error(self, message: str) -> None:
         self._set_update_busy(False)
-        self._set_update_status(f"更新失败：{message}；点击“检查更新”可重试。")
-        QMessageBox.warning(self, "更新失败", message)
+        self._set_update_status(tr("app.0241", p0=message))
+        QMessageBox.warning(self, tr("app.0242"), message)
 
     def _set_update_busy(self, busy: bool) -> None:
         self._update_busy = busy
         for button in (self.update_button, self.settings_update_button):
-            button.setText("检查中…" if busy else "检查更新")
+            button.setText(tr("app.0243") if busy else tr("app.0244"))
             button.setEnabled(not busy)
         if not busy:
             self.update_bar.hide()
@@ -1671,7 +1671,7 @@ class MainWindow(QMainWindow):
             return
         if message:
             self._set_update_status(message)
-            QMessageBox.warning(self, "更新结果", message)
+            QMessageBox.warning(self, tr("app.0245"), message)
 
     def _open_recent_translation(self, *_):
         self._navigate(self.tabs.indexOf(self.history_page))
@@ -1679,11 +1679,11 @@ class MainWindow(QMainWindow):
     def _refresh_recent_translations(self):
         try:
             entries = self.history.recent(3, target_language="zh") if self.history is not None else []
-            message = EMPTY_HISTORY if self.history is not None else "本地翻译历史暂不可用。"
+            message = EMPTY_HISTORY if self.history is not None else tr("app.recent_history_unavailable")
         except Exception:
             LOG.exception("Could not read recent translations")
             entries = []
-            message = "暂时读取不到翻译历史。"
+            message = tr("app.recent_history_read_failed")
         self.recent_list.clear()
         for entry in entries:
             timestamp = entry.created_at
@@ -1719,7 +1719,7 @@ class MainWindow(QMainWindow):
                 self.previous_caption.setText(previous.corrected_chinese or previous.chinese)
                 self.previous_caption.show()
                 self._set_caption_latency(self.previous_latency, previous.total_seconds,
-                                          "历史记录中的实际处理耗时")
+                                          tr("app.caption_latency_historical"))
         else:
             self._has_result = False
             self.original_label.hide()
@@ -1731,7 +1731,7 @@ class MainWindow(QMainWindow):
         if self._history_pending:
             return
         self._history_pending = True
-        self.history_state.setText("正在读取本地历史…")
+        self.history_state.setText(tr("app.loading_local_history"))
         self.history_state.show()
         self.history_loading.show()
         QTimer.singleShot(tokens.HISTORY_LOAD_MS, self, self._refresh_history)
@@ -1741,13 +1741,13 @@ class MainWindow(QMainWindow):
         self.history_loading.hide()
         self._refresh_recent_translations()
         if self.history is None:
-            self.history_state.setText(f"历史记录暂不可用：{self.history_error}。请重新打开软件。")
+            self.history_state.setText(tr("app.history_unavailable", p0=self.history_error))
             self.history_state.show()
             return
         try:
             entries = self.history.recent(100)
         except Exception as exc:
-            self.history_state.setText(f"历史记录读取失败：{exc}。可点击刷新重试。")
+            self.history_state.setText(tr("app.history_read_failed", p0=exc))
             self.history_state.show()
             return
         self.history_state.setText(EMPTY_HISTORY)
@@ -1775,30 +1775,30 @@ class MainWindow(QMainWindow):
     def _selected_entry(self):
         entry_id = self._selected_history_id()
         if entry_id is None or self.history is None:
-            QMessageBox.information(self, "先选一条记录", "请在历史表格中选中一条记录。")
+            QMessageBox.information(self, tr("app.0247"), tr("app.0248"))
             return None
         try:
             return self.history.entry(entry_id)
         except Exception as exc:
-            QMessageBox.warning(self, "读取失败", str(exc))
+            QMessageBox.warning(self, tr("app.0249"), str(exc))
             return None
 
     def _history_details(self):
         entry = self._selected_entry()
         if entry:
-            preview(self, "翻译详情", entry_text(entry))
+            preview(self, tr("app.0250"), entry_text(entry))
 
     def _correct_history(self) -> None:
         entry = self._selected_entry()
         if entry is None:
             return
         corrected, accepted = QInputDialog.getMultiLineText(
-            self, "修正译文", f"识别原文：{entry.original}\n当前译文：{entry.corrected_chinese or entry.chinese}\n请输入正确译文：",
+            self, tr("app.0251"), tr("app.0252", p0=entry.original, p1=entry.corrected_chinese or entry.chinese),
             entry.corrected_chinese or entry.chinese)
         if not accepted or not corrected.strip():
             return
-        modes = ["仅修正本条历史", "保存到我的词库"]
-        mode, accepted = QInputDialog.getItem(self, "修正范围", "选择这条修正的用途", modes, editable=False)
+        modes = [tr("app.0253"), tr("app.0254")]
+        mode, accepted = QInputDialog.getItem(self, tr("app.0255"), tr("app.0256"), modes, editable=False)
         if not accepted:
             return
         try:
@@ -1806,15 +1806,15 @@ class MainWindow(QMainWindow):
             if mode == modes[1]:
                 rule = Rule(entry.game, entry.language, entry.target_language,
                             entry.corrected_original or entry.original, corrected.strip(),
-                            origin="用户历史修正", priority=100, updated=now())
+                            origin=tr("app.0257"), priority=100, updated=now())
                 conflict = self.custom_rules.add(rule)
-                message = "已保存到我的词库" + ("。同范围冲突按词条优先级处理。" if conflict else "")
+                message = tr("app.0258") + (tr("app.0259") if conflict else "")
             else:
-                message = "已修正本条历史"
+                message = tr("app.0260")
             self._refresh_history()
             self.statusBar().showMessage(message)
         except Exception as exc:
-            QMessageBox.warning(self, "保存修正失败", str(exc))
+            QMessageBox.warning(self, tr("app.0261"), str(exc))
 
     def _feedback_history(self):
         entry = self._selected_entry()
@@ -1826,9 +1826,9 @@ class MainWindow(QMainWindow):
 
     def _glossary_actions(self, form):
         row = QHBoxLayout()
-        for text, action in (("查看默认词库", lambda: default_glossary(self)),
-                             ("管理自定义词库", lambda: manage_rules(self, self.custom_rules)),
-                             ("查看反馈记录", self._review_feedback)):
+        for text, action in ((tr("app.0262"), lambda: default_glossary(self)),
+                             (tr("app.0263"), lambda: manage_rules(self, self.custom_rules)),
+                             (tr("app.0264"), self._review_feedback)):
             button = GlassButton(text)
             button.clicked.connect(action)
             row.addWidget(button)
@@ -1838,34 +1838,34 @@ class MainWindow(QMainWindow):
     def _import_history(self):
         if self.history is None:
             return
-        name, _ = QFileDialog.getOpenFileName(self, "导入旧历史", "", "CSV 文件 (*.csv)")
+        name, _ = QFileDialog.getOpenFileName(self, tr("app.0265"), "", tr("app.0266"))
         if not name:
             return
         try:
             imported, skipped = self.history.import_csv(Path(name))
             self._refresh_history()
-            self.statusBar().showMessage(f"已导入 {imported} 条。跳过 {skipped} 条。")
+            self.statusBar().showMessage(tr("app.0267", p0=imported, p1=skipped))
         except Exception as exc:
-            QMessageBox.warning(self, "导入失败", str(exc))
+            QMessageBox.warning(self, tr("app.0268"), str(exc))
 
     def _export_history(self) -> None:
         if self.history is None:
             return
-        name, _ = QFileDialog.getSaveFileName(self, "导出翻译历史", "翻译历史.csv", "CSV 文件 (*.csv)")
+        name, _ = QFileDialog.getSaveFileName(self, tr("app.0269"), tr("app.0270"), tr("app.0271"))
         if not name:
             return
         try:
             from pathlib import Path
             self.history.export_csv(Path(name))
-            self.statusBar().showMessage(f"历史记录已导出：{name}")
+            self.statusBar().showMessage(tr("app.0272", p0=name))
         except Exception as exc:
-            QMessageBox.warning(self, "导出失败", str(exc))
+            QMessageBox.warning(self, tr("app.0273"), str(exc))
 
     def _clear_history(self) -> None:
         if self.history is None:
             return
         choice = QMessageBox.question(
-            self, "清空翻译历史", "清空本机历史记录？你手动修正过的译法会保留。",
+            self, tr("app.0274"), tr("app.0275"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if choice != QMessageBox.StandardButton.Yes:
             return
@@ -1873,13 +1873,13 @@ class MainWindow(QMainWindow):
             self.history.clear_history()
             self._refresh_history()
         except Exception as exc:
-            QMessageBox.warning(self, "清空失败", str(exc))
+            QMessageBox.warning(self, tr("app.0276"), str(exc))
 
     def _clear_all_history(self) -> None:
         if self.history is None:
             return
         choice = QMessageBox.question(
-            self, "删除全部本地记录", "删除全部翻译历史和手动修正？此操作无法撤销。",
+            self, tr("app.0277"), tr("app.0278"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if choice != QMessageBox.StandardButton.Yes:
             return
@@ -1887,17 +1887,17 @@ class MainWindow(QMainWindow):
             self.history.clear_all()
             self._refresh_history()
         except Exception as exc:
-            QMessageBox.warning(self, "删除失败", str(exc))
+            QMessageBox.warning(self, tr("app.0279"), str(exc))
 
     def _download(self) -> None:
         if self._model_busy or self._models_ready():
             return
         self._save_settings()
         if self.pipeline is not None:
-            QMessageBox.information(self, "先停止翻译", "请先停止翻译，再下载或导入模型。")
+            QMessageBox.information(self, tr("app.0280"), tr("app.0281"))
             return
         if self._model_channel is None:
-            self._status("模型下载配置缺失。请重新安装软件或导入本地模型。")
+            self._status(tr("app.0282"))
             return
         uses_cos = self._uses_cos_models()
         size = self.model_combo.currentData()
@@ -1905,7 +1905,7 @@ class MainWindow(QMainWindow):
         self._set_model_busy(True)
         self.model_pause_button.setEnabled(True)
         self.model_pause_button.setVisible(uses_cos)
-        self.download_button.setText("一键下载模型")
+        self.download_button.setText(tr("app.0283"))
 
         def task():
             try:
@@ -1918,10 +1918,10 @@ class MainWindow(QMainWindow):
                 else:
                     download_models(size, self.bridge.status.emit)
             except ModelPaused:
-                self.bridge.status.emit("已暂停，点击下载可从上次位置继续。")
+                self.bridge.status.emit(tr("app.0284"))
             except Exception as exc:
                 LOG.exception("Model download failed")
-                self.bridge.status.emit(f"模型下载失败：{exc}")
+                self.bridge.status.emit(tr("app.0285", p0=exc))
             finally:
                 self.bridge.download_done.emit()
 
@@ -1936,7 +1936,7 @@ class MainWindow(QMainWindow):
     def _pause_model_download(self) -> None:
         self._model_pause.set()
         self.model_pause_button.setEnabled(False)
-        self.model_transfer.setText("正在暂停…")
+        self.model_transfer.setText(tr("app.0286"))
         self.model_transfer.show()
 
     def _model_download_progress(self, received: int, total: int, speed: float) -> None:
@@ -1947,18 +1947,17 @@ class MainWindow(QMainWindow):
         mib = 1024**2
         remaining = max(0, total - received)
         rate = f"  ·  {speed / mib:,.1f} MiB/s" if speed > 0 else ""
-        eta = f"  ·  预计 {math.ceil(remaining / speed)} 秒" if speed > 0 and remaining else ""
-        self.model_transfer.setText(f"{received / mib:,.1f} / {total / mib:,.1f} MiB"
-                                    f"  ·  剩余 {remaining / mib:,.1f} MiB{rate}{eta}")
+        eta = tr("app.0287", p0=math.ceil(remaining / speed)) if speed > 0 and remaining else ""
+        self.model_transfer.setText(tr("app.0288", p0=received / mib, p1=total / mib, p2=remaining / mib, p3=rate, p4=eta))
         self.model_transfer.show()
 
     def _import_models(self) -> None:
         if self._model_busy:
             return
         if self.pipeline is not None:
-            QMessageBox.information(self, "先停止翻译", "请先停止翻译，再下载或导入模型。")
+            QMessageBox.information(self, tr("app.0289"), tr("app.0290"))
             return
-        folder = QFileDialog.getExistingDirectory(self, "选择模型文件夹")
+        folder = QFileDialog.getExistingDirectory(self, tr("app.0291"))
         if not folder:
             return
         self._set_model_busy(True)
@@ -1969,7 +1968,7 @@ class MainWindow(QMainWindow):
                 import_models(Path(folder), size, self.bridge.status.emit)
             except Exception as exc:
                 LOG.exception("Model import failed")
-                self.bridge.status.emit(f"模型导入失败：{exc}")
+                self.bridge.status.emit(tr("app.0292", p0=exc))
             finally:
                 self.bridge.download_done.emit()
 
@@ -1984,7 +1983,7 @@ class MainWindow(QMainWindow):
         self.model_loading.setVisible(busy)
         if busy:
             self._model_error = ""
-            self.model_state.setText("正在准备本地模型…")
+            self.model_state.setText(tr("app.preparing_local_models"))
             self.model_state.show()
             self.model_icon.set_mode("spin", highlight=True)
             self.model_progress.setRange(0, 0)
@@ -1996,7 +1995,7 @@ class MainWindow(QMainWindow):
             complete = was_busy and self._models_ready()
             self.model_icon.set_mode("done" if complete else "idle", highlight=complete)
             if complete:
-                self._announce("✓ 模型已就绪", success=True)
+                self._announce(tr("app.models_ready"), success=True)
 
     def _download_done(self) -> None:
         self._set_model_busy(False)
@@ -2012,10 +2011,10 @@ class MainWindow(QMainWindow):
         self.settings.routing_intro_seen = True
         self.settings.save()
         prompt = QMessageBox(self)
-        prompt.setWindowTitle("可选：语音分流")
-        prompt.setText("可将队友语音单独送到翻译器。也可以继续使用系统混音。")
-        setup = prompt.addButton("打开分流设置", QMessageBox.ButtonRole.AcceptRole)
-        prompt.addButton("稍后", QMessageBox.ButtonRole.RejectRole)
+        prompt.setWindowTitle(tr("app.0293"))
+        prompt.setText(tr("app.0294"))
+        setup = prompt.addButton(tr("app.0295"), QMessageBox.ButtonRole.AcceptRole)
+        prompt.addButton(tr("app.0296"), QMessageBox.ButtonRole.RejectRole)
         prompt.buttonClicked.connect(lambda button: self._open_routing() if button is setup else None)
         prompt.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         prompt.show()
@@ -2031,26 +2030,26 @@ class MainWindow(QMainWindow):
 
     def _begin_talk(self):
         if self._model_busy or not self._models_ready():
-            self._talk_status("请先准备完整的识别和翻译模型。")
+            self._talk_status(tr("app.0297"))
             return False
         if self.talk.capture is not None:
             return False
         try:
             devices = list_devices()
         except Exception as exc:
-            self._talk_status(f"无法检查麦克风：{exc}")
+            self._talk_status(tr("app.0298", p0=exc))
             return False
         microphone = preferred_microphone(devices, self.settings.microphone_id)
         self._apply_microphones(devices, microphone)
         if microphone is None:
-            self.microphone_stat.setText("未检测到")
-            self._talk_status("未检测到麦克风。请连接后重试。")
+            self.microphone_stat.setText(tr("app.0299"))
+            self._talk_status(tr("app.0300"))
             return False
-        self.microphone_stat.setText(f"{microphone.name} · 可用")
+        self.microphone_stat.setText(tr("app.0301", p0=microphone.name))
         if microphone.id != self.settings.microphone_id:
             self.settings.microphone_id = microphone.id
             self.settings.save()
-            self.statusBar().showMessage(f"已自动使用麦克风：{microphone.name}", 5000)
+            self.statusBar().showMessage(tr("app.0302", p0=microphone.name), 5000)
         return self.talk.begin(
             self._effective_settings(),
             diagnostic_session=self.pipeline.translate_microphone_details if self.pipeline else None,
@@ -2063,9 +2062,9 @@ class MainWindow(QMainWindow):
             return
         now = time.monotonic()
         self._quiet_since = (self._quiet_since or now) if rms < SILENT_RMS else None
-        message = f"麦克风 RMS {rms:.4f}"
+        message = tr("app.0303", p0=rms)
         if self._quiet_since is not None and now - self._quiet_since >= 0.6:
-            message += " · 麦克风没有收到声音，请检查麦克风选择"
+            message += tr("app.0304")
         self.microphone_level.setText(message)
         self.microphone_level.setToolTip(message)
         self.microphone_level.show()
@@ -2088,8 +2087,8 @@ class MainWindow(QMainWindow):
 
     def _talk_status(self, message):
         self.talk_state.setText(message)
-        listening = message.startswith(("正在收听", "音频设备已连接"))
-        translating = message.startswith("正在将中文语音翻译")
+        listening = message.startswith((tr("app.0305"), tr("app.0306")))
+        translating = message.startswith(tr("app.0307"))
         self.microphone_icon.set_mode("pulse" if listening else "idle", highlight=listening)
         self.reverse_icon.set_mode("spin" if translating else "idle", highlight=translating)
 
@@ -2099,7 +2098,7 @@ class MainWindow(QMainWindow):
         self.reverse_copy.setEnabled(True)
         self._talk_status(english)
         self.reverse_icon.set_mode("done", highlight=True, restart=True)
-        self.overlay.add_subtitle(english, chinese, speaker="我 · 英文", reverse=True)
+        self.overlay.add_subtitle(english, chinese, speaker=tr("app.0308"), reverse=True)
 
     def _copy_english(self):
         if self.reverse_text:
@@ -2116,14 +2115,14 @@ class MainWindow(QMainWindow):
                 toggle_keys = set(keyboard.HotKey.parse(self.settings.hotkey))
             except ValueError:
                 toggle_keys = set(keyboard.HotKey.parse("<ctrl>+<shift>+t"))
-                self._talk_status("字幕快捷键格式无效，继续使用 Ctrl+Shift+T。")
+                self._talk_status(tr("app.0309"))
             try:
                 talk_keys = set(keyboard.HotKey.parse(self.settings.ptt_hotkey))
                 if not talk_keys or talk_keys <= toggle_keys or toggle_keys <= talk_keys:
                     raise ValueError("conflict")
             except ValueError:
                 talk_keys = set()
-                self._talk_status("说话快捷键格式无效或与字幕键冲突，可先使用按住说话按钮。")
+                self._talk_status(tr("app.0310"))
             toggle = keyboard.HotKey(toggle_keys, self.bridge.toggle.emit)
             pressed = set()
 
@@ -2148,7 +2147,7 @@ class MainWindow(QMainWindow):
             listener.start()
         except Exception as exc:
             LOG.warning("Global hotkey unavailable: %s", exc)
-            self._talk_status("系统快捷键不可用，可在窗口中按住说话。")
+            self._talk_status(tr("app.0311"))
 
     def closeEvent(self, event) -> None:
         if self.routing_wizard is not None:
@@ -2175,7 +2174,7 @@ def run() -> int:
                         handlers=[logging.FileHandler(APP_DIR / "app.log", encoding="utf-8"),
                                   logging.StreamHandler()])
     app = QApplication(sys.argv)
-    app.setApplicationName("VALORANT AI 实时语音翻译器")
+    app.setApplicationName(tr("app.0312"))
     window = MainWindow()
     window.show()
     if not window.settings.onboarding_done:
