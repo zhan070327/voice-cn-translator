@@ -14,6 +14,8 @@ CONFIG_FILE = APP_DIR / "config.json"
 class Settings:
     device_id: str = ""
     language: str = "auto"
+    target_language: str = "zh"
+    asr_provider: str = "whisper"
     whisper_model: str = "small"
     fast_mode: bool = True
     translation_model: str = "m2m100_418M"
@@ -48,6 +50,11 @@ class Settings:
     max_task_age: float = 6.0
     translation_timeout: float = 4.0
     subtitle_seconds: float = 5.0
+
+    @property
+    def source_language(self) -> str:
+        """Legacy `language` remains the persisted source-language setting."""
+        return self.language
 
     @classmethod
     def load(cls) -> "Settings":

@@ -7,18 +7,17 @@ from pathlib import Path
 
 from valorant_translator import config
 from valorant_translator.config import APP_DIR
+from valorant_translator.translation.game_catalog import GameCatalog
 
 LOG = logging.getLogger(__name__)
 
 GLOSSARY_FILE = Path(__file__).resolve().parents[2] / "config" / "glossary.json"
 CUSTOM_GLOSSARY_FILE = APP_DIR / "glossary_custom.json"
-GAMES = {"valorant": "Valorant", "cs2": "CS2", "apex": "Apex",
-         "overwatch2": "Overwatch 2", "general": "通用"}
+GAMES = GameCatalog().names()
 
 
 def default_glossary_path(game: str) -> Path:
-    game = game if game in GAMES else "valorant"
-    return GLOSSARY_FILE if game == "valorant" else GLOSSARY_FILE.with_name(f"glossary_{game}.json")
+    return GLOSSARY_FILE if game == "valorant" else GameCatalog(GLOSSARY_FILE.parent).path(game)
 
 
 def read_default_glossary(game: str) -> dict:
@@ -27,8 +26,8 @@ def read_default_glossary(game: str) -> dict:
 
 
 def game_glossary(game: str) -> Glossary:
-    game = game if game in GAMES else "valorant"
-    return Glossary(default_glossary_path(game), backup=config.APP_DIR / f"glossary-default-{game}.last-good.json")
+    selected = game if game in GameCatalog(GLOSSARY_FILE.parent).paths() else "valorant"
+    return Glossary(default_glossary_path(selected), backup=config.APP_DIR / f"glossary-default-{selected}.last-good.json")
 
 
 def _valid_data(data):

@@ -5,6 +5,7 @@ import gc
 import logging
 
 from valorant_translator.config import MODEL_DIR
+from valorant_translator.languages import DEFAULT_LANGUAGES, LanguageCatalog
 from valorant_translator.translation.reverse_callouts import translate_callout
 
 LOG = logging.getLogger(__name__)
@@ -12,7 +13,7 @@ M2M_REPO = "facebook/m2m100_418M"
 M2M_DIR = MODEL_DIR / "m2m100_418M"
 M2M_FILES = ("pytorch_model.bin", "config.json", "sentencepiece.bpe.model",
              "tokenizer_config.json", "vocab.json")
-SUPPORTED_LANGUAGES = frozenset(("en", "ms", "hi", "ta", "th", "ja", "ko"))
+SUPPORTED_LANGUAGES = frozenset(code for code in DEFAULT_LANGUAGES.names() if code != "zh")
 
 
 class LocalM2M:
@@ -53,10 +54,14 @@ class LocalM2M:
                                                torch_dtype=torch.float32)
             return model.to("cpu").eval()
 
-    def translate(self, source: str, language: str) -> str:
-        if language not in SUPPORTED_LANGUAGES:
+    def translate(self, source: str, language: str, target: str = "zh") -> str:
+        languages: LanguageCatalog = getattr(self, "languages", DEFAULT_LANGUAGES)
+        if not languages.supports_translation(language):
             raise ValueError("无法确认语种，不生成翻译。")
-        return self._translate_with_fallback(source, language, "zh")
+        languages.target(target)
+        if language == target:
+            return self.converter.convert(source) if target == "zh" else source
+        return self._translate_with_fallback(source, language, target)
 
     def translate_to_english(self, source: str) -> str:
         return self.translate_to_english_details(source)[0]
