@@ -9,6 +9,7 @@ import ssl
 import sys
 import threading
 import time
+from concurrent.futures import Future
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -42,19 +43,41 @@ def timed_call(label: str, operation, *args, **kwargs):
     return result
 
 
+def thread_timeout(seconds, message, operation, *args, **kwargs):
+    """Wait for a call without letting a stalled worker delay process exit."""
+    outcome = Future()
+
+    def run():
+        try:
+            outcome.set_result(operation(*args, **kwargs))
+        except BaseException as exc:
+            outcome.set_exception(exc)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        raise TimeoutError(message)
+    return outcome.result()
+
+
 def diagnose_network() -> None:
     """Read-only DNS, TCP, TLS and HTTPS probe; no COS credentials required."""
     host = f"{BUCKET}.cos.ap-guangzhou.myqcloud.com"
-    previous_handler = signal.getsignal(signal.SIGALRM)
-    def dns_timeout(signum, frame):
-        raise TimeoutError("DNS lookup exceeded 15 seconds")
-    signal.signal(signal.SIGALRM, dns_timeout)
-    signal.alarm(15)
-    try:
-        addresses = timed_call("DNS", socket.getaddrinfo, host, 443, type=socket.SOCK_STREAM)
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, previous_handler)
+    if sys.platform == "win32" or not hasattr(signal, "SIGALRM"):
+        addresses = timed_call("DNS", thread_timeout, 15, "DNS lookup exceeded 15 seconds",
+                               socket.getaddrinfo, host, 443, type=socket.SOCK_STREAM)
+    else:
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        def dns_timeout(signum, frame):
+            raise TimeoutError("DNS lookup exceeded 15 seconds")
+        signal.signal(signal.SIGALRM, dns_timeout)
+        signal.alarm(15)
+        try:
+            addresses = timed_call("DNS", socket.getaddrinfo, host, 443, type=socket.SOCK_STREAM)
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous_handler)
     log(f"DNS: resolved {len(addresses)} address record(s)")
     connection = timed_call("TCP 443", socket.create_connection, (host, 443), 8)
     try:
