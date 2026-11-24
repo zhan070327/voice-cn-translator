@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import os
 import signal
+import sys
 import time
 from uuid import uuid4
 
-from scripts.upload_b4_cos import ACCELERATE_ENDPOINT, BUCKET, log, timed_call
+from scripts.upload_b4_cos import ACCELERATE_ENDPOINT, BUCKET, log, thread_timeout, timed_call
 
 
 def bounded(label, seconds, operation, *args, **kwargs):
     """Bound an entire SDK call, including any slow trickle or retry."""
+    if sys.platform == "win32" or not hasattr(signal, "SIGALRM"):
+        return timed_call(label, thread_timeout, seconds, f"{label} exceeded {seconds} seconds",
+                          operation, *args, **kwargs)
     previous = signal.getsignal(signal.SIGALRM)
     def expired(signum, frame):
         raise TimeoutError(f"{label} exceeded {seconds} seconds")
