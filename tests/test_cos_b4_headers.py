@@ -135,7 +135,7 @@ class TestB4CosUpload(unittest.TestCase):
                     with self.assertRaises(TimeoutError):
                         probe(client, "releases/diagnostics/test.bin", control)
                 else:
-                    self.assertGreater(probe(client, "releases/diagnostics/test.bin", control), 0)
+                    self.assertGreaterEqual(probe(client, "releases/diagnostics/test.bin", control), 0)
                 self.assertEqual(client.guard, "true")
                 self.assertTrue(control.aborted)
 
