@@ -20,7 +20,10 @@ def model_ready(folder: Path, required: tuple[str, ...]) -> bool:
         if len(sizes) != len(required) or not all(sizes.values()):
             return False
         inventory = folder / MODEL_INVENTORY
-        return not inventory.exists() or json.loads(inventory.read_text(encoding="utf-8")) == sizes
+        if not inventory.exists():
+            return True
+        recorded = json.loads(inventory.read_text(encoding="utf-8"))
+        return isinstance(recorded, dict) and all(recorded.get(name) == size for name, size in sizes.items())
     except (OSError, ValueError):
         return False
 
@@ -43,7 +46,7 @@ def download_models(whisper_size: str, on_status: Callable[[str], None]) -> None
     (whisper_dir / MODEL_INVENTORY).unlink(missing_ok=True)
     if not model_ready(whisper_dir, WHISPER_FILES):
         raise RuntimeError("识别模型下载不完整；再次点击下载可续传。")
-    on_status("正在下载 M2M100 翻译模型（约 2 GB）…")
+    on_status("正在下载 M2M100 418M 翻译模型…")
     m2m_dir = MODEL_DIR / "m2m100_418M"
     snapshot_download(repo_id=M2M_REPO, local_dir=m2m_dir,
                       allow_patterns=[*M2M_FILES, "special_tokens_map.json",

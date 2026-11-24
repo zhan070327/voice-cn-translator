@@ -26,7 +26,18 @@ def list_devices() -> list[AudioDevice]:
     result = []
     for mic in sc.all_microphones(include_loopback=True):
         result.append(AudioDevice(str(mic.id), str(mic.name), bool(mic.isloopback)))
+    try:
+        default = sc.default_microphone()
+    except (AttributeError, OSError, RuntimeError):
+        default = None
+    if default is not None:
+        result.sort(key=lambda device: device.loopback or device.id != str(default.id))
     return result
+
+
+def preferred_microphone(devices, saved_id: str) -> AudioDevice | None:
+    inputs = [device for device in devices if not device.loopback]
+    return next((device for device in inputs if device.id == saved_id), inputs[0] if inputs else None)
 
 
 def to_mono_16k(frames: np.ndarray, source_rate: int = CAPTURE_RATE) -> np.ndarray:

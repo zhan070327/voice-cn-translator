@@ -148,3 +148,22 @@ def test_multipart_retries_resume_and_verify_both_public_hosts(tmp_path, monkeyp
     assert all(call["PartSize"] == 8 and call["EnableMD5"] and call["ForbidOverwrite"] == "true"
                for call in transferred)
     assert probes == [(url, entry["size"], entry["sha256"], crc) for url in entry["urls"]]
+
+
+def test_model_catalog_is_never_written_when_a_zip_fails(tmp_path, monkeypatch):
+    client = ModelBucket()
+    uploads = []
+    catalog = {"schema": 1, "models": {size: {} for size in assets.REVISIONS}}
+    assets.write_json(tmp_path / assets.CATALOG_NAME, catalog)
+    (tmp_path / "MODEL_LICENSES.md").write_bytes((cos.ROOT / "THIRD_PARTY_NOTICES_CN.md").read_bytes())
+
+    def upload(control, writer, path, *_args, **_kwargs):
+        uploads.append(path.name)
+        if path.name == "whisper-base.zip":
+            raise ValueError("invalid second ZIP")
+
+    monkeypatch.setattr(cos_multipart, "upload_immutable", upload)
+    client.put_object = lambda **_: pytest.fail("Unverified catalog was published.")
+    with pytest.raises(ValueError, match="second ZIP"):
+        release.publish(client, client, tmp_path, catalog, dict(size=42))
+    assert uploads == ["MODEL_LICENSES.md", "whisper-tiny.zip", "whisper-base.zip"]

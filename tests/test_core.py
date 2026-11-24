@@ -166,9 +166,10 @@ def test_pipeline_with_local_model_doubles(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "LocalM2M", Translator)
     monkeypatch.setattr(module, "AudioCapture", Capture)
     results = []
+    traces = []
     history = HistoryStore(tmp_path / "history.sqlite3")
     pipe = Pipeline(Settings(device_id="dummy"), lambda _: None, lambda _: None,
-                    results.append, history=history)
+                    results.append, history=history, on_trace=traces.append)
     pipe.start()
     pipe.enqueue(SpeechChunk(np.zeros(16000, dtype=np.float32), time.monotonic()-1, time.monotonic()))
     deadline = time.monotonic() + 2
@@ -177,6 +178,13 @@ def test_pipeline_with_local_model_doubles(monkeypatch, tmp_path):
     pipe.stop()
     assert len(results) == 1
     assert results[0].chinese == "A 大两个。"
+    assert results[0].task_id == 1
+    assert {trace.task_id for trace in traces} == {1}
+    assert {"VAD 分段完成", "识别入队", "识别出队", "推理开始", "推理结束", "翻译结束"} <= {
+        trace.stage for trace in traces
+    }
+    timings = {name: seconds for trace in traces for name, seconds in trace.timings.items()}
+    assert all(timings[name] >= 0 for name in ("识别排队", "识别等锁", "识别", "翻译排队", "翻译"))
     assert history.recent()[0].original == "Two A main"
 
 

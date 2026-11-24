@@ -23,15 +23,29 @@ class Settings:
     overlay_y: int = 80
     overlay_opacity: int = 65
     overlay_screen: int = 0
-    show_original: bool = False
+    show_original: bool = True
     save_history: bool = True
     click_through: bool = False
     normal_window: bool = True
+    model_source: str = "cos"
+    game: str = "valorant"
+    game_terms: bool = True
+    official_lines: bool = True
+    asr_correction: bool = True
+    teammate_only: bool = True
+    routing_intro_seen: bool = False
+    routing_verified_id: str = ""
+    accent: str = "#FF4655"
+    background_theme: str = "default"
+    background_color: str = ""
+    ptt_hotkey: str = "<ctrl>+<shift>+z"
+    microphone_id: str = ""
+    onboarding_done: bool = False
     hotkey: str = "<ctrl>+<shift>+t"
     vad_level: int = 1
     max_task_age: float = 6.0
     translation_timeout: float = 4.0
-    subtitle_seconds: float = 6.0
+    subtitle_seconds: float = 5.0
 
     @classmethod
     def load(cls) -> "Settings":

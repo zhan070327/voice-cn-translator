@@ -8,7 +8,7 @@ from base64 import b64encode
 from pathlib import Path
 
 from valorant_translator.config import APP_DIR
-from valorant_translator.updates.github import (INSTALLER_NAME, Release, UpdateError,
+from valorant_translator.updates.github import (Release, UpdateError,
                                                 _verified_file)
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "windows_updater.ps1"
@@ -52,7 +52,7 @@ def _powershell_invocation(installer: Path, app: str, parent_pid: int) -> tuple[
 def start_silent_installer(path: Path, release: Release) -> None:
     if sys.platform != "win32" or not getattr(sys, "frozen", False):
         raise UpdateError("自动安装只适用于 Windows 安装版 EXE。")
-    if path.name != INSTALLER_NAME or not _verified_file(path, release):
+    if path.name != release.installer_name or not _verified_file(path, release):
         raise UpdateError("安装包在启动前校验失败。")
     if not SCRIPT.is_file():
         raise UpdateError("独立更新脚本缺失，请重新安装完整测试包。")

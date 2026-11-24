@@ -18,6 +18,7 @@ if errorlevel 1 goto fail
   --name ValorantTranslator ^
   --icon "assets\app_icon.ico" ^
   --add-data "config\glossary.json;config" ^
+  --add-data "config\glossary_*.json;config" ^
   --add-data "config\update_channel.json;config" ^
   --add-data "scripts\windows_updater.ps1;scripts" ^
   --add-data "assets\app_icon.ico;assets" ^
@@ -28,6 +29,10 @@ if errorlevel 1 goto fail
   --exclude-module valorant_translator.translation.nllb ^
   main.py
 if errorlevel 1 goto fail
+if "%VALORANT_CPU_PACKAGE%"=="1" (
+  ".venv\Scripts\python.exe" -m scripts.audit_cuda_bundle "dist\ValorantTranslator" --prune-cpu-only
+  if errorlevel 1 goto fail
+)
 "dist\ValorantTranslator\ValorantTranslator.exe" --self-test
 if errorlevel 1 (
     echo ERROR: Packaged EXE self-test failed. See build log.

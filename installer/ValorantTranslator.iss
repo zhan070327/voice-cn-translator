@@ -1,12 +1,21 @@
-#define MyAppName "队友语音翻译器"
-#define MyAppVersion "0.3.0b4"
+#if GetEnv("VALORANT_CPU_PACKAGE") == "1"
+  #define MyAppName "队友语音翻译器 CPU 版"
+#else
+  #define MyAppName "队友语音翻译器"
+#endif
+#define MyAppVersion "0.3.0b6"
 #define MyAppExe "ValorantTranslator.exe"
 
 [Setup]
+#if GetEnv("VALORANT_CPU_PACKAGE") == "1"
+AppId={{0357A036-BE6C-4799-881E-8E8CB660EB3A}
+DefaultDirName={localappdata}\Programs\VoiceCNTranslatorCPU
+#else
 AppId={{32A11F0B-7D49-4C23-846A-D7CAFA048E12}
+DefaultDirName={localappdata}\Programs\VoiceCNTranslator
+#endif
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-DefaultDirName={localappdata}\Programs\VoiceCNTranslator
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest

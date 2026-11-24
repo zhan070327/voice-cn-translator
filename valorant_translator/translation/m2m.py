@@ -1,17 +1,18 @@
-"""Local M2M100 translation for the five supported speech languages."""
+"""Local M2M100 translation for the supported speech languages."""
 from __future__ import annotations
 
 import gc
 import logging
 
 from valorant_translator.config import MODEL_DIR
+from valorant_translator.translation.reverse_callouts import translate_callout
 
 LOG = logging.getLogger(__name__)
 M2M_REPO = "facebook/m2m100_418M"
 M2M_DIR = MODEL_DIR / "m2m100_418M"
 M2M_FILES = ("pytorch_model.bin", "config.json", "sentencepiece.bpe.model",
              "tokenizer_config.json", "vocab.json")
-SUPPORTED_LANGUAGES = frozenset(("en", "ms", "hi", "ta", "th"))
+SUPPORTED_LANGUAGES = frozenset(("en", "ms", "hi", "ta", "th", "ja", "ko"))
 
 
 class LocalM2M:
@@ -55,9 +56,22 @@ class LocalM2M:
     def translate(self, source: str, language: str) -> str:
         if language not in SUPPORTED_LANGUAGES:
             raise ValueError("无法确认语种，不生成翻译。")
+        return self._translate_with_fallback(source, language, "zh")
+
+    def translate_to_english(self, source: str) -> str:
+        return self.translate_to_english_details(source)[0]
+
+    def translate_to_english_details(self, source: str) -> tuple[str, str | None, str]:
+        callout = translate_callout(self.converter.convert(source))
+        if callout is not None:
+            return callout, None, "reverse_callout"
+        raw = self._translate_with_fallback(source, "zh", "en")
+        return raw, raw, ""
+
+    def _translate_with_fallback(self, source: str, language: str, target: str) -> str:
         self.tokenizer.src_lang = language
         try:
-            return self._translate(source)
+            return self._translate(source) if target == "zh" else self._translate(source, target)
         except RuntimeError as exc:
             if self.device != "cuda":
                 raise
@@ -70,16 +84,19 @@ class LocalM2M:
                 LOG.warning("Could not clear CUDA cache after inference failure")
             self.device = "cpu"
             self.model = self._load_model(self.model_type)
-            return self._translate(source)
+            return self._translate(source) if target == "zh" else self._translate(source, target)
 
-    def _translate(self, source: str) -> str:
+    def _translate(self, source: str, target: str = "zh") -> str:
         batch = self.tokenizer(source, return_tensors="pt", truncation=True,
                                max_length=128).to(self.device)
+        generation = {"num_beams": 1 if self.fast_mode else 2}
+        if target == "en":
+            generation.update(num_beams=3, no_repeat_ngram_size=3)
         with self.torch.inference_mode():
             tokens = self.model.generate(
                 **batch,
-                forced_bos_token_id=self.tokenizer.get_lang_id("zh"),
+                forced_bos_token_id=self.tokenizer.get_lang_id(target),
                 max_new_tokens=48 if self.fast_mode else 64,
-                num_beams=1 if self.fast_mode else 2)
-        chinese = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)[0].strip()
-        return self.converter.convert(chinese)
+                **generation)
+        translated = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)[0].strip()
+        return self.converter.convert(translated) if target == "zh" else translated
