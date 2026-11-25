@@ -95,7 +95,12 @@ def publish(repo: str, gpu: Path, cpu: Path, manifest: dict, notes: str, commit:
     upload.require_unversioned(client)
     previous = cos._read_remote_manifest(client)
     if previous:
-        previous_version = Version(json.loads(previous)["version"])
+        previous_manifest = json.loads(previous)
+        previous_version = Version(previous_manifest["version"])
+        model_fields = {key: previous_manifest[key] for key in ("model_manifest_url", "model_bundle")
+                        if key in previous_manifest}
+        if model_fields:
+            payload = (json.dumps({**manifest, **model_fields}, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         if previous_version > Version(APP_VERSION) or previous_version == Version(APP_VERSION) and previous != payload:
             raise UpdateError("COS already contains this version with different content or a newer version.")
     cos._probe_public_model(cos._channel())
