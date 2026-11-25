@@ -102,8 +102,8 @@ def test_cpu_and_gpu_updates_are_disjoint_and_fallback_keeps_edition(monkeypatch
     configs.update(channel="dual", edition="cpu", github_repository="a/b")
 
     def entry(edition):
-        return {"version": "0.3.0b7", "release_notes": "new", "sha256": "a" * 64, "size": 123,
-                "download_url": f"https://{configs['download_hosts'][0]}/releases/0.3.0b7/{github.INSTALLERS[edition]}"}
+        return {"version": "0.3.0b8", "release_notes": "new", "sha256": "a" * 64, "size": 123,
+                "download_url": f"https://{configs['download_hosts'][0]}/releases/0.3.0b8/{github.INSTALLERS[edition]}"}
 
     payload = {**entry("gpu"), "editions": {"cpu": entry("cpu")}}
     assert domestic.parse_manifest(json.dumps(entry("gpu")).encode(), configs["download_hosts"], edition="cpu") is None

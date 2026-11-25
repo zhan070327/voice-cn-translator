@@ -1,0 +1,10 @@
+{
+  "en": {"name": "英语", "asr": true, "translation": true},
+  "ms": {"name": "马来语", "asr": true, "translation": true},
+  "hi": {"name": "印地语", "asr": true, "translation": true},
+  "ta": {"name": "泰米尔语", "asr": true, "translation": true},
+  "th": {"name": "泰语", "asr": true, "translation": true},
+  "ja": {"name": "日语", "asr": true, "translation": true},
+  "ko": {"name": "韩语", "asr": true, "translation": true},
+  "zh": {"name": "中文（直接显示）", "asr": true, "translation": true}
+}

@@ -1,5 +1,6 @@
 """Hold-to-talk microphone capture. Audio stays in memory and is never saved."""
 from __future__ import annotations
+from valorant_translator.ui.texts import tr
 
 import threading
 import time
@@ -8,10 +9,9 @@ from dataclasses import replace
 import numpy as np
 
 from valorant_translator.audio.capture import SAMPLE_RATE, AudioCapture
-from valorant_translator.recognition.whisper import LocalWhisper
+from valorant_translator.models.providers import default_model_manager
 from valorant_translator.translation.enhancement import GameEnhancer
 from valorant_translator.translation.glossary import game_glossary
-from valorant_translator.translation.m2m import LocalM2M
 
 MAX_SECONDS = 20
 MIN_SAMPLES = SAMPLE_RATE // 4
@@ -34,7 +34,7 @@ class PushToTalk:
         if self._busy or self._closed:
             return False
         if not settings.microphone_id:
-            self.status("未检测到麦克风。请连接后重试。")
+            self.status(tr("talk.0001"))
             return False
         self._busy = True
         self._frames = []
@@ -56,20 +56,20 @@ class PushToTalk:
                 self._samples += len(audio)
 
         def capture_status(message):
-            if "失败" in message or "断开" in message:
+            if tr("talk.0002") in message or tr("talk.0003") in message:
                 self._capture_error = message
                 self.status(message)
-            elif message.startswith("音频设备已连接"):
+            elif message.startswith(tr("talk.0004")):
                 self._capture_error = ""
 
-        self.status("正在收听你的麦克风，松开后翻译。")
+        self.status(tr("talk.0005"))
         try:
             self.capture = self.capture_factory(settings.microphone_id, frame, lambda _: None, capture_status)
             self.capture.start()
         except Exception as exc:
             self.capture = None
             self._busy = False
-            self.status(f"麦克风无法启动：{exc}")
+            self.status(tr("talk.0006", p0=exc))
             return False
         return True
 
@@ -95,17 +95,16 @@ class PushToTalk:
                     self.status(self._capture_error)
                     return
                 if self._frames and self._peak < SILENT_RMS:
-                    self.status("没录到声音：麦克风没有收到声音，请检查麦克风选择。")
+                    self.status(tr("talk.0007"))
                     return
                 if not self._frames:
-                    self.status("没录到声音：请按住快捷键，等待麦克风开启后说话。")
+                    self.status(tr("talk.0008"))
                     return
                 if self._samples < MIN_SAMPLES:
-                    self.status(f"语音太短：录到 {self._samples / SAMPLE_RATE:.2f} 秒，"
-                                f"至少需要 {MIN_SAMPLES / SAMPLE_RATE:.2f} 秒。")
+                    self.status(tr("talk.0009", p0=self._samples / SAMPLE_RATE, p1=MIN_SAMPLES / SAMPLE_RATE))
                     return
                 audio = np.concatenate(self._frames)
-                self.status("正在将中文语音翻译成英文…")
+                self.status(tr("talk.0010"))
                 started = time.monotonic()
                 if self._diagnostic_session:
                     recognized, english, evidence = self._diagnostic_session(audio, rejected)
@@ -114,7 +113,8 @@ class PushToTalk:
                     evidence = {}
                 else:
                     settings = self._settings
-                    asr = LocalWhisper(settings.whisper_model, settings.compute_device, settings.fast_mode)
+                    models = default_model_manager()
+                    asr = models.create_asr(settings)
                     asr.on_rejection = rejected
                     recognized = asr.transcribe_chinese_callout(audio)
                     asr_seconds = time.monotonic() - started
@@ -128,7 +128,7 @@ class PushToTalk:
                         if match.translation:
                             english, rule = match.translation, match.rules
                         else:
-                            translator = LocalM2M(settings.compute_device, settings.fast_mode)
+                            translator = models.create_translation(settings)
                             english, raw, fallback_rule = translator.translate_to_english_details(match.text)
                             rule = " · ".join(filter(None, (match.rules, fallback_rule)))
                     evidence = dict(asr_seconds=asr_seconds,
@@ -141,14 +141,14 @@ class PushToTalk:
                     if self.details:
                         self.details((recognized.text, english, self._settings.game, audio_end, evidence))
                 elif recognized:
-                    self.status("已识别中文，但没有生成英文译文。")
+                    self.status(tr("talk.0011"))
                 elif rejection:
-                    self.status(f"中文识别未通过：{rejection[0]}。{rejection[1]}")
+                    self.status(tr("talk.0012", p0=rejection[0], p1=rejection[1]))
                 else:
-                    self.status("中文识别没有返回可用文字。")
+                    self.status(tr("talk.0013"))
             except Exception as exc:
                 if not self._closed:
-                    self.status(f"英文翻译失败：{exc}")
+                    self.status(tr("talk.0014", p0=exc))
             finally:
                 self._frames.clear()
                 self._busy = False

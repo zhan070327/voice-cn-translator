@@ -1,4 +1,5 @@
 from __future__ import annotations
+from valorant_translator.ui.texts import tr
 
 import sys
 import time
@@ -35,7 +36,7 @@ class SubtitleOverlay(QWidget):
         self.settings = settings
         self.entries: list[Caption] = []
         self.drag_anchor: QPoint | None = None
-        self.setWindowTitle("语音翻译字幕")
+        self.setWindowTitle(tr("overlay.0001"))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, not settings.normal_window)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, not settings.normal_window)
         self.setAutoFillBackground(settings.normal_window)
@@ -85,7 +86,7 @@ class SubtitleOverlay(QWidget):
         badge.setObjectName("captionBadge")
         header.addWidget(badge)
         header.addStretch()
-        copy = GlassButton("复制英文")
+        copy = GlassButton(tr("overlay.0002"))
         copy.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         copy.setMaximumHeight(t.TITLE)
         copy.clicked.connect(lambda: QApplication.clipboard().setText(copy.property("textToCopy") or ""))
@@ -165,7 +166,7 @@ class SubtitleOverlay(QWidget):
                               (style | WS_EX_TRANSPARENT | WS_EX_LAYERED) if enabled else (style & ~WS_EX_TRANSPARENT))
 
     def add_subtitle(self, chinese: str, original: str = "", duration: float | None = None,
-                     *, speaker: str = "队友", reverse: bool = False) -> None:
+                     *, speaker: str = tr("overlay.0003"), reverse: bool = False) -> None:
         deadline = time.monotonic() + (self.settings.subtitle_seconds if duration is None else duration)
         self.entries = [*self.entries, Caption(chinese, original, speaker, deadline, reverse)][-2:]
         self._render()

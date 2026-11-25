@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "game_name": "测试竞技场",
+  "rules": [
+    {"game": "arena_test", "source": "xx", "target": "zh", "kind": "term",
+     "original": "blue gate", "translated": "蓝门。"}
+  ]
+}

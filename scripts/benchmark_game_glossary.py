@@ -66,11 +66,6 @@ def run_speech(args):
     from valorant_translator.audio.segmenter import SpeechChunk
     from valorant_translator.config import Settings
     from valorant_translator import pipeline
-    from valorant_translator.recognition import whisper
-    from valorant_translator.translation import m2m
-
-    whisper.MODEL_DIR = args.model_dir.resolve()
-    m2m.M2M_DIR = whisper.MODEL_DIR / "m2m100_418M"
     # Capture is replaced by reproducible manual input. All inference and queues are real.
     class NoLiveCapture:
         def __init__(self, *_):
@@ -113,7 +108,7 @@ def run_speech(args):
 
     pipeline.AudioCapture = NoLiveCapture
     settings = Settings(device_id="benchmark", compute_device=args.device, whisper_model=args.model,
-                        fast_mode=not args.accurate)
+                        fast_mode=not args.accurate, model_dir=str(args.model_dir.resolve()))
     pipe = BenchmarkPipeline(settings, statuses.append, lambda _: None, result, notes.append, on_trace=trace)
     items = json.loads(args.manifest.read_text(encoding="utf-8"))
     pipe.start()

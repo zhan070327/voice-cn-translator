@@ -1,5 +1,6 @@
 """Shared styling and Qt-only dialogs for VoiceTrans."""
 from __future__ import annotations
+from valorant_translator.ui.texts import tr
 
 from pathlib import Path
 
@@ -12,8 +13,8 @@ from valorant_translator.ui.glass import DEFAULT_ACCENT, GlassButton, glass_styl
 from valorant_translator.ui.motion import DetailPanel
 
 
-_BUTTON_TEXT = {"Ok": "确定", "Cancel": "取消", "Save": "保存", "Close": "关闭", "Open": "打开",
-                "Yes": "是", "No": "否", "Apply": "应用", "Retry": "重试"}
+_BUTTON_TEXT = {"Ok": tr("dialogs.0001"), "Cancel": tr("dialogs.0002"), "Save": tr("dialogs.0003"), "Close": tr("dialogs.0004"), "Open": tr("dialogs.0005"),
+                "Yes": tr("dialogs.0006"), "No": tr("dialogs.0007"), "Apply": tr("dialogs.0008"), "Retry": tr("dialogs.0009")}
 
 
 def localize_buttons(dialog):
@@ -140,8 +141,8 @@ class GlassInputDialog(QInputDialog):
         dialog.setLabelText(label)
         for widget in dialog.findChildren(QLabel):
             widget.setTextFormat(Qt.TextFormat.PlainText)
-        dialog.setOkButtonText("确定")
-        dialog.setCancelButtonText("取消")
+        dialog.setOkButtonText(tr("dialogs.0010"))
+        dialog.setCancelButtonText(tr("dialogs.0011"))
         apply_dialog_theme(dialog)
         return dialog
 
@@ -188,8 +189,8 @@ class GlassFileDialog(QFileDialog):
         if filters:
             picker.setNameFilters(filters.split(";;"))
         apply_dialog_theme(picker)
-        for name, label in (("LookIn", "位置"), ("FileName", "文件名"), ("FileType", "文件类型"),
-                            ("Accept", "保存" if save else "选择"), ("Reject", "取消")):
+        for name, label in (("LookIn", tr("dialogs.0012")), ("FileName", tr("dialogs.0013")), ("FileType", tr("dialogs.0014")),
+                            ("Accept", tr("dialogs.0015") if save else tr("dialogs.0016")), ("Reject", tr("dialogs.0017"))):
             picker.setLabelText(cls.DialogLabel[name], label)
         try:
             while picker.exec() == QDialog.DialogCode.Accepted:
@@ -198,7 +199,7 @@ class GlassFileDialog(QFileDialog):
                     break
                 path = selected[0]
                 if not save or not Path(path).exists() or GlassMessageBox.question(
-                    parent, "覆盖已有文件", "所选文件已存在。是否覆盖？"
+                    parent, tr("dialogs.0018"), tr("dialogs.0019")
                 ) == QMessageBox.StandardButton.Yes:
                     return path, picker.selectedNameFilter()
             return "", ""

@@ -18,11 +18,13 @@ if errorlevel 1 goto fail
   --name ValorantTranslator ^
   --icon "assets\app_icon.ico" ^
   --add-data "config\glossary.json;config" ^
+  --add-data "config\languages.json;config" ^
   --add-data "config\glossary_*.json;config" ^
   --add-data "config\update_channel.json;config" ^
   --add-data "scripts\windows_updater.ps1;scripts" ^
   --add-data "assets\app_icon.ico;assets" ^
   --add-data "assets\fonts;assets\fonts" ^
+  --add-data "assets\i18n\zh_CN.json;assets\i18n" ^
   --add-data "THIRD_PARTY_NOTICES_CN.md;." ^
   --collect-all soundcard --collect-all faster_whisper --collect-all ctranslate2 ^
   --collect-all transformers --collect-all sentencepiece ^

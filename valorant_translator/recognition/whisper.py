@@ -7,12 +7,12 @@ from pathlib import Path
 
 import numpy as np
 
-from valorant_translator.config import MODEL_DIR
+from valorant_translator.config import MODEL_DIR, get_model_dir
+from valorant_translator.languages import DEFAULT_LANGUAGES, LanguageCatalog
 from valorant_translator.translation.glossary import Glossary
 
 LOG = logging.getLogger(__name__)
-LANGUAGES = {"en": "英语", "ms": "马来语", "hi": "印地语", "ta": "泰米尔语",
-             "th": "泰语", "ja": "日语", "ko": "韩语", "zh": "中文（直接显示）"}
+LANGUAGES = DEFAULT_LANGUAGES.names()
 WHISPER_REPOS = {
     "tiny": "Systran/faster-whisper-tiny",
     "base": "Systran/faster-whisper-base",
@@ -53,7 +53,9 @@ def transcribe_segments(model, audio, locked, *, fast_mode: bool, hotwords: str 
     )
 
 
-def filter_segments(segments, info, locked, glossary, on_rejection=None):
+def filter_segments(segments, info, locked, glossary, on_rejection=None,
+                    languages: LanguageCatalog | None = None):
+    languages = languages or DEFAULT_LANGUAGES
     reliable = [s for s in segments if s.no_speech_prob < 0.55 and s.avg_logprob > -1.1]
     parts = [s.text.strip() for s in reliable]
     text = " ".join(p for p in parts if p).strip()
@@ -82,7 +84,7 @@ def filter_segments(segments, info, locked, glossary, on_rejection=None):
         return reject("段落未达标（no_speech_prob < 0.55、avg_logprob > -1.1）")
     if not text:
         return reject("识别文字为空")
-    if lang not in LANGUAGES:
+    if not languages.supports_asr(lang):
         return reject(f"不支持的语种 {lang}")
     if lang == "zh" and han_count < 2:
         return reject(f"中文仅 {han_count} 字，至少 2 字")
@@ -105,15 +107,18 @@ def filter_segments(segments, info, locked, glossary, on_rejection=None):
 
 
 class LocalWhisper:
-    def __init__(self, model_name: str, requested_device: str, fast_mode: bool = True):
+    def __init__(self, model_name: str, requested_device: str, fast_mode: bool = True,
+                 *, model_dir: Path | None = None):
         from faster_whisper import WhisperModel
 
-        path = MODEL_DIR / f"whisper-{model_name}"
+        folder = model_dir if model_dir is not None else get_model_dir(default=MODEL_DIR)
+        path = folder / f"whisper-{model_name}"
         if not path.is_dir():
             raise FileNotFoundError(f"识别模型缺失：{path}。请先点击“下载模型”。")
         self.path = path
         self.fast_mode = fast_mode
         self.glossary = Glossary()
+        self.languages = DEFAULT_LANGUAGES
         self.device = "cuda" if requested_device != "cpu" and cuda_available() else "cpu"
         compute_type = "float16" if self.device == "cuda" else "int8"
         try:
@@ -125,7 +130,7 @@ class LocalWhisper:
             LOG.warning("Whisper CUDA load failed: %s", exc)
             sizes = ("tiny", "base", "small", "medium")
             for smaller in reversed(sizes[:sizes.index(model_name)]):
-                smaller_path = MODEL_DIR / f"whisper-{smaller}"
+                smaller_path = folder / f"whisper-{smaller}"
                 if smaller != model_name and smaller_path.is_dir():
                     try:
                         self.model = WhisperModel(str(smaller_path), device="cuda", compute_type="int8_float16",
@@ -170,4 +175,6 @@ class LocalWhisper:
             hotwords = getattr(glossary, "hotwords", None)
         segments, info = transcribe_segments(self.model, audio, locked,
                                              fast_mode=getattr(self, "fast_mode", True), hotwords=hotwords)
-        return filter_segments(list(segments), info, locked, glossary, getattr(self, "on_rejection", None))
+        return filter_segments(list(segments), info, locked, glossary,
+                               getattr(self, "on_rejection", None),
+                               getattr(self, "languages", DEFAULT_LANGUAGES))

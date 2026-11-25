@@ -1,3 +1,4 @@
+from valorant_translator.ui.texts import tr
 import psutil
 
 from PySide6.QtCore import Qt, QTimer
@@ -17,7 +18,7 @@ class Onboarding(QDialog):
         self._loading = False
         self._device_refresh_failed = False
         window.devices_refreshed.connect(self._devices_refreshed)
-        self.setWindowTitle("首次使用 · VoiceTrans")
+        self.setWindowTitle(tr("onboarding.0001"))
         self.setMinimumWidth(525)
         container = QVBoxLayout(self)
         container.setContentsMargins(0, 0, 0, 0)
@@ -34,7 +35,7 @@ class Onboarding(QDialog):
         step_row = QHBoxLayout()
         step_row.setSpacing(GAP)
         self.step_icons = []
-        for name, label in (("chip", "设备"), ("download", "模型"), ("mic", "试音")):
+        for name, label in (("chip", tr("onboarding.0002")), ("download", tr("onboarding.0003")), ("mic", tr("onboarding.0004"))):
             group = QVBoxLayout()
             group.setSpacing(4)
             icon = LineIcon(name)
@@ -76,10 +77,10 @@ class Onboarding(QDialog):
         self.action.setProperty("ghost", True)
         self.action.clicked.connect(self._action)
         card.addWidget(self.action, alignment=Qt.AlignmentFlag.AlignHCenter)
-        self.finish = GlassButton("完成")
+        self.finish = GlassButton(tr("onboarding.0005"))
         self.finish.clicked.connect(self.accept)
         buttons = QHBoxLayout()
-        later = GlassButton("稍后")
+        later = GlassButton(tr("onboarding.0006"))
         later.clicked.connect(self.reject)
         buttons.addWidget(later)
         buttons.addStretch()
@@ -103,7 +104,7 @@ class Onboarding(QDialog):
             icon.set_reduced_motion(settings.reduce_motion)
 
     def _update_step_icons(self):
-        self.step_status.setText(f"第 {self.step + 1} 步，共 {len(self.step_icons)} 步")
+        self.step_status.setText(tr("onboarding.step_progress", p0=self.step + 1, p1=len(self.step_icons)))
         for index, icon in enumerate(self.step_icons):
             current = index == self.step
             mode = "idle"
@@ -134,40 +135,40 @@ class Onboarding(QDialog):
         if self.step == 0:
             self.transfer.hide()
             self.action.set_line_icon("next")
-            self.title.setText("检测设备")
+            self.title.setText(tr("onboarding.0007"))
             lines = [f"{label}：{combo.currentText()}" for label, combo in
-                     (("输入", w.device_combo), ("麦克风", w.mic_combo)) if combo.currentData()]
-            lines.append(f"推荐 Whisper {self._recommendation()}，可在详细设置更改。")
+                     ((tr("onboarding.device_input"), w.device_combo), (tr("onboarding.microphone"), w.mic_combo)) if combo.currentData()]
+            lines.append(tr("onboarding.recommend_model", p0=self._recommendation()))
             if self._device_refresh_failed:
-                lines.append("设备检测失败，可重试。")
+                lines.append(tr("onboarding.device_refresh_failed"))
             self._set_details("\n".join(lines))
-            self.action.setText("下一步")
+            self.action.setText(tr("onboarding.0010"))
             self.action.setEnabled(True)
         elif self.step == 1:
-            self.title.setText("下载模型")
+            self.title.setText(tr("onboarding.0011"))
             sizes = w.download_sizes()
             models = [f"Whisper {w.model_combo.currentData()}", "M2M100 418M"]
             models = [f"{model} · {sizes[model] / 1024**2:,.1f} MiB" if sizes.get(model) else model
                       for model in models]
             status = w.model_transfer.text() if w._model_busy and not w.model_transfer.isHidden() else w.status_label.text()
             self._set_details("\n".join([*models, w.model_status_label.toolTip()]))
-            show_transfer = status != "当前状态：待机"
+            show_transfer = status != tr("onboarding.0012")
             if show_transfer:
-                self.transfer.setText(status.removeprefix("当前状态："))
+                self.transfer.setText(status.removeprefix(tr("onboarding.0013")))
             self.transfer.setVisible(show_transfer)
             self.progress.setRange(w.model_progress.minimum(), w.model_progress.maximum())
             self.progress.setValue(w.model_progress.value())
             ready = w._models_ready()
             self.action.set_line_icon("next" if ready else "pause" if w._model_busy else "download")
-            self.action.setText("下一步" if ready else "暂停下载" if w._model_busy else "一键下载模型")
+            self.action.setText(tr("onboarding.0014") if ready else tr("onboarding.0015") if w._model_busy else tr("onboarding.0016"))
             self.action.setEnabled(not w._model_busy or w.model_pause_button.isEnabled() and w._uses_cos_models())
         else:
             self.transfer.hide()
-            self.title.setText("语音试播")
+            self.title.setText(tr("onboarding.0017"))
             self.action.set_line_icon("mic")
-            self._set_details(w.talk_state.text() if self.test_started else "点击录音测试，说一句中文。")
-            self.details.setToolTip("识别后会把中文翻译成英文并显示在字幕中。")
-            self.action.setText("录音测试")
+            self._set_details(w.talk_state.text() if self.test_started else tr("onboarding.0018"))
+            self.details.setToolTip(tr("onboarding.0019"))
+            self.action.setText(tr("onboarding.0020"))
             self.action.setEnabled(not w.talk._busy and bool(w.mic_combo.currentData()))
 
     def _recommendation(self):
@@ -201,7 +202,7 @@ class Onboarding(QDialog):
     def _set_loading(self):
         self._loading = True
         self._update_step_icons()
-        self.action.setText("加载中…")
+        self.action.setText(tr("onboarding.0021"))
         self.action.setEnabled(False)
 
     def _devices_refreshed(self, success):

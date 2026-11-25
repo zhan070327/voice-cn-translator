@@ -3,7 +3,7 @@
 #else
   #define MyAppName "队友语音翻译器"
 #endif
-#define MyAppVersion "0.3.0b6"
+#define MyAppVersion "0.3.0b7"
 #define MyAppExe "ValorantTranslator.exe"
 
 [Setup]

@@ -8,6 +8,7 @@ from typing import Callable
 
 from valorant_translator.models import cos
 from valorant_translator.models.download import M2M_FILES, WHISPER_FILES, model_ready
+from valorant_translator.models.location import require_model_space
 from valorant_translator.recognition.whisper import WHISPER_REPOS
 from valorant_translator.updates.domestic import validate_url
 
@@ -62,6 +63,13 @@ def required_downloads(channel: dict, catalog: dict[str, cos.Bundle], size: str,
 def install_selected(channel: dict, catalog: dict[str, cos.Bundle], size: str, folder: Path,
                      status: Callable, progress: Callable, pause: Event) -> None:
     plan = required_downloads(channel, catalog, size, folder)
+    retained, peak = 0, 0
+    for bundle, selected in plan:
+        remaining, expanded, present = cos.space_for_bundle(bundle, folder, selected)
+        peak = max(peak, retained + remaining + expanded)
+        retained += expanded - present
+    if plan:
+        require_model_space(folder, peak)
     total = sum(bundle.size for bundle, _ in plan)
     completed = 0
     for bundle, selected in plan:
