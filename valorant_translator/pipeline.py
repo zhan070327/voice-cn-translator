@@ -17,7 +17,7 @@ from valorant_translator.audio.segmenter import SpeechChunk, SpeechSegmenter
 from valorant_translator.config import Settings
 from valorant_translator.diagnostics import Diagnostics
 from valorant_translator.languages import DEFAULT_LANGUAGES, LanguageCatalog
-from valorant_translator.models.providers import ModelManager, default_model_manager, translate_pair
+from valorant_translator.models.providers import ModelManager, create_local_model, default_model_manager, translate_pair
 from valorant_translator.recognition.whisper import LocalWhisper, Recognition
 from valorant_translator.translation.enhancement import GameEnhancer
 from valorant_translator.translation.glossary import Glossary, game_glossary
@@ -271,8 +271,8 @@ class Pipeline:
             self.languages.source(self.settings.source_language)
             self.languages.target(self.settings.target_language)
             models = self.models or default_model_manager(
-                lambda s: LocalWhisper(s.whisper_model, s.compute_device, s.fast_mode),
-                lambda s: LocalM2M(s.compute_device, s.fast_mode))
+                lambda s: create_local_model(LocalWhisper, s, s.whisper_model, s.compute_device, s.fast_mode),
+                lambda s: create_local_model(LocalM2M, s, s.compute_device, s.fast_mode))
             self.on_status("加载本地识别模型…")
             asr = models.create_asr(self.settings)
             self.on_status("加载本地翻译模型…")

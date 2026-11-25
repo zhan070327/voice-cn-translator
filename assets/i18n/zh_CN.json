@@ -611,5 +611,13 @@
   "onboarding.microphone": "麦克风",
   "onboarding.recommend_model": "推荐 Whisper {p0}，可在详细设置更改。",
   "onboarding.device_refresh_failed": "设备检测失败，可重试。",
-  "glass.default_skin": "默认深色"
+  "glass.default_skin": "默认深色",
+  "app.0320": "模型保存位置",
+  "app.0321": "选择文件夹",
+  "app.0322": "目标驱动器 {p0} 的空间不足，需要 {p1:,} 字节，可用 {p2:,} 字节。",
+  "app.0323": "模型正在使用，请停止翻译或等待当前操作完成后再更改位置。",
+  "app.0324": "正在迁移模型…",
+  "app.0325": "目标文件夹已包含同名模型文件：{p0}",
+  "app.0326": "无法更改模型保存位置：{p0}",
+  "app.0327": "模型保存位置已更新：{p0}"
 }

@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 
 import numpy as np
 
-from valorant_translator.config import MODEL_DIR, Settings
+from valorant_translator.config import Settings, get_model_dir
 from valorant_translator.recognition.whisper import filter_segments, transcribe_segments
 from valorant_translator.translation.glossary import GAMES, game_glossary
 
@@ -172,7 +172,7 @@ VERDICTS = {
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device", choices=["cuda", "cpu", "both"], default="both")
-    parser.add_argument("--model-dir", type=Path, default=MODEL_DIR, help="模型根目录或 whisper-small 目录")
+    parser.add_argument("--model-dir", type=Path, default=get_model_dir(), help="模型根目录或 whisper-small 目录")
     parser.add_argument("--audio", type=Path, help="录有 Two A main 的 16 kHz 单声道 PCM WAV")
     parser.add_argument("--game", choices=GAMES, default=None, help="默认使用应用当前游戏词库")
     parser.add_argument("--report", type=Path, default=Path("diagnose_asr_report.json"))

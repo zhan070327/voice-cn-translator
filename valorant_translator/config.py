@@ -30,6 +30,7 @@ class Settings:
     click_through: bool = False
     normal_window: bool = True
     model_source: str = "cos"
+    model_dir: str = ""
     game: str = "valorant"
     game_terms: bool = True
     official_lines: bool = True
@@ -69,3 +70,12 @@ class Settings:
         tmp = CONFIG_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(asdict(self), ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(CONFIG_FILE)
+
+
+def get_model_dir(settings: Settings | None = None, *, default: Path | None = None) -> Path:
+    """Resolve the saved model location, keeping the existing default for old settings."""
+    settings = settings if settings is not None else Settings.load()
+    location = settings.model_dir
+    if isinstance(location, str) and location.strip():
+        return Path(location).expanduser().resolve()
+    return default if default is not None else MODEL_DIR

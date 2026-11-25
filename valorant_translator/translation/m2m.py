@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import gc
 import logging
+from pathlib import Path
 
-from valorant_translator.config import MODEL_DIR
+from valorant_translator.config import get_model_dir
 from valorant_translator.languages import DEFAULT_LANGUAGES, LanguageCatalog
 from valorant_translator.translation.reverse_callouts import translate_callout
 
 LOG = logging.getLogger(__name__)
 M2M_REPO = "facebook/m2m100_418M"
-M2M_DIR = MODEL_DIR / "m2m100_418M"
 M2M_FILES = ("pytorch_model.bin", "config.json", "sentencepiece.bpe.model",
              "tokenizer_config.json", "vocab.json")
 SUPPORTED_LANGUAGES = frozenset(code for code in DEFAULT_LANGUAGES.names() if code != "zh")
@@ -19,18 +19,20 @@ SUPPORTED_LANGUAGES = frozenset(code for code in DEFAULT_LANGUAGES.names() if co
 class LocalM2M:
     """Load once, prefer CUDA, and fall back to CPU on CUDA runtime errors."""
 
-    def __init__(self, requested_device: str, fast_mode: bool = True):
+    def __init__(self, requested_device: str, fast_mode: bool = True, *, model_dir: Path | None = None):
         import torch
         from opencc import OpenCC
         from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
 
-        if not all((M2M_DIR / name).is_file() for name in M2M_FILES):
+        folder = model_dir if model_dir is not None else get_model_dir()
+        self.model_dir = folder / "m2m100_418M"
+        if not all((self.model_dir / name).is_file() for name in M2M_FILES):
             raise FileNotFoundError("M2M100 翻译模型缺失；请在首页点击“一键下载模型”。")
         self.torch = torch
         self.fast_mode = fast_mode
         self.converter = OpenCC("t2s")
         self.device = "cuda" if requested_device != "cpu" and torch.cuda.is_available() else "cpu"
-        self.tokenizer = M2M100Tokenizer.from_pretrained(str(M2M_DIR), local_files_only=True)
+        self.tokenizer = M2M100Tokenizer.from_pretrained(str(self.model_dir), local_files_only=True)
         self.model_type = M2M100ForConditionalGeneration
         self.model = self._load_model(M2M100ForConditionalGeneration)
 
@@ -39,7 +41,7 @@ class LocalM2M:
         model = None
         try:
             model = model_type.from_pretrained(
-                str(M2M_DIR), local_files_only=True,
+                str(self.model_dir), local_files_only=True,
                 torch_dtype=torch.float16 if self.device == "cuda" else torch.float32)
             return model.to(self.device).eval()
         except (RuntimeError, MemoryError) as exc:
@@ -50,7 +52,7 @@ class LocalM2M:
             gc.collect()
             torch.cuda.empty_cache()
             self.device = "cpu"
-            model = model_type.from_pretrained(str(M2M_DIR), local_files_only=True,
+            model = model_type.from_pretrained(str(self.model_dir), local_files_only=True,
                                                torch_dtype=torch.float32)
             return model.to("cpu").eval()
 

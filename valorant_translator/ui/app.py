@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from importlib.metadata import PackageNotFoundError, version
 
+from filelock import Timeout as FileLockTimeout
 from packaging.version import Version
 
 from PySide6.QtCore import QObject, QSignalBlocker, Qt, Signal, QTimer
@@ -26,12 +27,13 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout, 
 
 from valorant_translator.audio.capture import list_devices, preferred_microphone
 from valorant_translator.feedback import FeedbackStore
-from valorant_translator.config import APP_DIR, MODEL_DIR, Settings
+from valorant_translator.config import APP_DIR, MODEL_DIR, Settings, get_model_dir
 from valorant_translator.history import HistoryStore
 from valorant_translator.models.catalog import fetch_catalog, install_selected
 from valorant_translator.models.cos import ModelPaused
-from valorant_translator.models.download import (download_models, import_models,
+from valorant_translator.models.download import (check_huggingface_space, download_models, import_models,
                                                  model_ready, WHISPER_FILES, M2M_FILES)
+from valorant_translator.models.location import InsufficientModelSpace, move_model_dir
 from valorant_translator.pipeline import Pipeline, SubtitleResult, TaskTrace
 from valorant_translator.recognition.whisper import LANGUAGES
 from valorant_translator.translation.glossary import GAMES, read_default_glossary
@@ -76,6 +78,7 @@ class Bridge(QObject):
     talk_level = Signal(float)
     model_catalog = Signal(object)
     download_done = Signal()
+    model_location_done = Signal(object, str)
     model_download_progress = Signal(object, object, float)
     stopped = Signal()
     diagnostic = Signal(str)
@@ -125,6 +128,7 @@ class MainWindow(QMainWindow):
         self._update_cancel_event = threading.Event()
         self._domestic_update = False
         self._model_busy = False
+        self._model_moving = False
         self._model_pause = threading.Event()
         try:
             self._model_channel = load_channel()
@@ -157,6 +161,7 @@ class MainWindow(QMainWindow):
         self.bridge.result.connect(self._result)
         self.bridge.toggle.connect(self._toggle_overlay)
         self.bridge.download_done.connect(self._download_done)
+        self.bridge.model_location_done.connect(self._finish_model_location_move)
         self.bridge.model_download_progress.connect(self._model_download_progress)
         self.bridge.stopped.connect(self._on_stopped)
         self.bridge.diagnostic.connect(self._diagnostic)
@@ -538,6 +543,18 @@ class MainWindow(QMainWindow):
             self.model_source = self._combo([(tr("app.0061"), "cos"), (tr("app.0062"), "huggingface")],
                                             self.settings.model_source)
             self._row(form, tr("app.0063"), self.model_source)
+        model_location = QWidget()
+        model_location_row = QHBoxLayout(model_location)
+        model_location_row.setContentsMargins(0, 0, 0, 0)
+        model_location_row.setSpacing(INLINE)
+        self.model_location_path = QLineEdit(str(self._get_model_dir()))
+        self.model_location_path.setReadOnly(True)
+        self.model_location_path.setAccessibleName(tr("app.0320"))
+        self.model_location_button = GlassButton(tr("app.0321"), icon="folder")
+        self.model_location_button.clicked.connect(self._choose_model_location)
+        model_location_row.addWidget(self.model_location_path, 1)
+        model_location_row.addWidget(self.model_location_button)
+        self._row(form, tr("app.0320"), model_location)
         self._row(form, tr("app.0064"), QLabel(tr("app.0065")))
         self.compute_combo = self._combo([(tr("app.0066"), "auto"), ("GPU", "cuda"), ("CPU", "cpu")],
                                          self.settings.compute_device)
@@ -1057,9 +1074,13 @@ class MainWindow(QMainWindow):
         check.toggled.connect(self._save_settings)
         return check
 
+    def _get_model_dir(self) -> Path:
+        return get_model_dir(self.settings, default=MODEL_DIR)
+
     def _models_ready(self) -> bool:
-        return (model_ready(MODEL_DIR / f"whisper-{self.model_combo.currentData()}", WHISPER_FILES)
-                and model_ready(MODEL_DIR / "m2m100_418M", M2M_FILES))
+        folder = self._get_model_dir()
+        return (model_ready(folder / f"whisper-{self.model_combo.currentData()}", WHISPER_FILES)
+                and model_ready(folder / "m2m100_418M", M2M_FILES))
 
     @staticmethod
     def _torch_version_ok() -> bool:
@@ -1078,8 +1099,9 @@ class MainWindow(QMainWindow):
 
     def _refresh_model_status(self) -> None:
         size = self.model_combo.currentData()
-        whisper = model_ready(MODEL_DIR / f"whisper-{size}", WHISPER_FILES)
-        m2m_dir = MODEL_DIR / "m2m100_418M"
+        folder = self._get_model_dir()
+        whisper = model_ready(folder / f"whisper-{size}", WHISPER_FILES)
+        m2m_dir = folder / "m2m100_418M"
         m2m = model_ready(m2m_dir, M2M_FILES)
         if self.pipeline is None:
             self.model_stat.setText(size if whisper else tr("app.0134"))
@@ -1101,7 +1123,7 @@ class MainWindow(QMainWindow):
             self.start_button.setToolTip("" if whisper and m2m else tr("app.start_models_missing"))
 
     def _save_settings(self, *_):
-        if not hasattr(self, "duration_spin"):
+        if not hasattr(self, "duration_spin") or self._model_moving:
             return
         settings = self.settings
         old_device = settings.device_id
@@ -1313,6 +1335,8 @@ class MainWindow(QMainWindow):
             widget.blockSignals(False)
 
     def start_translation(self) -> None:
+        if self._model_busy:
+            return
         self._save_settings()
         if not self._models_ready():
             QMessageBox.warning(self, tr("app.0165"),
@@ -1901,6 +1925,7 @@ class MainWindow(QMainWindow):
             return
         uses_cos = self._uses_cos_models()
         size = self.model_combo.currentData()
+        folder = self._get_model_dir()
         self._model_pause.clear()
         self._set_model_busy(True)
         self.model_pause_button.setEnabled(True)
@@ -1912,13 +1937,16 @@ class MainWindow(QMainWindow):
                 if uses_cos:
                     if size != "small" and size not in self.catalog:
                         self.catalog_checked.wait(9)
-                    install_selected(self._model_channel, self.catalog, size, MODEL_DIR,
+                    install_selected(self._model_channel, self.catalog, size, folder,
                                      self.bridge.status.emit, self.bridge.model_download_progress.emit,
                                      self._model_pause)
                 else:
-                    download_models(size, self.bridge.status.emit)
+                    check_huggingface_space(size, folder)
+                    download_models(size, self.bridge.status.emit, folder=folder)
             except ModelPaused:
                 self.bridge.status.emit(tr("app.0284"))
+            except InsufficientModelSpace as exc:
+                self.bridge.status.emit(self._model_space_message(exc))
             except Exception as exc:
                 LOG.exception("Model download failed")
                 self.bridge.status.emit(tr("app.0285", p0=exc))
@@ -1957,15 +1985,18 @@ class MainWindow(QMainWindow):
         if self.pipeline is not None:
             QMessageBox.information(self, tr("app.0289"), tr("app.0290"))
             return
-        folder = QFileDialog.getExistingDirectory(self, tr("app.0291"))
-        if not folder:
+        source = QFileDialog.getExistingDirectory(self, tr("app.0291"))
+        if not source:
             return
         self._set_model_busy(True)
         size = self.model_combo.currentData()
+        folder = self._get_model_dir()
 
         def task():
             try:
-                import_models(Path(folder), size, self.bridge.status.emit)
+                import_models(Path(source), size, self.bridge.status.emit, folder=folder)
+            except InsufficientModelSpace as exc:
+                self.bridge.status.emit(self._model_space_message(exc))
             except Exception as exc:
                 LOG.exception("Model import failed")
                 self.bridge.status.emit(tr("app.0292", p0=exc))
@@ -1974,11 +2005,67 @@ class MainWindow(QMainWindow):
 
         threading.Thread(target=task, name="model-import", daemon=True).start()
 
+    @staticmethod
+    def _model_space_message(exc: InsufficientModelSpace) -> str:
+        return tr("app.0322", p0=exc.folder.anchor or exc.folder, p1=exc.required, p2=exc.available)
+
+    def _model_location_in_use(self) -> bool:
+        return (self._model_busy or self.pipeline is not None or self.talk._busy
+                or (self._stop_thread is not None and self._stop_thread.is_alive()))
+
+    def _choose_model_location(self) -> None:
+        if self._model_location_in_use():
+            self._status(tr("app.0323"))
+            return
+        selected = QFileDialog.getExistingDirectory(self, tr("app.0320"))
+        if not selected:
+            return
+        if self._model_location_in_use():
+            self._status(tr("app.0323"))
+            return
+
+        settings = replace(self.settings)
+        self._model_moving = True
+        self._set_model_busy(True)
+        self.centralWidget().setEnabled(False)
+        self._status(tr("app.0324"))
+
+        def task():
+            try:
+                move_model_dir(settings, Path(selected), default=MODEL_DIR)
+            except InsufficientModelSpace as exc:
+                self.bridge.model_location_done.emit(None, self._model_space_message(exc))
+            except FileExistsError as exc:
+                self.bridge.model_location_done.emit(None, tr("app.0325", p0=exc))
+            except FileLockTimeout:
+                self.bridge.model_location_done.emit(None, tr("app.0323"))
+            except Exception as exc:
+                LOG.exception("Model location change failed")
+                self.bridge.model_location_done.emit(None, tr("app.0326", p0=exc))
+            else:
+                self.bridge.model_location_done.emit(settings.model_dir, "")
+
+        threading.Thread(target=task, name="model-location", daemon=True).start()
+
+    def _finish_model_location_move(self, model_dir, error: str) -> None:
+        self._model_moving = False
+        self.centralWidget().setEnabled(True)
+        if not error:
+            self.settings.model_dir = model_dir
+            self.model_location_path.setText(str(self._get_model_dir()))
+        self._set_model_busy(False)
+        if error:
+            self._status(error)
+            QMessageBox.warning(self, tr("app.0320"), error)
+        else:
+            self._status(tr("app.0327", p0=self._get_model_dir()))
+
     def _set_model_busy(self, busy: bool) -> None:
         was_busy = self._model_busy
         self._model_busy = busy
         self.download_button.setEnabled(not busy)
         self.import_button.setEnabled(not busy)
+        self.model_location_button.setEnabled(not busy)
         self.model_progress.setVisible(busy)
         self.model_loading.setVisible(busy)
         if busy:
@@ -2150,6 +2237,9 @@ class MainWindow(QMainWindow):
             self._talk_status(tr("app.0311"))
 
     def closeEvent(self, event) -> None:
+        if self._model_moving:
+            event.ignore()
+            return
         if self.routing_wizard is not None:
             wizard, self.routing_wizard = self.routing_wizard, None
             wizard.close()

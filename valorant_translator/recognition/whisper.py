@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from valorant_translator.config import MODEL_DIR
+from valorant_translator.config import MODEL_DIR, get_model_dir
 from valorant_translator.languages import DEFAULT_LANGUAGES, LanguageCatalog
 from valorant_translator.translation.glossary import Glossary
 
@@ -107,10 +107,12 @@ def filter_segments(segments, info, locked, glossary, on_rejection=None,
 
 
 class LocalWhisper:
-    def __init__(self, model_name: str, requested_device: str, fast_mode: bool = True):
+    def __init__(self, model_name: str, requested_device: str, fast_mode: bool = True,
+                 *, model_dir: Path | None = None):
         from faster_whisper import WhisperModel
 
-        path = MODEL_DIR / f"whisper-{model_name}"
+        folder = model_dir if model_dir is not None else get_model_dir(default=MODEL_DIR)
+        path = folder / f"whisper-{model_name}"
         if not path.is_dir():
             raise FileNotFoundError(f"识别模型缺失：{path}。请先点击“下载模型”。")
         self.path = path
@@ -128,7 +130,7 @@ class LocalWhisper:
             LOG.warning("Whisper CUDA load failed: %s", exc)
             sizes = ("tiny", "base", "small", "medium")
             for smaller in reversed(sizes[:sizes.index(model_name)]):
-                smaller_path = MODEL_DIR / f"whisper-{smaller}"
+                smaller_path = folder / f"whisper-{smaller}"
                 if smaller != model_name and smaller_path.is_dir():
                     try:
                         self.model = WhisperModel(str(smaller_path), device="cuda", compute_type="int8_float16",

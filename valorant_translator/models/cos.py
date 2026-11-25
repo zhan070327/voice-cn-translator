@@ -19,6 +19,7 @@ from zipfile import ZipFile
 from filelock import FileLock, Timeout
 
 from valorant_translator.models.download import MODEL_INVENTORY, M2M_FILES, WHISPER_FILES, model_ready
+from valorant_translator.models.location import require_model_space
 from valorant_translator.updates.domestic import HASH, validate_url
 
 CHUNK = 1024 * 1024
@@ -53,6 +54,7 @@ class Bundle:
     size: int
     sha256: str
     directories: tuple[str, ...] = tuple(REQUIRED)
+    component_bytes: tuple[tuple[str, int], ...] = ()
 
     @classmethod
     def from_channel(cls, channel: dict) -> Bundle:
@@ -69,7 +71,13 @@ class Bundle:
                 or type(size) is not int or not 0 < size <= MAX_BUNDLE_BYTES
                 or not isinstance(digest, str) or not HASH.fullmatch(digest)):
             raise ValueError("国内模型下载配置无效。")
-        return cls(tuple(validate_url(url, allowed) for url in urls), size, digest.lower(), directories)
+        components = data.get("component_compressed_bytes")
+        measured = ()
+        if (isinstance(components, dict)
+                and all(type(components.get(name)) is int and components[name] > 0 for name in directories)
+                and sum(components[name] for name in directories) <= size):
+            measured = tuple((name, components[name]) for name in directories)
+        return cls(tuple(validate_url(url, allowed) for url in urls), size, digest.lower(), directories, measured)
 
 
 def _check_pause(pause: Event) -> None:
@@ -157,8 +165,10 @@ def _extract(archive: Path, staging: Path, missing: set[str], pause: Event,
             seen.add(name)
             if name.split("/", 1)[0] in missing:
                 entries.append(member)
-        if not required <= seen or sum(item.file_size for item in entries) > MAX_EXTRACTED_BYTES:
+        expanded = sum(item.file_size for item in entries)
+        if not required <= seen or expanded > MAX_EXTRACTED_BYTES:
             raise ValueError("模型 ZIP 不完整或解压大小超过限制。")
+        require_model_space(staging, expanded)
         for member in entries:
             target = staging / member.filename
             target.parent.mkdir(exist_ok=True)
@@ -179,6 +189,17 @@ def install_models(bundle: Bundle, folder: Path, status: Callable[[str], None],
         raise DownloadError("另一个软件窗口正在安装模型，请稍后重试。") from exc
 
 
+def space_for_bundle(bundle: Bundle, folder: Path, selected) -> tuple[int, int, int]:
+    """Return additional archive bytes, extracted bytes and existing archive bytes."""
+    partial = folder / f".cos-{bundle.sha256}.zip.part"
+    present = partial.stat().st_size if partial.is_file() else 0
+    # Official archives are stored without compression. Extraction checks the actual
+    # uncompressed member sizes in case a different archive uses compression.
+    components = dict(bundle.component_bytes)
+    expanded = sum(components[name] for name in selected) if components else bundle.size
+    return max(0, bundle.size - present), expanded, present
+
+
 def _install_models(bundle: Bundle, folder: Path, status: Callable[[str], None],
                     progress: Callable[[int, int, float], None], pause: Event, selected: tuple[str, ...]) -> None:
     if not set(selected) <= set(bundle.directories):
@@ -188,6 +209,8 @@ def _install_models(bundle: Bundle, folder: Path, status: Callable[[str], None],
         status("本地模型已齐全，可离线使用。")
         return
     partial = folder / f".cos-{bundle.sha256}.zip.part"
+    remaining, expanded, _ = space_for_bundle(bundle, folder, missing)
+    require_model_space(folder, remaining + expanded)
     _download(bundle, partial, pause, progress)
     status("正在校验模型 SHA-256…")
     digest = hashlib.sha256()

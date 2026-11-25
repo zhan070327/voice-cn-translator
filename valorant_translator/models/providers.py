@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Callable, Protocol
 
-from valorant_translator.config import Settings
+from valorant_translator.config import Settings, get_model_dir
 
 
 class ASRProvider(Protocol):
@@ -46,13 +46,19 @@ class ModelManager:
             raise ValueError(f"未知翻译模型接口：{settings.translation_model}") from exc
 
 
+def create_local_model(factory, settings: Settings, *args):
+    if settings.model_dir:
+        return factory(*args, model_dir=get_model_dir(settings))
+    return factory(*args)
+
+
 def default_model_manager(asr_factory=None, translation_factory=None) -> ModelManager:
     if asr_factory is None:
         from valorant_translator.recognition.whisper import LocalWhisper
-        asr_factory = lambda s: LocalWhisper(s.whisper_model, s.compute_device, s.fast_mode)
+        asr_factory = lambda s: create_local_model(LocalWhisper, s, s.whisper_model, s.compute_device, s.fast_mode)
     if translation_factory is None:
         from valorant_translator.translation.m2m import LocalM2M
-        translation_factory = lambda s: LocalM2M(s.compute_device, s.fast_mode)
+        translation_factory = lambda s: create_local_model(LocalM2M, s, s.compute_device, s.fast_mode)
     manager = ModelManager()
     manager.register_asr("whisper", asr_factory)
     manager.register_translation("m2m100_418M", translation_factory)
