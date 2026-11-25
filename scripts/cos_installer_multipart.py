@@ -15,8 +15,9 @@ from requests.exceptions import ConnectionError, Timeout
 from scripts import publish_cos as cos
 from valorant_translator.updates.github import UpdateError
 
-PART_BYTES = 32 * 1024**2
-WORKERS = 4
+# Use the part size and concurrency that succeeded on the previous accelerated release.
+PART_BYTES = 8 * 1024**2
+WORKERS = 2
 ATTEMPTS = 4
 CRC64 = crcmod.mkCrcFun(0x142F0E1EBA9EA3693, initCrc=0, rev=True, xorOut=2**64-1)
 
@@ -42,7 +43,15 @@ def _retry(operation, label: str):
                          or (isinstance(exc, URLError) and not isinstance(exc, HTTPError)))
             if not retryable or attempt == ATTEMPTS:
                 raise
-            print(f"{label}: retry {attempt}/{ATTEMPTS - 1} ({status or type(exc).__name__})", flush=True)
+            reason = status or type(exc).__name__
+            # SDK messages may include request details, so log only a safe timeout hint.
+            if isinstance(exc, CosClientError):
+                message = str(exc).lower()
+                for hint in ("read timed out", "connect timed out", "write timed out"):
+                    if hint in message:
+                        reason = f"{reason}: {hint}"
+                        break
+            print(f"{label}: retry {attempt}/{ATTEMPTS - 1} ({reason})", flush=True)
             time.sleep(2**(attempt - 1))
 
 
@@ -62,7 +71,9 @@ def _verify_head(headers, size: int, sha: str, crc: str, label: str) -> None:
 
 def upload_immutable(client, path: Path, key: str, *, size: int, sha: str,
                      content_type: str, cache_control: str,
-                     require_public_header=True) -> str:
+                     require_public_header=True, part_client=None) -> str:
+    if part_client is None:
+        part_client = client
     actual_size, actual_sha, crc = fingerprint(path)
     if not size or (actual_size, actual_sha) != (size, sha):
         raise UpdateError(f"Local artifact failed size/SHA-256 verification: {path.name}")
@@ -90,7 +101,7 @@ def upload_immutable(client, path: Path, key: str, *, size: int, sha: str,
             with path.open("rb") as stream:
                 stream.seek(offset)
                 data = stream.read(min(PART_BYTES, size - offset))
-            result = _retry(lambda: client.upload_part(
+            result = _retry(lambda: part_client.upload_part(
                 Bucket=cos.BUCKET, Key=key, UploadId=upload_id,
                 PartNumber=number, Body=data, ContentLength=str(len(data)), EnableMD5=True),
                 f"{path.name} part {number}")
@@ -105,13 +116,18 @@ def upload_immutable(client, path: Path, key: str, *, size: int, sha: str,
                 futures = [pool.submit(upload_part, number, offset)
                            for number, offset in enumerate(range(0, size, PART_BYTES), 1)]
                 parts = []
-                for future in as_completed(futures):
-                    part, count = future.result()
-                    parts.append(part)
-                    transferred += count
-                    rate = transferred / max(time.monotonic() - start, 0.001) / 1024**2
-                    print(f"{path.name}: {len(parts)}/{len(futures)} parts, {transferred}/{size} bytes ({rate:.1f} MiB/s)",
-                          flush=True)
+                try:
+                    for future in as_completed(futures):
+                        part, count = future.result()
+                        parts.append(part)
+                        transferred += count
+                        rate = transferred / max(time.monotonic() - start, 0.001) / 1024**2
+                        print(f"{path.name}: {len(parts)}/{len(futures)} parts, {transferred}/{size} bytes ({rate:.1f} MiB/s)",
+                              flush=True)
+                except Exception:
+                    for future in futures:
+                        future.cancel()
+                    raise
             parts.sort(key=lambda part: int(part["PartNumber"]))
             try:
                 client.complete_multipart_upload(Bucket=cos.BUCKET, Key=key, UploadId=upload_id,
