@@ -82,10 +82,11 @@ def verify_github_assets(assets: list[dict], manifest: dict) -> None:
             raise UpdateError(f"GitHub asset was not verified: {name}.")
 
 
-def _stage_installer(client, path: Path, entry: dict) -> None:
+def _stage_installer(client, part_client, path: Path, entry: dict) -> None:
     key = f"releases/{APP_VERSION}/{path.name}"
     upload.upload_immutable(client, path, key, size=entry["size"], sha=entry["sha256"],
-                            content_type="application/octet-stream", cache_control=cos.INSTALLER_CACHE)
+                            content_type="application/octet-stream", cache_control=cos.INSTALLER_CACHE,
+                            part_client=part_client)
 
 
 def publish(repo: str, gpu: Path, cpu: Path, manifest: dict, notes: str, commit: str, payload: bytes) -> None:
@@ -104,8 +105,15 @@ def publish(repo: str, gpu: Path, cpu: Path, manifest: dict, notes: str, commit:
         if previous_version > Version(APP_VERSION) or previous_version == Version(APP_VERSION) and previous != payload:
             raise UpdateError("COS already contains this version with different content or a newer version.")
     cos._probe_public_model(cos._channel())
-    _stage_installer(client, gpu / INSTALLERS["gpu"], manifest)
-    _stage_installer(client, cpu / INSTALLERS["cpu"], manifest["editions"]["cpu"])
+    # Route only UploadPart through acceleration. Keep multipart control, checks,
+    # and the manifest on the regional endpoint.
+    endpoint = "cos.accelerate.myqcloud.com"
+    part_timeout = 300
+    part_client = cos._make_client(endpoint=endpoint, timeout=part_timeout, retry=1)
+    print(f"COS UploadPart: {endpoint}, {upload.PART_BYTES // 1024**2} MiB parts, "
+          f"{upload.WORKERS} workers, {part_timeout}s socket timeout", flush=True)
+    _stage_installer(client, part_client, gpu / INSTALLERS["gpu"], manifest)
+    _stage_installer(client, part_client, cpu / INSTALLERS["cpu"], manifest["editions"]["cpu"])
     release = _find_github_release(repo, tag)
     if release is None:
         with TemporaryDirectory() as temporary:

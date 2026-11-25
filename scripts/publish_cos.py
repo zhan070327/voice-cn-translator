@@ -200,14 +200,15 @@ def publish(client, installer: Path, manifest: dict, payload: bytes,
         raise UpdateError("latest.json 上传后读取校验失败，请立即检查 COS。")
 
 
-def _make_client():
+def _make_client(*, endpoint=None, timeout=30, retry=3):
     secret_id, secret_key = os.environ.get("COS_SECRET_ID"), os.environ.get("COS_SECRET_KEY")
     if not secret_id or not secret_key:
         raise UpdateError("上传需要 COS_SECRET_ID 和 COS_SECRET_KEY 环境变量；dry-run 不需要。")
     from qcloud_cos import CosConfig, CosS3Client
     config = CosConfig(Region=REGION, SecretId=secret_id, SecretKey=secret_key,
-                       Token=os.environ.get("COS_SESSION_TOKEN") or None, Scheme="https", Timeout=30)
-    return CosS3Client(config)
+                       Token=os.environ.get("COS_SESSION_TOKEN") or None, Scheme="https",
+                       Endpoint=endpoint, Timeout=timeout)
+    return CosS3Client(config, retry=retry)
 
 
 def main() -> None:
