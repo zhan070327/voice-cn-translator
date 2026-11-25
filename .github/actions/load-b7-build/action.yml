@@ -1,0 +1,83 @@
+name: Load verified b7 Windows build
+description: Download only the pinned GPU and CPU artifacts from the successful b7 Windows build
+inputs:
+  github-token:
+    description: Read-only Actions token for the verified build run
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Check that GitHub still reports the pinned run and artifacts as verified
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        sha=783d8b9bc0d62df031d4aeaf3c0f1dbf43487624
+        git merge-base --is-ancestor "$sha" HEAD
+        run="repos/$GITHUB_REPOSITORY/actions/runs/45569973292"
+        gh api "$run" | jq -e --arg repo "$GITHUB_REPOSITORY" --arg sha "$sha" '
+          .status == "completed" and .conclusion == "success" and .run_attempt == 1
+          and .event == "workflow_dispatch" and .path == ".github/workflows/windows-beta.yml" and .head_branch == "main"
+          and .head_repository.full_name == $repo and .head_sha == $sha
+        ' >/dev/null
+        gh api "$run/attempts/1/jobs" | jq -e '
+          def verified($edition):
+            any(.jobs[]; .name == ("build (" + $edition + ")") and .conclusion == "success"
+              and ([.steps[] | select(.conclusion == "success") | .name] as $passed
+                | ["Test source", "Check bundled CUDA and quietly install the EXE",
+                   "Record release checksums", "Upload tested installer"] - $passed == []));
+          verified("gpu") and verified("cpu")
+        ' >/dev/null
+        gh api "$run/artifacts" | jq -e '
+          any(.artifacts[]; .id == 15003425449 and .name == "windows-dual-gpu-45569973292-1" and .expired == false
+              and .digest == "sha256:b07ad7548ee1dda13d4128b1a6839ffd09e8982bf3c9e9e0c63ba989337bc03a")
+          and any(.artifacts[]; .id == 15002495562 and .name == "windows-dual-cpu-45569973292-1" and .expired == false
+              and .digest == "sha256:7865dd37a2075409267129d89798e86a0862cad6baea9710c5ecd8b0a0f29521")
+        ' >/dev/null
+    - uses: actions/download-artifact@v4
+      with:
+        name: windows-dual-gpu-45569973292-1
+        path: dist/paired/gpu
+        run-id: 45569973292
+        github-token: ${{ inputs.github-token }}
+    - uses: actions/download-artifact@v4
+      with:
+        name: windows-dual-cpu-45569973292-1
+        path: dist/paired/cpu
+        run-id: 45569973292
+        github-token: ${{ inputs.github-token }}
+    - name: Verify both installer hashes, sizes, versions, notes and build receipts
+      shell: bash
+      run: |
+        set -euo pipefail
+        python -m pip install 'packaging>=24,<27' -r requirements_publish.txt
+        python -m scripts.publish_paired_release \
+          --gpu dist/paired/gpu --cpu dist/paired/cpu \
+          --expected-commit 783d8b9bc0d62df031d4aeaf3c0f1dbf43487624 \
+          --expected-run 45569973292 --expected-attempt 1 | tee -a "$GITHUB_STEP_SUMMARY"
+    - name: Verify the validated manifest against the exact b4 updater
+      shell: bash
+      run: |
+        python - <<'PY'
+        import json
+        import subprocess
+        import types
+        from pathlib import Path
+        from scripts.publish_cos import DOWNLOAD_HOSTS
+        from valorant_translator.updates.github import INSTALLER_NAME
+
+        data = Path("dist/paired-latest.json").read_bytes()
+        original = types.ModuleType("b4_domestic")
+        exec(subprocess.check_output([
+            "git", "show", "0571493f0c7eac412347635d7c3b74278923f7c0:valorant_translator/updates/domestic.py"
+        ]), original.__dict__)
+        current = original.parse_manifest(data, DOWNLOAD_HOSTS, "0.3.0b4")
+        assert current is not None and str(current.version) == "0.3.0b7"
+        assert current.url.endswith("/" + INSTALLER_NAME)
+        manifest = json.loads(data)
+        assert (current.url, current.size, current.sha256) == (
+            manifest["download_url"], manifest["size"], manifest["sha256"],
+        )
+        print("The original b4 updater accepts the b7 GPU entry.")
+        PY
