@@ -128,7 +128,8 @@ jobs:
       - name: Check bundled CUDA and quietly install the EXE
         shell: pwsh
         run: |
-          $setup = Get-Item 'dist/VoiceCNTranslator_Beta_Setup.exe'
+          $setupName = if ($env:BUILD_EDITION -eq 'cpu') { 'SameFreq_CPU_Beta_Setup.exe' } else { 'SameFreq_Beta_Setup.exe' }
+          $setup = Get-Item "dist/$setupName"
           $bundle = Get-Item 'dist/ValorantTranslator'
           $dlls = Get-ChildItem -LiteralPath $bundle.FullName -File -Recurse -Filter '*.dll'
           foreach ($dll in 'torch_cuda.dll','cudart64_12.dll','cublas64_12.dll','cudnn64_9.dll') {
@@ -160,7 +161,8 @@ jobs:
       - name: Record release checksums
         shell: pwsh
         run: |
-          $setup = Get-Item 'dist/VoiceCNTranslator_Beta_Setup.exe'
+          $setupName = if ($env:BUILD_EDITION -eq 'cpu') { 'SameFreq_CPU_Beta_Setup.exe' } else { 'SameFreq_Beta_Setup.exe' }
+          $setup = Get-Item "dist/$setupName"
           $version = & .\.venv\Scripts\python.exe -c "from valorant_translator.version import APP_VERSION; print(APP_VERSION)"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $sha = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -171,10 +173,6 @@ jobs:
                 $receipt.size -ne $setup.Length -or $receipt.sha256 -ne $sha) {
               throw 'Installer and domestic build receipt mismatch.'
             }
-          }
-          if ($env:BUILD_EDITION -eq 'cpu') {
-            Rename-Item -LiteralPath $setup.FullName -NewName 'VoiceCNTranslator_CPU_Beta_Setup.exe'
-            $setup = Get-Item 'dist/VoiceCNTranslator_CPU_Beta_Setup.exe'
           }
           $cuda = if ($env:BUILD_EDITION -eq 'gpu') { '12.4' } else { $null }
           Copy-Item 'release_notes.txt' 'dist/release_notes.txt'
@@ -192,7 +190,7 @@ jobs:
         with:
           name: ${{ inputs.channel == 'domestic' && matrix.edition == 'gpu' && format('windows-domestic-{0}-{1}', github.run_id, github.run_attempt) || format('windows-{0}-{1}-{2}-{3}', inputs.channel || 'dual', matrix.edition, github.run_id, github.run_attempt) }}
           path: |
-            dist/VoiceCNTranslator*_Beta_Setup.exe
+            dist/SameFreq*_Beta_Setup.exe
             dist/windows_build.json
             dist/domestic_build.json
             dist/release_notes.txt
