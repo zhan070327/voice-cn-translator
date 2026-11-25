@@ -3,11 +3,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QInputDialog, QLabel, QMessageBox)
 
-from valorant_translator.ui.glass import DEFAULT_ACCENT, background_palette, glass_styles
+from valorant_translator.ui import tokens as t
+from valorant_translator.ui.glass import DEFAULT_ACCENT, GlassButton, glass_styles
+from valorant_translator.ui.motion import DetailPanel
 
 
 _BUTTON_TEXT = {"Ok": "确定", "Cancel": "取消", "Save": "保存", "Close": "关闭", "Open": "打开",
@@ -28,54 +30,64 @@ def apply_dialog_theme(dialog, settings=None, *, painted_surface=False):
         settings = getattr(parent, "settings", None)
         parent = parent.parentWidget()
     accent = getattr(settings, "accent", DEFAULT_ACCENT)
-    colors = background_palette(getattr(settings, "background_theme", "default"),
-                                getattr(settings, "background_color", ""))
+    game = getattr(settings, "game", "valorant")
+    skin = t.skin_for(game)
     palette = dialog.palette()
     for role, color in (
-        (QPalette.ColorRole.Window, colors.top),
-        (QPalette.ColorRole.Base, "#181b2a"),
-        (QPalette.ColorRole.AlternateBase, "#222737"),
-        (QPalette.ColorRole.Button, "#30374a"),
-        (QPalette.ColorRole.WindowText, "#f0edf2"),
-        (QPalette.ColorRole.Text, "#f0edf2"),
-        (QPalette.ColorRole.ButtonText, "#f0edf2"),
-        (QPalette.ColorRole.PlaceholderText, "#bdc3d2"),
-        (QPalette.ColorRole.Highlight, "#475b7a"),
-        (QPalette.ColorRole.HighlightedText, "#fff9fe"),
-        (QPalette.ColorRole.ToolTipBase, "#202436"),
-        (QPalette.ColorRole.ToolTipText, "#f0edf2"),
+        (QPalette.ColorRole.Window, skin.panel),
+        (QPalette.ColorRole.Base, skin.background),
+        (QPalette.ColorRole.AlternateBase, skin.panel),
+        (QPalette.ColorRole.Button, skin.panel),
+        (QPalette.ColorRole.WindowText, t.TEXT),
+        (QPalette.ColorRole.Text, t.TEXT),
+        (QPalette.ColorRole.ButtonText, t.TEXT),
+        (QPalette.ColorRole.PlaceholderText, t.MUTED),
+        (QPalette.ColorRole.Highlight, t.EDGE),
+        (QPalette.ColorRole.HighlightedText, t.TEXT),
+        (QPalette.ColorRole.ToolTipBase, skin.panel),
+        (QPalette.ColorRole.ToolTipText, t.TEXT),
     ):
         palette.setColor(role, QColor(color))
     for role in (QPalette.ColorRole.Text, QPalette.ColorRole.WindowText, QPalette.ColorRole.ButtonText):
-        palette.setColor(QPalette.ColorGroup.Disabled, role, QColor("#a0a4ad"))
+        palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(t.MUTED))
     dialog.setPalette(palette)
     dialog.setAutoFillBackground(True)
 
-    style = glass_styles(accent)
+    style = glass_styles(accent, game)
     if not painted_surface:
         dialog.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         # QSS foreground colors alone make text disappear against Windows' light default dialog surface.
         style += f"""
-            QDialog, QMessageBox, QColorDialog {{
-                background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {colors.top},stop:1 {colors.bottom});
-            }}
+            QDialog, QMessageBox, QColorDialog {{ background: {skin.panel}; }}
             QPlainTextEdit, QTextEdit, QAbstractItemView {{
-                background: #181b2a; alternate-background-color: #222737;
-                color: #f0edf2; selection-background-color: #475b7a; selection-color: #fff9fe;
-                border: 1px solid #535c72; border-radius: 8px;
+                background: {skin.background}; alternate-background-color: {skin.panel};
+                color: {t.TEXT}; selection-background-color: {t.EDGE}; selection-color: {t.TEXT};
+                border: 1px solid {t.EDGE}; border-radius: {t.CONTROL_RADIUS}px;
             }}
-            QAbstractItemView::item {{
-                padding: 3px;
-            }}
-            QPushButton:default {{
-                border-color: #a3b4cf;
-            }}
-            QToolTip {{
-                background: #202436; color: #f0edf2; border: 1px solid #535c72;
-            }}
+            QAbstractItemView::item {{ padding: {t.TIGHT}px; }}
+            QPushButton:default {{ border-color: {t.TEXT}; }}
         """
     dialog.setStyleSheet(style)
     localize_buttons(dialog)
+    if not hasattr(dialog, "_arrival"):
+        dialog._arrival = _DialogArrival(dialog)
+    reduced = getattr(settings, "reduce_motion", False)
+    dialog._arrival.effect.set_reduced(reduced)
+    for button in dialog.findChildren(GlassButton):
+        button.set_reduced_motion(reduced)
+
+
+class _DialogArrival(QObject):
+    def __init__(self, dialog):
+        super().__init__(dialog)
+        self.effect = DetailPanel(dialog)
+        self.effect.hide()
+        dialog.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.Show:
+            self.effect.show_from_center()
+        return False
 
 
 class GlassMessageBox(QMessageBox):

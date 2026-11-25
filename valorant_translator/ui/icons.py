@@ -11,8 +11,10 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QWidget
 from shiboken6 import isValid
 
+from valorant_translator.ui import tokens
+
 SIZE = 20
-NEUTRAL = "#e1e7f1"
+NEUTRAL = tokens.MUTED
 FRAME_MS = 33
 DONE_PHASE = 10
 
@@ -108,13 +110,15 @@ def button_icon(name, color, frame=0):
 
 
 class LineIcon(QWidget):
-    def __init__(self, name):
+    def __init__(self, name, *, accented=False):
         super().__init__()
         self.name = name
+        self.accented = accented
         self.mode = "idle"
         self.accent = NEUTRAL
         self.highlighted = False
         self.phase = 0
+        self._reduced = False
         self.level = 0.0
         self._host_ref = None
         self._elapsed = 0.0
@@ -146,9 +150,19 @@ class LineIcon(QWidget):
     def set_level(self, level):
         self.level = max(0.0, min(1.0, level))
 
+    def set_reduced_motion(self, value):
+        if self._reduced != value:
+            self._reduced = value
+            self._sync_animation()
+            self.update()
+
     def _sync_animation(self):
         timer = getattr(self, "_timer", None)
         if timer is None or not isValid(timer):
+            return
+        if self._reduced:
+            self._pause_animation()
+            self.phase = DONE_PHASE if self.mode == "done" else 0
             return
         moving = self.mode in ("spin", "pulse") or (self.mode == "done" and self.phase < DONE_PHASE)
         if moving and self.isVisible() and not self.window().isMinimized():
@@ -215,5 +229,5 @@ class LineIcon(QWidget):
     def paintEvent(self, event):
         if getattr(self, "name", None) in _LINES:
             with QPainter(self) as painter:
-                _draw(painter, self.name, self.accent if self.highlighted else NEUTRAL,
+                _draw(painter, self.name, self.accent if self.highlighted or self.accented else NEUTRAL,
                       self.mode, self.phase, self.level)

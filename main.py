@@ -14,6 +14,7 @@ def self_test() -> int:
         from PySide6.QtWidgets import QApplication, QLabel
         from valorant_translator.models.cos import Bundle, NOTICE
         from valorant_translator.translation.glossary import Glossary
+        from valorant_translator.ui.fonts import load_display_fonts
         from valorant_translator.updates.domestic import load_channel
 
         channel = load_channel()
@@ -24,6 +25,8 @@ def self_test() -> int:
             assert NOTICE.is_file(), "Bundled model license notice is missing"
 
         app = QApplication([])
+        if getattr(sys, "frozen", False):
+            assert load_display_fonts() == ("Rajdhani", "Noto Sans CJK SC"), "Bundled display fonts could not be loaded"
         label = QLabel("启动检查")
         assert label.text() == "启动检查"
         assert Glossary().callout("Go rush A", "en") == "快攻 A。"

@@ -22,6 +22,7 @@ if errorlevel 1 goto fail
   --add-data "config\update_channel.json;config" ^
   --add-data "scripts\windows_updater.ps1;scripts" ^
   --add-data "assets\app_icon.ico;assets" ^
+  --add-data "assets\fonts;assets\fonts" ^
   --add-data "THIRD_PARTY_NOTICES_CN.md;." ^
   --collect-all soundcard --collect-all faster_whisper --collect-all ctranslate2 ^
   --collect-all transformers --collect-all sentencepiece ^

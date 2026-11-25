@@ -3,8 +3,8 @@ from __future__ import annotations
 import time
 from types import SimpleNamespace
 
-from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QColor, QEnterEvent, QHideEvent, QShowEvent
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
+from PySide6.QtGui import QColor, QEnterEvent, QHideEvent, QPalette, QShowEvent, QTextLayout
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QVBoxLayout, QWidget
 
@@ -25,6 +25,8 @@ from valorant_translator.ui.overlay import SubtitleOverlay
 
 def test_overlay_keeps_two_and_expires(qapp):
     overlay = SubtitleOverlay(Settings(subtitle_seconds=0.01))
+    assert overlay.autoFillBackground()
+    assert overlay.palette().color(QPalette.ColorRole.Window).lightness() < 60
     for i in range(3):
         overlay.add_subtitle(f"字幕 {i}")
     assert len(overlay.entries) == 2
@@ -59,7 +61,7 @@ def test_main_window_starts_without_models(qapp, monkeypatch, tmp_path):
     monkeypatch.setattr(ui.MainWindow, "_start_hotkey", lambda self: None)
     window = ui.MainWindow()
     assert "待机" in window.status_label.text()
-    assert not window.start_button.isEnabled()
+    assert window.start_button.isEnabled()
     assert "没有可用设备" in window.device_hint.text()
     from valorant_translator.audio.capture import AudioDevice
     monkeypatch.setattr(ui, "list_devices", lambda: [
@@ -102,8 +104,8 @@ def test_main_window_starts_without_models(qapp, monkeypatch, tmp_path):
     assert "Two A Main." in window.original_label.text()
     warnings = []
     monkeypatch.setattr(ui.QMessageBox, "warning", lambda *args: warnings.append(args))
-    window.start_translation()
-    assert warnings and "下载模型" in warnings[0][1]
+    window.start_button.click()
+    assert warnings and "下载模型" in warnings[0][1] and "从文件夹导入" in warnings[0][2]
     window.bridge.model_download_progress.emit(2_200_000_000, 2_428_144_996, 1_000_000.0)
     assert window.model_progress.value() == 90
     assert "剩余" in window.model_transfer.text()
@@ -179,11 +181,9 @@ def test_glass_button_animates_without_resizing(qapp):
     hit_target = button.geometry()
     point = QPointF(4, 4)
     qapp.sendEvent(button, QEnterEvent(point, point, point))
-    QTest.qWait(130)
-    assert abs(button.visualHover - 1.0) < 0.001
+    assert _wait_for(lambda: abs(button.visualHover - 1.0) < 0.001)
     qapp.sendEvent(button, QEvent(QEvent.Type.Leave))
-    QTest.qWait(130)
-    assert abs(button.visualHover) < 0.001
+    assert _wait_for(lambda: abs(button.visualHover) < 0.001)
     QTest.mousePress(button, Qt.MouseButton.LeftButton)
     QTest.qWait(110)
     assert abs(button.visualScale - 0.97) < 0.001
@@ -364,7 +364,7 @@ def test_theme_switches_are_independent_saved_and_shared_with_onboarding(qapp, m
         saved = Settings.load()
         assert saved.background_theme == "default" and saved.accent == DEFAULT_ACCENT
         assert saved.background_color == "" and saved.font_size == 34
-        assert reopened.surface._background == background_palette("default", "")
+        assert reopened.surface._background == background_palette("default", "", "valorant")
     finally:
         reopened.close()
 
@@ -490,5 +490,311 @@ def test_b6_history_correction_requires_explicit_scope(qapp, monkeypatch, tmp_pa
         [rule] = window.custom_rules.rules
         assert (rule.original, rule.translated, rule.game, rule.source, rule.target) == (
             "Go A", "全队去 A。", "valorant", "en", "zh")
+    finally:
+        window.close()
+
+
+def _launch_upgrade_preview(monkeypatch, tmp_path):
+    from valorant_translator import config
+    from valorant_translator.ui import app as ui
+
+    monkeypatch.setattr(config, "APP_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "settings.json")
+    monkeypatch.setattr(ui, "MODEL_DIR", tmp_path / "models")
+    monkeypatch.setattr(ui, "list_devices", lambda: [])
+    monkeypatch.setattr(ui, "load_channel", lambda: {})
+    monkeypatch.setattr(ui.MainWindow, "_start_hotkey", lambda self: None)
+    window = ui.MainWindow()
+    window.show()
+    return window
+
+
+def test_upgrade_switches_five_skins_twice_and_persists_override(qapp, monkeypatch, tmp_path):
+    from valorant_translator.ui.tokens import SKINS
+
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        qapp.processEvents()
+        position = window.hero.geometry()
+        monkeypatch.setattr(window, "_pick_theme_color", lambda *_: QColor("#117788"))
+        window._choose_accent()
+        buttons = dict(zip(SKINS, window.game_group.buttons()))
+        for game in list(SKINS) * 2:
+            buttons[game].click()
+            qapp.processEvents()
+            assert window.settings.game == game
+            assert buttons[game].isChecked()
+            assert window.hero.geometry() == position
+            assert window.surface._background.top == SKINS[game].background
+            expected = "#117788" if game == "valorant" else SKINS[game].accent
+            assert window.settings.accent == expected
+        assert _wait_for(lambda: window.game_capsule.target is buttons["general"]
+                         and not window.skin_snapshot.isVisible())
+        window.game_accent_reset_button.click()
+        assert Settings.load().game_accents == {"valorant": "#117788"}
+        window.reduce_motion_check.setChecked(True)
+        buttons["valorant"].click()
+        assert Settings.load().reduce_motion
+        assert window.settings.accent == "#117788"
+        assert not window.skin_snapshot.isVisible()
+        assert not window.game_capsule.animation.state().value
+    finally:
+        window.close()
+
+
+def test_upgrade_truthful_loading_empty_and_errors(qapp, monkeypatch, tmp_path):
+    from valorant_translator.ui import app as ui
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        assert window.chinese_label.isHidden()
+        assert window.caption_hint.text() == "开始翻译，看到第一条字幕"
+        assert window.caption_loading.isVisible()
+        assert window.volume.isHidden()
+        window._caption_state("loading", "正在加载本地模型。")
+        assert window.caption_loading.isVisible() and "正在加载" in window.chinese_label.text()
+        assert window.caption_loading.pulse.state().value
+        window._status("运行失败：设备已断开")
+        assert not window.caption_loading.isVisible()
+        assert "设备已断开" in window.caption_hint.text()
+        assert window.latency_stat.isHidden()
+        window._result(SubtitleResult("A main", "A 大。", "en", 0.2, 0.1, 0.35))
+        assert window.chinese_label.text() == "A 大。"
+        assert window.language_label.width() > 0
+        assert window.latency_stat.isVisible() and "0.35" in window.latency_stat.text()
+        assert window.confidence_label.isHidden()
+        window.detail_toggle.click()
+        assert window.details_panel.isVisible()
+        assert "识别 0.20s" in window.latency_label.text()
+        window.detail_toggle.click()
+        assert _wait_for(window.details_panel.isHidden)
+        window._set_model_busy(True)
+        assert window.model_loading.isVisible()
+        window._status("模型下载失败：网络中断")
+        window._download_done()
+        assert not window.model_loading.isVisible() and "网络中断" in window.model_state.text()
+        window.nav.button(2).click()
+        assert window.history_loading.isVisible()
+        assert _wait_for(lambda: "暂无翻译历史" in window.history_state.text())
+        monkeypatch.setattr(window.history, "recent", lambda *_: (_ for _ in ()).throw(OSError("读写失败")))
+        window._request_history()
+        assert _wait_for(lambda: "读写失败" in window.history_state.text())
+        window.game_group.buttons()[1].click()
+        window.nav.button(1).click()
+        assert window.glossary_loading.isVisible()
+        assert _wait_for(lambda: window.glossary_status.text() == "该游戏词库建设中，暂用通用翻译")
+        monkeypatch.setattr(ui, "read_default_glossary", lambda *_: (_ for _ in ()).throw(ValueError("词库损坏")))
+        window._refresh_glossary()
+        assert _wait_for(lambda: "读取失败" in window.glossary_status.text())
+    finally:
+        window.close()
+
+
+def test_upgrade_dock_uses_existing_actions_and_motion_can_be_reduced(qapp, monkeypatch, tmp_path):
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        qapp.processEvents()
+        item, neighbor, _ = window.dock.buttons
+        assert item.accessibleName() == "测试字幕"
+        assert not item.text() and not item.icon().isNull()
+        point = QPointF(4, 4)
+        qapp.sendEvent(item, QEnterEvent(point, point, point))
+        assert _wait_for(lambda: item.dockOpacity >= 0.99 and neighbor.dockOpacity >= 0.44)
+        window.reduce_motion_check.setChecked(True)
+        assert item.dockOpacity == neighbor.dockOpacity == 0
+        item.click()
+        assert window.overlay.entries
+        window._caption_state("loading")
+        assert not window.caption_loading.pulse.state().value
+        window.result_icon.set_mode("done")
+        assert window.result_icon.phase == DONE_PHASE
+        assert not window.result_icon._timer.isActive()
+    finally:
+        window.close()
+
+
+
+def test_main_subtitle_card_shows_only_two_real_results(qapp, monkeypatch, tmp_path):
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        assert window.previous_caption.isHidden()
+        lines = ("中路两人。", "守住 B 点。", "转 A 点，安全。")
+        for index, line in enumerate(lines):
+            window._result(SubtitleResult("callout", line, "en", 0.2, 0.1, 0.35))
+            assert window.chinese_label.text() == line
+            if index:
+                assert window.previous_caption.isVisible()
+                assert window.previous_caption.text() == lines[index - 1]
+            else:
+                assert window.previous_caption.isHidden()
+    finally:
+        window.close()
+
+
+
+def test_bundled_display_fonts_and_equal_width_latency_digits(qapp, monkeypatch, tmp_path):
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        window._result(SubtitleResult("Go A", "转 A 点 123", "en", 0.2, 0.1, 0.35))
+        for label in (window.chinese_label, window.overlay.label):
+            text = QTextLayout(label.text(), label.font())
+            text.beginLayout()
+            text.createLine()
+            text.endLayout()
+            faces = {(run.rawFont().familyName(), run.rawFont().styleName()) for run in text.glyphRuns()}
+            assert ("Rajdhani", "Bold") in faces
+            assert ("Noto Sans CJK SC", "Black") in faces
+        metrics = window.latency_stat.fontMetrics()
+        assert len({metrics.horizontalAdvance(str(digit)) for digit in range(10)}) == 1
+    finally:
+        window.close()
+
+
+def test_quick_start_uses_persisted_chinese_history_and_opens_existing_page(qapp, monkeypatch, tmp_path):
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        assert "暂无翻译历史" in window.recent_hint.text()
+        for index in range(6):
+            window.history.add_result(SubtitleResult("callout", f"队友报点 {index}", "en",
+                                                     0.1, 0.1, index / 10))
+        latest = window.history.recent(1)[0]
+        window.history.correct(latest.id, "已修正的译文", apply_future=False)
+        window.history.add_result(SubtitleResult("转 A", "Rotate A", "zh", 0.1, 0.1, 0.2,
+                                                 target_language="en"))
+        window._refresh_history()
+        assert window.chinese_label.text() == "已修正的译文"
+        assert window.latency_stat.text() == "0.50 秒"
+        assert window.previous_caption.text() == "队友报点 4"
+        assert window.previous_latency.text() == "0.40 秒"
+        assert window.recent_list.topLevelItemCount() == 3
+        assert [window.recent_list.topLevelItem(i).text(0) for i in range(3)] == [
+            "已修正的译文", "队友报点 4", "队友报点 3",
+        ]
+        assert window.history_table.rowCount() == 7
+        assert window.recent_list.topLevelItem(0).text(1) == latest.created_at[11:19]
+        item = window.recent_list.topLevelItem(0)
+        window.recent_list.itemClicked.emit(item, 0)
+        assert window.tabs.currentWidget() is window.history_page
+        window.history.clear_history()
+        window._refresh_history()
+        assert window.chinese_label.isHidden() and window.caption_loading.isVisibleTo(window.hero)
+        assert window.recent_list.isHidden()
+    finally:
+        window.close()
+
+
+def test_quick_start_has_no_dialog_before_first_live_caption(qapp, monkeypatch, tmp_path):
+    from valorant_translator.audio.capture import AudioDevice
+    from valorant_translator.ui import app as ui
+
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    warnings = []
+    monkeypatch.setattr(ui.QMessageBox, "warning", lambda *args: warnings.append(args))
+    monkeypatch.setattr(window, "_models_ready", lambda: True)
+    monkeypatch.setattr(window, "_torch_version_ok", lambda: True)
+    try:
+        window.start_button.click()
+        assert "刷新设备" in window.caption_hint.text()
+        assert not warnings
+        window._apply_devices([AudioDevice("speaker", "默认回环", True)])
+
+        class TestPipeline:
+            diagnostics = None
+            failures = 0
+
+            def __init__(self, settings, on_status, on_level, on_result, *args, **kwargs):
+                self.on_result = on_result
+
+            def start(self):
+                self.on_result(SubtitleResult("A main", "A 大。", "en", 0.2, 0.1, 0.35))
+
+            def stop(self):
+                pass
+
+        monkeypatch.setattr(ui, "Pipeline", TestPipeline)
+        window.start_button.click()
+        assert not warnings
+        assert window.chinese_label.text() == "A 大。"
+        assert window.latency_stat.text() == "0.35 秒" and window.previous_latency.isHidden()
+        assert not window.caption_loading.isVisible()
+        assert window.caption_light.animation.duration() == 200
+        assert window.caption_light.opacity < 1
+        assert _wait_for(lambda: window.caption_light.opacity == 1)
+    finally:
+        window.close()
+
+
+def test_onboarding_shows_step_and_only_detected_device_names(qapp, monkeypatch, tmp_path):
+    from valorant_translator.audio.capture import AudioDevice
+
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        window._show_onboarding()
+        guide = window.onboarding
+        assert guide.step_status.text() == "第 1 步，共 3 步"
+        assert "输入：" not in guide.details.text() and "麦克风：" not in guide.details.text()
+        window._apply_devices([AudioDevice("speaker", "扬声器", True)])
+        guide._refresh()
+        assert "扬声器" in guide.details.text()
+        assert "麦克风：" not in guide.details.text()
+        guide.step = 1
+        guide._refresh()
+        assert guide.step_status.text() == "第 2 步，共 3 步"
+        guide.close()
+    finally:
+        window.close()
+
+
+
+def test_quick_start_fits_live_captions_history_and_controls_at_default_size(qapp, monkeypatch, tmp_path):
+    from valorant_translator.audio.capture import AudioDevice
+    from valorant_translator.ui import app as ui
+
+    monkeypatch.setattr(ui, "model_ready", lambda *_: True)
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        window._apply_devices([AudioDevice("speaker", "系统回环播放设备", True)])
+        scroll = window.tabs.widget(0)
+        viewport = scroll.viewport()
+
+        def fits():
+            qapp.processEvents()
+            return (scroll.verticalScrollBar().maximum() == 0
+                    and not scroll.verticalScrollBar().isVisible()
+                    and scroll.horizontalScrollBar().maximum() == 0)
+
+        def layout_details():
+            groups = scroll.widget().findChildren(QGroupBox)
+            bounds = {group.title(): (group.mapTo(viewport, QPoint()).y(), group.height())
+                      for group in groups if group.isVisible()}
+            return (f"viewport={viewport.size().toTuple()}, "
+                    f"vertical={scroll.verticalScrollBar().maximum()}, "
+                    f"horizontal={scroll.horizontalScrollBar().maximum()}, "
+                    f"hero={window.hero.height()}, group (y, height)={bounds}, "
+                    f"recent rows={window.recent_list.topLevelItemCount()}, "
+                    f"row height={window.recent_list.sizeHintForRow(0)}, dock={window.dock.height()}")
+
+        assert window.size().toTuple() == (1160, 840)
+        assert fits(), layout_details()
+        window.pipeline = SimpleNamespace(failures=0, stop=lambda: None)
+        window._status("正在翻译（识别 cpu，翻译 cpu）")
+        window._runtime("识别 CPU · 翻译 CPU · 低延迟模式 · Whisper small")
+        window._diagnostic("翻译已显示在字幕窗口")
+        window._show_audio_level(0.2)
+        for line in ("守住 A 点。", "敌人在中路。", "听到我们后面的脚步在门口。", "能给我发一把 Vandal 吗？"):
+            result = SubtitleResult("a callout", line, "en", 0.2, 0.1, 0.5)
+            window.history.add_result(result)
+            window._result(result)
+        window._record_trace(TaskTrace(5, "结果丢弃", "语音太短", discarded=True))
+        assert fits(), layout_details()
+        recent = window.recent_list
+        assert recent.topLevelItemCount() == 3
+        assert recent.verticalScrollBar().maximum() == 0
+        assert recent.viewport().rect().contains(recent.visualItemRect(recent.topLevelItem(2)))
+        controls = (recent.parentWidget(), window.download_button, window.import_button, window.device_combo,
+                    window.refresh_button, window.mode_combo, window.test_button, window.show_button,
+                    window.position_button, window.feedback_button, window.dock)
+        for control in controls:
+            assert control.isVisible()
+            assert viewport.rect().contains(QRect(control.mapTo(viewport, QPoint()), control.size()))
     finally:
         window.close()

@@ -102,7 +102,9 @@ class HistoryStore:
             """ + condition, parameters).fetchall()
         return [HistoryEntry(*row) for row in rows]
 
-    def recent(self, limit: int = 100) -> list[HistoryEntry]:
+    def recent(self, limit: int = 100, *, target_language: str | None = None) -> list[HistoryEntry]:
+        if target_language is not None:
+            return self._entries(" WHERE target_language = ? ORDER BY id DESC LIMIT ?", (target_language, limit))
         return self._entries(" ORDER BY id DESC LIMIT ?", (limit,))
 
     def entry(self, entry_id: int) -> HistoryEntry | None:

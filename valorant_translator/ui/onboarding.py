@@ -18,7 +18,7 @@ class Onboarding(QDialog):
         self._device_refresh_failed = False
         window.devices_refreshed.connect(self._devices_refreshed)
         self.setWindowTitle("首次使用 · VoiceTrans")
-        self.setMinimumSize(525, 380)
+        self.setMinimumWidth(525)
         container = QVBoxLayout(self)
         container.setContentsMargins(0, 0, 0, 0)
         self.surface = GlassSurface()
@@ -28,8 +28,10 @@ class Onboarding(QDialog):
         layout.setSpacing(GAP)
         steps = QFrame()
         steps.setObjectName("glassCard")
-        step_row = QHBoxLayout(steps)
-        step_row.setContentsMargins(GAP, GAP, GAP, GAP)
+        step_layout = QVBoxLayout(steps)
+        step_layout.setContentsMargins(GAP, GUTTER, GAP, GUTTER)
+        step_layout.setSpacing(INLINE)
+        step_row = QHBoxLayout()
         step_row.setSpacing(GAP)
         self.step_icons = []
         for name, label in (("chip", "设备"), ("download", "模型"), ("mic", "试音")):
@@ -43,9 +45,15 @@ class Onboarding(QDialog):
             text.setAlignment(Qt.AlignmentFlag.AlignCenter)
             group.addWidget(text)
             step_row.addLayout(group, 1)
+        step_layout.addLayout(step_row)
+        self.step_status = QLabel()
+        self.step_status.setObjectName("statLabel")
+        self.step_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        step_layout.addWidget(self.step_status)
         layout.addWidget(steps)
         panel = QFrame()
         panel.setObjectName("glassCard")
+        panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout.addWidget(panel)
         card = QVBoxLayout(panel)
         card.setContentsMargins(GUTTER, GUTTER, GUTTER, GUTTER)
@@ -60,10 +68,11 @@ class Onboarding(QDialog):
         self.progress = QProgressBar()
         card.addWidget(self.progress)
         self.transfer = CompactLabel()
-        self.transfer.setObjectName("muted")
+        self.transfer.setObjectName("modelTransfer")
         self.transfer.hide()
         card.addWidget(self.transfer)
         self.action = GlassButton(icon="next")
+        self.action.setObjectName("guideAction")
         self.action.setProperty("ghost", True)
         self.action.clicked.connect(self._action)
         card.addWidget(self.action, alignment=Qt.AlignmentFlag.AlignHCenter)
@@ -76,6 +85,7 @@ class Onboarding(QDialog):
         buttons.addStretch()
         buttons.addWidget(self.finish)
         layout.addLayout(buttons)
+        layout.addStretch()
         self.apply_theme()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._refresh)
@@ -84,11 +94,16 @@ class Onboarding(QDialog):
 
     def apply_theme(self):
         settings = self.window.settings
-        self.surface.set_background(settings.background_theme, settings.background_color)
+        self.surface.set_background(settings.background_theme, settings.background_color, settings.game)
         apply_dialog_theme(self, settings, painted_surface=True)
         tint_icons(self, settings.accent)
+        for button in self.findChildren(GlassButton):
+            button.set_reduced_motion(settings.reduce_motion)
+        for icon in self.step_icons:
+            icon.set_reduced_motion(settings.reduce_motion)
 
     def _update_step_icons(self):
+        self.step_status.setText(f"第 {self.step + 1} 步，共 {len(self.step_icons)} 步")
         for index, icon in enumerate(self.step_icons):
             current = index == self.step
             mode = "idle"
@@ -120,10 +135,12 @@ class Onboarding(QDialog):
             self.transfer.hide()
             self.action.set_line_icon("next")
             self.title.setText("检测设备")
-            self._set_details(f"输入：{w.device_combo.currentText() or '未检测到设备'}\n"
-                              f"麦克风：{w.mic_combo.currentText() or '未检测到麦克风'}\n"
-                              f"推荐 Whisper {self._recommendation()}，可在详细设置更改。"
-                              + ("\n设备检测失败，可重试。" if self._device_refresh_failed else ""))
+            lines = [f"{label}：{combo.currentText()}" for label, combo in
+                     (("输入", w.device_combo), ("麦克风", w.mic_combo)) if combo.currentData()]
+            lines.append(f"推荐 Whisper {self._recommendation()}，可在详细设置更改。")
+            if self._device_refresh_failed:
+                lines.append("设备检测失败，可重试。")
+            self._set_details("\n".join(lines))
             self.action.setText("下一步")
             self.action.setEnabled(True)
         elif self.step == 1:
@@ -133,7 +150,7 @@ class Onboarding(QDialog):
             models = [f"{model} · {sizes[model] / 1024**2:,.1f} MiB" if sizes.get(model) else model
                       for model in models]
             status = w.model_transfer.text() if w._model_busy and not w.model_transfer.isHidden() else w.status_label.text()
-            self._set_details("\n".join([*models, w.model_status_label.text()]))
+            self._set_details("\n".join([*models, w.model_status_label.toolTip()]))
             show_transfer = status != "当前状态：待机"
             if show_transfer:
                 self.transfer.setText(status.removeprefix("当前状态："))

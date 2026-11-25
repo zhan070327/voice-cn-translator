@@ -5,12 +5,14 @@ import time
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QColor, QGuiApplication, QPalette
 from PySide6.QtWidgets import (QApplication, QFrame, QGraphicsOpacityEffect, QHBoxLayout,
                                QLabel, QSizePolicy, QVBoxLayout, QWidget)
 
 from valorant_translator.config import Settings
-from valorant_translator.ui.glass import GlassButton
+from valorant_translator.ui import tokens as t
+from valorant_translator.ui.fonts import display_style, track_caption
+from valorant_translator.ui.glass import GlassButton, accent_ink, glass_fill, rgba
 
 
 @dataclass(frozen=True)
@@ -36,9 +38,10 @@ class SubtitleOverlay(QWidget):
         self.setWindowTitle("语音翻译字幕")
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, not settings.normal_window)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, not settings.normal_window)
+        self.setAutoFillBackground(settings.normal_window)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(t.INLINE, t.INLINE, t.INLINE, t.INLINE)
+        layout.setSpacing(t.TIGHT)
         layout.setAlignment(Qt.AlignmentFlag.AlignBottom)
         self.rows = [self._row(layout), self._row(layout)]
         self.label = self.rows[-1][3]
@@ -50,7 +53,7 @@ class SubtitleOverlay(QWidget):
         self._render()
 
     def apply_settings(self) -> None:
-        self._style_label(self.settings.font_size)
+        self.refresh_theme()
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, self.settings.click_through)
         self._native_click_through(self.settings.click_through)
         self._native_topmost()
@@ -68,17 +71,23 @@ class SubtitleOverlay(QWidget):
         panel.setObjectName("captionCard")
         panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         box = QVBoxLayout(panel)
-        box.setContentsMargins(14, 4, 14, 5)
+        box.setContentsMargins(t.INLINE, t.TIGHT, t.INLINE, t.TIGHT)
+        backing = QFrame()
+        backing.setObjectName("captionBacking")
+        box.addWidget(backing)
+        box = QVBoxLayout(backing)
+        box.setContentsMargins(t.INLINE, 0, t.INLINE, 0)
+        box.setSpacing(0)
         box.setSpacing(0)
         header = QHBoxLayout()
         badge = QLabel()
         badge.setTextFormat(Qt.TextFormat.PlainText)
-        badge.setStyleSheet("color:#b9e5ea; font-size:11px;")
+        badge.setObjectName("captionBadge")
         header.addWidget(badge)
         header.addStretch()
         copy = GlassButton("复制英文")
         copy.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        copy.setMaximumHeight(22)
+        copy.setMaximumHeight(t.TITLE)
         copy.clicked.connect(lambda: QApplication.clipboard().setText(copy.property("textToCopy") or ""))
         header.addWidget(copy)
         box.addLayout(header)
@@ -87,18 +96,40 @@ class SubtitleOverlay(QWidget):
             label.setWordWrap(True)
             label.setTextFormat(Qt.TextFormat.PlainText)
             box.addWidget(label)
-        original.setStyleSheet("color:#dbe1ef; font-size:12px;")
+        original.setObjectName("captionOriginal")
+        translated.setObjectName("captionTranslation")
         opacity = QGraphicsOpacityEffect(panel)
         panel.setGraphicsEffect(opacity)
         host.addWidget(panel)
         return panel, badge, original, translated, copy, opacity
 
-    def _style_label(self, font_size: int) -> None:
+    def refresh_theme(self) -> None:
+        skin = t.skin_for(self.settings.game)
+        if self.settings.normal_window:
+            palette = self.palette()
+            palette.setColor(QPalette.ColorRole.Window, QColor(skin.background))
+            self.setPalette(palette)
+        line = accent_ink(self.settings.accent)
         alpha = max(0, min(255, round(self.settings.overlay_opacity * 2.55)))
-        for panel, _, _, label, _, _ in self.rows:
-            panel.setStyleSheet(f"QFrame#captionCard {{ background: rgba(31,36,47,{alpha}); "
-                                "border: 1px solid rgba(188,235,246,155); border-radius: 17px; }")
-            label.setStyleSheet(f"color:white; background:transparent; font-size:{font_size}px; font-weight:700;")
+        display = display_style()
+        style = f"""
+            QFrame#captionCard {{ background: {glass_fill(skin.panel, alpha) if alpha else "transparent"};
+                border: 1px solid {rgba(t.MUTED, t.GLASS_RIM_ALPHA)};
+                border-top-color: {rgba(t.MUTED, t.GLASS_HIGHLIGHT_ALPHA)};
+                border-left-color: {line}; border-radius: {t.RADIUS}px; }}
+            QFrame#captionBacking {{ background: {skin.background}; border-radius: {t.CONTROL_RADIUS}px; }}
+            QLabel {{ font-family: "{t.BODY_FONT}"; background: transparent; color: {t.MUTED};
+                font-size: {t.CAPTION}px; }}
+            QLabel#captionTranslation {{ color: {t.TEXT}; {display}
+                font-size: {self.settings.font_size}px; }}
+            QPushButton {{ background: {skin.panel}; color: {t.TEXT}; border: 1px solid {t.EDGE};
+                border-radius: {t.CONTROL_RADIUS}px; font-size: {t.CAPTION}px; }}
+            QPushButton:hover {{ border-color: {t.MUTED}; }}
+        """
+        for panel, badge, _, _, _, _ in self.rows:
+            panel.setStyleSheet(style)
+            track_caption(badge)
+        self._render()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -150,7 +181,6 @@ class SubtitleOverlay(QWidget):
                 panel.hide()
             self.label.clear()
             return
-        self._style_label(self.settings.font_size)
         available = max(75, self.height() - 18)
         entries = self.entries
         # Reserve one card when a large user font cannot fit two captions.
@@ -173,7 +203,8 @@ class SubtitleOverlay(QWidget):
             label.setToolTip(entry.translated)
             copy.setProperty("textToCopy", entry.translated)
             copy.setVisible(entry.reverse and not self.settings.click_through)
-            opacity.setOpacity(max(0.0, min(1.0, (entry.expires - time.monotonic()) / 0.6)))
+            opacity.setOpacity(1.0 if self.settings.reduce_motion else
+                               max(0.0, min(1.0, (entry.expires - time.monotonic()) / 0.6)))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and not self.settings.click_through:

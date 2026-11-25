@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 APP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".valorant-translator")) / "ValorantTranslator"
@@ -36,6 +36,8 @@ class Settings:
     routing_intro_seen: bool = False
     routing_verified_id: str = ""
     accent: str = "#FF4655"
+    game_accents: dict[str, str] = field(default_factory=dict)
+    reduce_motion: bool = False
     background_theme: str = "default"
     background_color: str = ""
     ptt_hotkey: str = "<ctrl>+<shift>+z"
