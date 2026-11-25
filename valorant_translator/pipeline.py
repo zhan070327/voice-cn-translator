@@ -42,6 +42,7 @@ class SubtitleResult:
     game: str = "valorant"
     target_language: str = "zh"
     glossary_rules: str = ""
+    display_original: str = ""
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,14 @@ class Pipeline:
         self.last_text = ""
         self.last_result_time = 0.0
         self.failures = 0
+        self.asr_seconds_per_audio: float | None = None
+
+    def _age_limit(self, asr) -> float:
+        # Keep a slow first inference visible, then adapt to measured throughput.
+        model = getattr(getattr(asr, "path", None), "name", "")
+        baseline = 9.0 if model.endswith("tiny") else 18.0
+        measured = (self.asr_seconds_per_audio or 0) * SpeechSegmenter.MAX_FRAMES * .02
+        return max(self.settings.max_task_age, min(24.0, max(baseline, measured + 4.0)))
 
     def start(self) -> None:
         if self.worker and self.worker.is_alive():
@@ -199,6 +208,12 @@ class Pipeline:
         try:
             with self.asr_lock:
                 started = time.monotonic()
+                limit = self._age_limit(asr)
+                age = started - chunk.end_time
+                expected = (self.asr_seconds_per_audio or 0) * len(chunk.audio) / 16000
+                if age >= limit or (expected and age + expected >= limit):
+                    self._discard(chunk, f"等待识别锁后已过期：距音频结束 {age:.2f} 秒 / 上限 {limit:.1f} 秒")
+                    return None, "已过期", 0.0
                 decoding.set()
                 self._trace(chunk, "推理开始", f"{asr.device.upper()}，等锁 {started - t0:.3f} 秒",
                             识别等锁=started - t0)
@@ -212,6 +227,9 @@ class Pipeline:
                 finally:
                     asr.on_rejection = None
                 elapsed = time.monotonic() - started
+                ratio = elapsed / max(0.1, len(chunk.audio) / 16000)
+                self.asr_seconds_per_audio = (ratio if self.asr_seconds_per_audio is None else
+                                              .5 * self.asr_seconds_per_audio + .5 * ratio)
                 detail = f"耗时 {elapsed:.3f} 秒，{result.language} {result.text[:160]!r}" if result \
                     else f"耗时 {elapsed:.3f} 秒，无可用识别结果"
                 self._trace(chunk, "推理结束", detail, 识别=elapsed)
@@ -249,21 +267,23 @@ class Pipeline:
         enhancer = getattr(self, "enhancer", None)
         match = enhancer.match(recognized.text, "zh", "en", self.settings, filter_speech=False) if enhancer else None
         corrected = match.text if match else recognized.text
+        glossary = enhancer.glossary if enhancer else game_glossary(self.settings.game)
         if match and match.translation:
             english, raw, rule = match.translation, None, match.rules
         else:
             with self.mt_lock:
                 details = getattr(translator, "translate_to_english_details", None)
                 if details:
-                    english, raw, rule = details(corrected)
+                    english, raw, rule = details(glossary.prepare_zh_en(corrected))
                 else:
-                    english, raw, rule = translator.translate_to_english(corrected), None, ""
+                    english, raw, rule = translator.translate_to_english(glossary.prepare_zh_en(corrected)), None, ""
+            english = glossary.finish_zh_en(english, corrected)
             if match and match.rules:
                 rule = " · ".join(filter(None, (match.rules, rule)))
         return recognized, english, dict(
             asr_seconds=translated_at - started, translation_seconds=time.monotonic() - translated_at,
             corrected_original=corrected if corrected != recognized.text else "",
-            machine_translation=raw, glossary_rules=rule,
+            machine_translation=raw, glossary_rules=rule, confidence=recognized.probability,
         )
 
     def _work(self) -> None:
@@ -308,8 +328,10 @@ class Pipeline:
                 age = now - chunk.end_time
                 waited = now - chunk.queued_at
                 self._trace(chunk, "识别出队", f"排队 {waited:.2f} 秒，距音频结束 {age:.2f} 秒", 识别排队=waited)
-                if age > self.settings.max_task_age:
-                    self._discard(chunk, f"识别排队过期：距音频结束 {age:.2f} 秒 / 上限 {self.settings.max_task_age:.1f} 秒")
+                limit = self._age_limit(asr)
+                expected = (self.asr_seconds_per_audio or 0) * len(chunk.audio) / 16000
+                if age >= limit or (expected and age + expected >= limit):
+                    self._discard(chunk, f"识别排队过期：距音频结束 {age:.2f} 秒 / 上限 {limit:.1f} 秒")
                     continue
                 try:
                     recognized, rejection, elapsed = self._recognize(chunk, asr)
@@ -317,6 +339,8 @@ class Pipeline:
                     finished = time.monotonic()
                     age = finished - chunk.end_time
                     if not recognized:
+                        if rejection == "已过期":
+                            continue
                         reason = rejection or "无可靠文字"
                         category = "语种置信度不足" if reason.startswith("语种置信度") else reason.split("（", 1)[0]
                         category = "不支持的语种" if category.startswith("不支持的语种") else category
@@ -324,8 +348,9 @@ class Pipeline:
                             category = "识别文本过短"
                         self._discard(chunk, f"识别 {elapsed:.2f} 秒后丢弃：{reason}", category=category)
                         continue
-                    if age > self.settings.max_task_age:
-                        self._discard(chunk, f"识别完成已过期：距音频结束 {age:.2f} 秒 / 上限 {self.settings.max_task_age:.1f} 秒")
+                    limit = self._age_limit(asr)
+                    if age > limit:
+                        self._discard(chunk, f"识别完成已过期：距音频结束 {age:.2f} 秒 / 上限 {limit:.1f} 秒")
                         continue
                     if enhancer.suppresses(recognized.text, recognized.language, self.settings):
                         self._discard(chunk, f"已抑制英雄台词：{recognized.text[:160]}",
@@ -382,8 +407,9 @@ class Pipeline:
             age = now - chunk.end_time
             waited = now - task.queued_at
             self._trace(chunk, "翻译出队", f"排队 {waited:.2f} 秒，距音频结束 {age:.2f} 秒", 翻译排队=waited)
-            if age > self.settings.max_task_age:
-                self._discard(chunk, f"翻译排队过期：距音频结束 {age:.2f} 秒 / 上限 {self.settings.max_task_age:.1f} 秒")
+            limit = self._age_limit(asr)
+            if age > limit:
+                self._discard(chunk, f"翻译排队过期：距音频结束 {age:.2f} 秒 / 上限 {limit:.1f} 秒")
                 continue
             started = now
             try:
@@ -398,6 +424,7 @@ class Pipeline:
                                          filter_speech=False)
                 translated, used = matched.translation, matched.rules
                 raw_translation = None
+                display_original = ""
                 if self.history is not None and self.settings.game == "valorant" and target == "zh":
                     try:
                         legacy = self.history.lookup_correction(normalized, recognized.language)
@@ -412,9 +439,13 @@ class Pipeline:
                         lock_start = time.monotonic()
                         with self.mt_lock:
                             lock_wait = time.monotonic() - lock_start
-                            raw_translation = translate_pair(translator, matched.text, recognized.language, target)
+                            source_text = (glossary.prepare_zh_en(matched.text)
+                                           if recognized.language == "zh" and target == "en" else matched.text)
+                            raw_translation = translate_pair(translator, source_text, recognized.language, target)
                         self._trace(chunk, "翻译推理", f"等锁 {lock_wait:.3f} 秒", 翻译等锁=lock_wait)
                         translated = raw_translation
+                        if translated and recognized.language == "zh" and target == "en":
+                            translated = glossary.finish_zh_en(translated, matched.text)
                         if translated and self.settings.game_terms and recognized.language == "en" and target == "zh":
                             try:
                                 translated = glossary.postprocess(translated, matched.text)
@@ -422,20 +453,36 @@ class Pipeline:
                                     used = " · ".join(filter(None, (used, "term_postprocess")))
                             except (TypeError, ValueError, KeyError, AttributeError):
                                 LOG.exception("Glossary postprocessing failed; retaining machine translation")
+                if recognized.language == "zh" and target == "zh":
+                    source_text = glossary.prepare_zh_en(matched.text)
+                    with self.mt_lock:
+                        details = getattr(translator, "translate_to_english_details", None)
+                        if details:
+                            english, _, english_rule = details(source_text)
+                        else:
+                            english = translate_pair(translator, source_text, "zh", "en")
+                            english_rule = ""
+                    display_original = glossary.finish_zh_en(english, matched.text) if english else ""
+                    if english_rule:
+                        used = " · ".join(filter(None, (used, english_rule)))
                 self._report_runtime(asr, translator)
                 finished = time.monotonic()
                 translation_seconds = finished - started
                 age = finished - chunk.end_time
                 self._trace(chunk, "翻译结束", f"翻译 {translation_seconds:.2f} 秒，距音频结束 {age:.2f} 秒",
                             翻译=translation_seconds)
-                if translation_seconds > self.settings.translation_timeout or age > self.settings.max_task_age:
+                translation_limit = max(self.settings.translation_timeout, 8.0) if display_original else self.settings.translation_timeout
+                if translation_seconds > translation_limit or age > limit:
                     self.failures += 1
                     self._discard(chunk, f"字幕已过期：翻译 {translation_seconds:.2f} 秒 / 上限 "
-                                  f"{self.settings.translation_timeout:.1f} 秒，距音频结束 {age:.2f} 秒 / 上限 "
-                                  f"{self.settings.max_task_age:.1f} 秒")
+                                  f"{translation_limit:.1f} 秒，距音频结束 {age:.2f} 秒 / 上限 "
+                                  f"{limit:.1f} 秒")
                     continue
                 if not translated:
                     self._discard(chunk, f"翻译结果为空（翻译 {translation_seconds:.2f} 秒）")
+                    continue
+                if recognized.language == "zh" and target == "zh" and not display_original:
+                    self._discard(chunk, "中文语音未生成英文字幕")
                     continue
                 if target == "zh" and not re.search(r"[\u4e00-\u9fff]", translated):
                     self.failures += 1
@@ -450,7 +497,8 @@ class Pipeline:
                                         task_id=chunk.task_id, audio_end_time=chunk.end_time,
                                         corrected_original=matched.text if matched.text != recognized.text else "",
                                         machine_translation=raw_translation, game=self.settings.game,
-                                        glossary_rules=used, target_language=target)
+                                        glossary_rules=used, target_language=target,
+                                        display_original=display_original)
                 self.last_text = normalized
                 self.last_result_time = finished
                 if self.history is not None and self.settings.save_history:

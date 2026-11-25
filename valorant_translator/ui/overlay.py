@@ -23,6 +23,7 @@ class Caption:
     speaker: str
     expires: float
     reverse: bool
+    always_bilingual: bool = False
 
 
 class SubtitleOverlay(QWidget):
@@ -166,9 +167,11 @@ class SubtitleOverlay(QWidget):
                               (style | WS_EX_TRANSPARENT | WS_EX_LAYERED) if enabled else (style & ~WS_EX_TRANSPARENT))
 
     def add_subtitle(self, chinese: str, original: str = "", duration: float | None = None,
-                     *, speaker: str = tr("overlay.0003"), reverse: bool = False) -> None:
+                     *, speaker: str = tr("overlay.0003"), reverse: bool = False,
+                     always_bilingual: bool = False) -> None:
         deadline = time.monotonic() + (self.settings.subtitle_seconds if duration is None else duration)
-        self.entries = [*self.entries, Caption(chinese, original, speaker, deadline, reverse)][-2:]
+        self.entries = [*self.entries, Caption(chinese, original, speaker, deadline, reverse,
+                                               always_bilingual)][-2:]
         self._render()
 
     def expire(self) -> None:
@@ -194,7 +197,7 @@ class SubtitleOverlay(QWidget):
             if entry is None:
                 continue
             badge.setText(entry.speaker)
-            original.setText(entry.original if self.settings.show_original or entry.reverse else "")
+            original.setText(entry.original if self.settings.show_original or entry.reverse or entry.always_bilingual else "")
             original.setVisible(bool(original.text()))
             if original.isVisibleTo(panel):
                 original.setText(original.fontMetrics().elidedText(

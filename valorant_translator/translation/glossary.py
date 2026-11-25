@@ -48,6 +48,16 @@ def _valid_data(data):
         if not (isinstance(rule["source"], str) and isinstance(rule["natural"], str)
                 and isinstance(rule["literal"], list) and all(isinstance(v, str) for v in rule["literal"])):
             raise ValueError("Invalid contextual rewrite")
+    for rule in data.get("lexical_terms", []):
+        if not (isinstance(rule.get("source"), str) and isinstance(rule.get("target"), str)
+                and isinstance(rule.get("variants"), list) and isinstance(rule.get("literal_targets"), list)
+                and all(isinstance(v, str) for v in rule["variants"] + rule["literal_targets"])):
+            raise ValueError("Invalid lexical term")
+    for rule in data.get("contextual_rewrites_zh_en", []):
+        if not (isinstance(rule.get("source"), str) and isinstance(rule.get("natural"), str)
+                and isinstance(rule.get("literal"), list)
+                and all(isinstance(v, str) for v in rule["literal"])):
+            raise ValueError("Invalid Chinese-English rewrite")
     for name in ("rules", "suppressed_lines"):
         if not isinstance(data.get(name, []), list):
             raise ValueError(f"Invalid {name}")
@@ -148,6 +158,27 @@ class Glossary:
 
     def exact(self, source: str) -> str | None:
         return self.data.get("exact_phrases", {}).get(self.normalize(source))
+
+    def prepare_zh_en(self, source: str) -> str:
+        text = source
+        for rule in self.data.get("lexical_terms", []):
+            for variant in sorted(rule["variants"], key=len, reverse=True):
+                text = text.replace(variant, rule["source"])
+        return text
+
+    def finish_zh_en(self, translated: str, original: str) -> str:
+        text = translated
+        for rule in self.data.get("lexical_terms", []):
+            if any(variant in original for variant in rule["variants"]):
+                for literal in rule["literal_targets"]:
+                    text = re.sub(r"(?<!\w)" + re.escape(literal) + r"(?!\w)", rule["target"], text,
+                                  flags=re.IGNORECASE)
+        for rule in self.data.get("contextual_rewrites_zh_en", []):
+            if rule["source"] in original:
+                for literal in rule["literal"]:
+                    text = re.sub(r"(?<!\w)" + re.escape(literal) + r"(?!\w)", rule["natural"], text,
+                                  flags=re.IGNORECASE)
+        return text
 
     def callout(self, source: str, language: str = "en") -> str | None:
         """Translate tightly matched English callouts, even if a short clip got the language wrong."""

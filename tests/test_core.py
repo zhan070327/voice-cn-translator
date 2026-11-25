@@ -72,6 +72,29 @@ def test_five_voiced_frames_can_make_a_short_callout(monkeypatch):
     assert len(chunks) == 1
 
 
+def test_continuous_voice_is_split_into_bounded_chunks(monkeypatch):
+    chunks = []
+    vad = SpeechSegmenter(chunks.append)
+    monkeypatch.setattr(vad, "vad", type("FakeVad", (), {"is_speech": lambda *_: True})())
+    vad.feed(np.full(320 * 350, 0.05, dtype=np.float32), time.monotonic())
+    vad.flush()
+    assert len(chunks) == 3
+    assert all(len(chunk.audio) <= 320 * vad.MAX_FRAMES for chunk in chunks)
+    assert sum(len(chunk.audio) for chunk in chunks) >= 320 * 350
+
+
+def test_expired_chunk_skips_whisper_before_inference():
+    pipe = Pipeline(Settings(max_task_age=9), lambda _: None, lambda _: None, lambda _: None)
+    class ASR:
+        device = "cpu"
+        def transcribe(self, *_):
+            raise AssertionError("expired audio reached Whisper")
+    now = time.monotonic()
+    chunk = SpeechChunk(np.ones(16000, np.float32), now - 31, now - 30)
+    recognized, reason, elapsed = pipe._recognize(chunk, ASR())
+    assert (recognized, reason, elapsed) == (None, "已过期", 0.0)
+
+
 def test_resample_and_mono():
     data = np.zeros((4800, 2), dtype=np.float32)
     result = to_mono_16k(data)
@@ -80,6 +103,12 @@ def test_resample_and_mono():
 
 def test_glossary_does_not_add_facts():
     glossary = Glossary()
+    assert glossary.callout("fuck you bro", "en") == "操你妈兄弟。"
+    for text in ("这把我们打默认", "我们这把打默认", "这把打个默认"):
+        prepared = glossary.prepare_zh_en(text)
+        assert "打 default" in prepared
+        assert glossary.finish_zh_en("we play the default this round", text) == "we play default this round"
+    assert glossary.finish_zh_en("give me a moment", "等我一下") == "hold on a sec"
     assert glossary.exact("Two A main") == "A 大两个。"
     assert glossary.exact("Rotate B!") == "转点去 B。"
     assert glossary.exact("Three A main") is None
@@ -188,7 +217,7 @@ def test_pipeline_with_local_model_doubles(monkeypatch, tmp_path):
     assert history.recent()[0].original == "Two A main"
 
 
-def test_chinese_caption_bypasses_foreign_translation(monkeypatch):
+def test_chinese_caption_keeps_recognized_text_and_displays_english(monkeypatch):
     import valorant_translator.pipeline as module
 
     class ASR:
@@ -202,8 +231,9 @@ def test_chinese_caption_bypasses_foreign_translation(monkeypatch):
         device = "cpu"
         def __init__(self, *_):
             pass
-        def translate(self, *_):
-            raise AssertionError("Chinese must not enter M2M100")
+        def translate(self, text, source, target="zh"):
+            assert source == "zh" and target == "en"
+            return "We rotate B"
 
     class Capture:
         def __init__(self, *_):
@@ -226,6 +256,8 @@ def test_chinese_caption_bypasses_foreign_translation(monkeypatch):
         time.sleep(0.01)
     pipe.stop()
     assert results and results[0].chinese == "我们转 B 点"
+    assert results[0].original == "我們轉 B 點"
+    assert results[0].display_original == "We rotate B"
 
 
 def test_history_correction_export_and_clear(tmp_path):

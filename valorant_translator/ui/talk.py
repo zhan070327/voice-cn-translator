@@ -129,11 +129,14 @@ class PushToTalk:
                             english, rule = match.translation, match.rules
                         else:
                             translator = models.create_translation(settings)
-                            english, raw, fallback_rule = translator.translate_to_english_details(match.text)
+                            english, raw, fallback_rule = translator.translate_to_english_details(
+                                glossary.prepare_zh_en(match.text))
+                            english = glossary.finish_zh_en(english, match.text)
                             rule = " · ".join(filter(None, (match.rules, fallback_rule)))
                     evidence = dict(asr_seconds=asr_seconds,
                                     translation_seconds=time.monotonic() - started - asr_seconds,
-                                    machine_translation=raw, glossary_rules=rule, corrected_original=corrected)
+                                    machine_translation=raw, glossary_rules=rule, corrected_original=corrected,
+                                    confidence=recognized.probability if recognized else None)
                 if self._closed:
                     return
                 if recognized and english:

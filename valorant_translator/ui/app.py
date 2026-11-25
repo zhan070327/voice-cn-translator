@@ -141,6 +141,7 @@ class MainWindow(QMainWindow):
         self.reverse_text = ""
         self.onboarding = None
         self._recent_trace: deque[TaskTrace] = deque(maxlen=10)
+        self._recent_results: deque[SubtitleResult] = deque(maxlen=100)
         self._task_timings: dict[int, dict[str, float]] = {}
         self._trace_token = None
         self._last_diagnostics = None
@@ -325,7 +326,7 @@ class MainWindow(QMainWindow):
         run_group, run_layout = self._group(tr("app.0031"), "play")
         run_group.setProperty("compactRun", True)
         run_layout.setContentsMargins(GUTTER, INLINE, GUTTER, INLINE)
-        run_layout.setSpacing(tokens.TIGHT)
+        run_layout.setSpacing(INLINE)
         self.run_icon = run_group.icon
         run_row = QHBoxLayout()
         run_row.setSpacing(INLINE)
@@ -355,19 +356,23 @@ class MainWindow(QMainWindow):
         run_row.addWidget(self.volume)
         run_layout.addLayout(run_row)
         run_layout.addLayout(cards)
-        self.runtime_label = self._compact(tr("app.0038"))
-        self.diagnostic_label = self._compact("")
+        self.runtime_label = self._hint(tr("app.0038"))
+        self.diagnostic_label = self._hint("")
+        self.runtime_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.diagnostic_label.setTextFormat(Qt.TextFormat.PlainText)
         self.diagnostic_label.hide()
         self.runtime_label.hide()
-        metrics = QHBoxLayout()
-        metrics.setSpacing(GAP)
-        metrics.addWidget(self.runtime_label, 2)
-        metrics.addWidget(self.diagnostic_label, 3)
-        run_layout.addLayout(metrics)
-        self.last_discard = self._compact("")
+        metrics = QVBoxLayout()
+        metrics.setSpacing(INLINE)
+        metrics.setContentsMargins(0, 0, 0, 0)
+        metrics.addWidget(self.runtime_label)
+        metrics.addWidget(self.diagnostic_label)
+        self.last_discard = self._hint("")
+        self.last_discard.setTextFormat(Qt.TextFormat.PlainText)
         self.last_discard.setObjectName("lastDiscard")
         self.last_discard.hide()
-        run_layout.addWidget(self.last_discard)
+        metrics.addWidget(self.last_discard)
+        run_layout.addLayout(metrics)
 
         self.reverse_icon = LineIcon("mic")
         self.talk_state = self._compact(tr("app.0041"))
@@ -566,6 +571,7 @@ class MainWindow(QMainWindow):
         self.ptt_hotkey_edit.editingFinished.connect(self._save_settings)
         self._row(form, tr("app.0070"), self.ptt_hotkey_edit)
         self.mic_combo = QComboBox()
+        self.mic_combo.setToolTip(tr("app.ptt_microphone_help"))
         self.mic_combo.currentIndexChanged.connect(self._save_settings)
         self._row(form, tr("app.0071"), self.mic_combo)
         self.routing_button = GlassButton(tr("app.0072"), icon="speaker")
@@ -1305,7 +1311,11 @@ class MainWindow(QMainWindow):
 
     def _update_device_hint(self) -> None:
         mic = self.mic_combo.currentText()
-        self.microphone_stat.setText(tr("app.0157", p0=mic) if mic else tr("app.0158"))
+        microphone_warning = tr("app.microphone_virtual_warning") if mic and any(
+            token in mic.casefold() for token in ("cable", "virtual", "sonar", "voicemeeter")
+        ) else ""
+        self.microphone_stat.setText(
+            (tr("app.0157", p0=mic) + microphone_warning) if mic else tr("app.0158"))
         route = next((device for device in routing_devices(self.audio_devices)
                       if device.id == self.device_combo.currentData()), None)
         routed = route is not None and route.id == self.settings.routing_verified_id
@@ -1320,9 +1330,11 @@ class MainWindow(QMainWindow):
                 tr("app.0163"))
             self.device_hint.setStyleSheet("color: #ffd699;")
         else:
-            self.device_hint.setText(tr("app.0164"))
-            self.device_hint.setStyleSheet("")
-            self.device_hint.hide()
+            name = self.device_combo.currentText().casefold()
+            virtual = any(token in name for token in ("cable", "virtual", "sonar", "fxsound", "voicemeeter"))
+            self.device_hint.setText(tr("app.virtual_source_warning") if virtual else tr("app.0164"))
+            self.device_hint.setStyleSheet("color: #ffd699;" if virtual else "")
+            self.device_hint.setVisible(virtual)
         self.device_combo.setToolTip(self.device_hint.text())
 
     def _overlay_moved(self, screen: int, x: int, y: int) -> None:
@@ -1414,6 +1426,12 @@ class MainWindow(QMainWindow):
         self.status_label.setText(tr("app.0174", p0=message))
         self.status_label.show()
         self.statusBar().showMessage(message)
+        if message.startswith("音频采集失败"):
+            self._caption_state("error", tr("app.capture_failed_hint", p0=message))
+            self.diagnostic_label.setText(tr("app.capture_failed_hint", p0=message))
+            self.diagnostic_label.show()
+        elif message.startswith("音频设备已连接") and self.pipeline is not None:
+            self._caption_state("loading", tr("app.capture_resumed_hint"))
         if message.startswith((tr("app.model_download_failed_prefix"), tr("app.model_import_failed_prefix"))):
             self._model_error = message
             self.model_state.setText(message + tr("app.model_error_retry"))
@@ -1491,7 +1509,7 @@ class MainWindow(QMainWindow):
         self.language_label.setText(tr("app.0193", p0=LANGUAGES.get(language, language)) if language else "")
         self.language_label.setVisible(bool(language))
         self.original_label.setText(tr("app.0194", p0=original) if original else "")
-        self.original_label.setVisible(self.settings.show_original and bool(original))
+        self.original_label.setVisible((self.settings.show_original or language == "zh") and bool(original))
         if self.chinese_label.property("quiet"):
             self.chinese_label.setProperty("quiet", False)
             self.chinese_label.style().unpolish(self.chinese_label)
@@ -1502,6 +1520,7 @@ class MainWindow(QMainWindow):
         self._set_caption_latency(self.latency_stat, seconds, hint)
 
     def _result(self, result: SubtitleResult) -> None:
+        self._recent_results.append(result)
         if self._has_result:
             self.previous_caption.setText(self.chinese_label.text())
             self.previous_caption.show()
@@ -1509,9 +1528,11 @@ class MainWindow(QMainWindow):
             self.previous_latency.setToolTip(self.latency_stat.toolTip())
             self.previous_latency.setVisible(bool(self.previous_latency.text()))
         self._has_live_result = True
-        self.overlay.add_subtitle(result.chinese, result.original)
+        display_original = result.display_original or result.original
+        self.overlay.add_subtitle(result.chinese, display_original,
+                                  always_bilingual=result.language == "zh" and bool(result.display_original))
         total = result.total_seconds if result.audio_end_time is None else time.monotonic() - result.audio_end_time
-        self._show_caption(result.chinese, result.original, result.language, total)
+        self._show_caption(result.chinese, display_original, result.language, total)
         self.result_icon.set_mode("done", highlight=True, restart=True)
         self.caption_light.animate()
         confidence = result.confidence
@@ -1569,6 +1590,12 @@ class MainWindow(QMainWindow):
             report += tr("app.0218")
         if self._last_diagnostics:
             report += tr("app.0219") + self._last_diagnostics.summary()
+        report += "\n" + tr("app.feedback_evidence") + "\n"
+        for item in self._recent_results:
+            confidence = (f"{item.confidence:.3f}" if item.confidence is not None
+                          and math.isfinite(item.confidence) else tr("app.feedback_confidence_unknown"))
+            report += tr("app.feedback_entry", p0=item.original, p1=item.chinese,
+                         p2=item.language, p3=confidence) + "\n"
         QApplication.clipboard().setText(report)
         QMessageBox.information(self, tr("app.0220"), tr("app.0221"))
 
@@ -1627,14 +1654,20 @@ class MainWindow(QMainWindow):
 
         def task():
             try:
+                RESULT.parent.mkdir(parents=True, exist_ok=True)
+                RESULT.write_text(f"开始下载：{release.installer_name}\n", encoding="utf-8")
                 path = download_installer(release, self.bridge.update_progress.emit,
                                           cancel=self._update_cancel_event,
                                           speed=self.bridge.update_speed.emit)
+                with RESULT.open("a", encoding="utf-8") as log:
+                    log.write(f"下载完成：{path}\n")
                 self.bridge.update_ready.emit((path, release))
             except UpdateCancelled:
                 self.bridge.update_cancelled.emit()
             except Exception as exc:
                 LOG.exception("Update download failed")
+                with RESULT.open("a", encoding="utf-8") as log:
+                    log.write(f"更新失败：下载或校验失败：{exc}\n")
                 self.bridge.update_error.emit(str(exc))
 
         threading.Thread(target=task, name="update-download", daemon=True).start()
@@ -1695,7 +1728,10 @@ class MainWindow(QMainWindow):
             return
         if message:
             self._set_update_status(message)
-            QMessageBox.warning(self, tr("app.0245"), message)
+            if "更新成功；已重开新程序" in message and "更新失败" not in message:
+                QMessageBox.information(self, tr("app.0245"), message)
+            else:
+                QMessageBox.warning(self, tr("app.0245"), message)
 
     def _open_recent_translation(self, *_):
         self._navigate(self.tabs.indexOf(self.history_page))
@@ -1736,7 +1772,8 @@ class MainWindow(QMainWindow):
         self.previous_latency.hide()
         if entries:
             latest = entries[0]
-            self._show_caption(latest.corrected_chinese or latest.chinese, latest.original,
+            original = latest.display_original if latest.language == "zh" else latest.original
+            self._show_caption(latest.corrected_chinese or latest.chinese, original,
                                latest.language, latest.total_seconds, historical=True)
             if len(entries) > 1:
                 previous = entries[1]
@@ -2158,15 +2195,15 @@ class MainWindow(QMainWindow):
 
     def _save_reverse_history(self, details):
         chinese, english, game, audio_end, metrics = details
+        metrics = dict(metrics)
+        result = SubtitleResult(chinese, english, "zh", metrics.pop("asr_seconds", -1.0),
+                                metrics.pop("translation_seconds", -1.0), time.monotonic() - audio_end,
+                                game=game, target_language="en", **metrics)
+        self._recent_results.append(result)
         if self.history is None or not self.settings.save_history:
             return
-        metrics = dict(metrics)
         try:
-            self.history.add_result(SubtitleResult(
-                chinese, english, "zh", metrics.pop("asr_seconds", -1.0),
-                metrics.pop("translation_seconds", -1.0), time.monotonic() - audio_end,
-                game=game, target_language="en", **metrics,
-            ))
+            self.history.add_result(result)
             if self.tabs.currentWidget() is self.history_page:
                 self._refresh_history()
         except Exception:

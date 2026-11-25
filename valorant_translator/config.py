@@ -16,7 +16,7 @@ class Settings:
     language: str = "auto"
     target_language: str = "zh"
     asr_provider: str = "whisper"
-    whisper_model: str = "small"
+    whisper_model: str = "tiny"
     fast_mode: bool = True
     translation_model: str = "m2m100_418M"
     compute_device: str = "auto"
@@ -48,7 +48,7 @@ class Settings:
     onboarding_done: bool = False
     hotkey: str = "<ctrl>+<shift>+t"
     vad_level: int = 1
-    max_task_age: float = 6.0
+    max_task_age: float = 9.0
     translation_timeout: float = 4.0
     subtitle_seconds: float = 5.0
 

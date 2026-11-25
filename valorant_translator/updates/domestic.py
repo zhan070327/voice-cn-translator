@@ -98,15 +98,19 @@ def parse_manifest(payload: bytes, hosts: tuple[str, ...], current: str = APP_VE
         size, digest, notes = data["size"], data["sha256"], data["release_notes"]
     except (ValueError, TypeError, KeyError, InvalidVersion, UpdateError) as exc:
         raise UpdateError(f"国内更新清单无效：{exc}") from exc
+    legacy_names = {"gpu": "VoiceCNTranslator_Beta_Setup.exe",
+                    "cpu": "VoiceCNTranslator_CPU_Beta_Setup.exe"}
+    installer_name = urlparse(url).path.rsplit("/", 1)[-1]
     if (type(size) is not int or not 0 < size <= MAX_INSTALLER_BYTES or
             not isinstance(digest, str) or not HASH.fullmatch(digest) or
             not isinstance(notes, str) or len(notes) > 4000 or
-            any(urlparse(item).path.rsplit("/", 1)[-1] != INSTALLERS[edition]
+            installer_name not in (legacy_names[edition], INSTALLERS[edition]) or
+            any(urlparse(item).path.rsplit("/", 1)[-1] != installer_name
                 for item in (url, *fallback))):
         raise UpdateError("国内更新清单的安装包信息无效。")
     if version <= current_version:
         return None
-    return Release(version, f"v{version}", notes[:800], url, digest.lower(), size, hosts, fallback, installer_name=INSTALLERS[edition])
+    return Release(version, f"v{version}", notes[:800], url, digest.lower(), size, hosts, fallback, installer_name=installer_name)
 
 
 def find_update(channel: dict, current: str = APP_VERSION) -> Release | None:

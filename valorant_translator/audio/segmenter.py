@@ -21,6 +21,8 @@ class SpeechChunk:
 class SpeechSegmenter:
     """20 ms VAD frames with 300 ms pre-roll and a bounded speech tail."""
 
+    MAX_FRAMES = 150  # 3 seconds; bound Whisper work even under continuous noise.
+
     def __init__(self, on_chunk: Callable[[SpeechChunk], None], level: int = 2,
                  on_event: Callable[[str], None] | None = None):
         self.on_chunk = on_chunk
@@ -56,8 +58,17 @@ class SpeechSegmenter:
                 self.silence_frames += 1
             if self.active:
                 self.frames.append(frame.copy())
-                if self.silence_frames >= 18 or len(self.frames) >= 250:
+                if self.silence_frames >= 18:
                     self.flush(frame_time)
+                elif len(self.frames) >= self.MAX_FRAMES:
+                    tail = [part.copy() for part in self.frames[-10:]]
+                    self.flush(frame_time)
+                    if voiced:
+                        self.active = True
+                        self.frames = tail
+                        self.started = frame_time - len(tail) * 0.02
+                        self.speech_frames = len(tail)
+                        self.last_voice = frame_time
             else:
                 self.preroll.append(frame.copy())
 

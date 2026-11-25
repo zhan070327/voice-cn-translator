@@ -652,7 +652,8 @@
     "watch your eyes careful now": "当心眼睛，小心。",
     "rotating a": "转 A。",
     "eco round": "经济局。",
-    "hell": "地狱。"
+    "hell": "地狱。",
+    "fuck you bro": "操你妈兄弟。"
   },
   "contextual_rewrites": [
     {
@@ -777,6 +778,30 @@
         "漂亮的射击"
       ],
       "natural": "打得漂亮"
+    },
+    {
+      "source": "save your gun",
+      "literal": [
+        "保存你的枪",
+        "节省你的枪"
+      ],
+      "natural": "保枪"
+    },
+    {
+      "source": "hold this angle",
+      "literal": [
+        "保持这个角度",
+        "抓住这个角度"
+      ],
+      "natural": "架住这个枪线"
+    },
+    {
+      "source": "fall back",
+      "literal": [
+        "向后倒",
+        "往后掉"
+      ],
+      "natural": "先撤"
     }
   ],
   "location_aliases": {
@@ -2152,6 +2177,50 @@
       "original": "You can take the girl out of Salvador, but you'll never take the Salvador out of the girl. Wait...",
       "origin": "https://wiki.playvalorant.com/en-us/Raze/Quotes#Match_Start",
       "verified": true
+    }
+  ],
+  "lexical_terms": [
+    {
+      "source": "打 default",
+      "target": "default",
+      "variants": [
+        "打默认",
+        "打个默认",
+        "默认打法"
+      ],
+      "literal_targets": [
+        "the default",
+        "normally",
+        "standard play",
+        "a default",
+        "default style"
+      ]
+    }
+  ],
+  "contextual_rewrites_zh_en": [
+    {
+      "source": "等我一下",
+      "literal": [
+        "wait for me for a moment",
+        "give me a moment"
+      ],
+      "natural": "hold on a sec"
+    },
+    {
+      "source": "我在换弹",
+      "literal": [
+        "I am loading again",
+        "I am reloading the gun"
+      ],
+      "natural": "I’m reloading"
+    },
+    {
+      "source": "转点",
+      "literal": [
+        "change points",
+        "turn point"
+      ],
+      "natural": "rotate"
     }
   ]
 }

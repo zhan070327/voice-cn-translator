@@ -38,7 +38,8 @@ def test_model_location_picker_moves_models_and_refreshes_saved_path(model_windo
     old = ui.MODEL_DIR
     destination = tmp_path / "selected models"
     destination.mkdir()
-    for folder, files in (("whisper-small", ui.WHISPER_FILES), ("m2m100_418M", ui.M2M_FILES)):
+    for folder, files in ((f"whisper-{model_window.settings.whisper_model}", ui.WHISPER_FILES),
+                          ("m2m100_418M", ui.M2M_FILES)):
         (old / folder).mkdir(parents=True)
         for file in files:
             (old / folder / file).write_bytes(b"existing model")

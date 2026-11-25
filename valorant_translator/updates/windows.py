@@ -13,6 +13,8 @@ from valorant_translator.updates.github import (Release, UpdateError,
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "windows_updater.ps1"
 RESULT = APP_DIR / "updates" / "last_result.txt"
+APP_IDS = {"cpu": "{0357A036-BE6C-4799-881E-8E8CB660EB3A}",
+           "gpu": "{32A11F0B-7D49-4C23-846A-D7CAFA048E12}"}
 
 # The caller can report parser and parameter-binding errors before the script runs.
 _RUN_UPDATER = """
@@ -23,6 +25,7 @@ try {
         AppExe = $env:VOICECN_UPDATE_APP
         ParentPid = [int]$env:VOICECN_UPDATE_PARENT
         ResultPath = $env:VOICECN_UPDATE_RESULT
+        AppId = $env:VOICECN_UPDATE_APP_ID
     }
     & $env:VOICECN_UPDATE_SCRIPT @arguments
     exit $LASTEXITCODE
@@ -39,14 +42,16 @@ try {
 """
 
 
-def _powershell_invocation(installer: Path, app: str, parent_pid: int) -> tuple[list[str], dict[str, str]]:
+def _powershell_invocation(installer: Path, app: str, parent_pid: int,
+                           app_id: str = "") -> tuple[list[str], dict[str, str]]:
     # PowerShell 5.1 expects UTF-16LE for EncodedCommand. Paths travel as data in the environment.
     command = b64encode(_RUN_UPDATER.encode("utf-16-le")).decode("ascii")
     return (["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
              "-EncodedCommand", command],
             {**os.environ, "VOICECN_UPDATE_SCRIPT": str(SCRIPT),
              "VOICECN_UPDATE_INSTALLER": str(installer), "VOICECN_UPDATE_APP": app,
-             "VOICECN_UPDATE_PARENT": str(parent_pid), "VOICECN_UPDATE_RESULT": str(RESULT)})
+             "VOICECN_UPDATE_PARENT": str(parent_pid), "VOICECN_UPDATE_RESULT": str(RESULT),
+             "VOICECN_UPDATE_APP_ID": app_id})
 
 
 def start_silent_installer(path: Path, release: Release) -> None:
@@ -57,10 +62,14 @@ def start_silent_installer(path: Path, release: Release) -> None:
     if not SCRIPT.is_file():
         raise UpdateError("独立更新脚本缺失，请重新安装完整测试包。")
     RESULT.parent.mkdir(parents=True, exist_ok=True)
-    RESULT.unlink(missing_ok=True)
-    command, env = _powershell_invocation(path, sys.executable, os.getpid())
+    with RESULT.open("a", encoding="utf-8") as log:
+        log.write(f"已下载并校验：{path}\n准备启动更新器\n")
+    edition = "cpu" if "_CPU_" in release.installer_name else "gpu"
+    command, env = _powershell_invocation(path, sys.executable, os.getpid(), APP_IDS[edition])
     try:
         subprocess.Popen(command, env=env, close_fds=True,
                          creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
     except OSError as exc:
+        with RESULT.open("a", encoding="utf-8") as log:
+            log.write(f"更新失败：无法启动独立更新程序：{exc}\n")
         raise UpdateError(f"无法启动独立更新程序：{exc}") from exc

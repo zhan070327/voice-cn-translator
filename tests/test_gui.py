@@ -51,6 +51,18 @@ def test_long_subtitles_do_not_resize_overlay(qapp):
     overlay.close()
 
 
+def test_chinese_subtitle_remains_bilingual_when_originals_are_hidden(qapp):
+    overlay = SubtitleOverlay(Settings(show_original=False))
+    overlay.show()
+    try:
+        overlay.add_subtitle("我有钱", "I have money", always_bilingual=True)
+        qapp.processEvents()
+        assert overlay.rows[-1][2].text() == "I have money"
+        assert overlay.rows[-1][3].text() == "我有钱"
+    finally:
+        overlay.close()
+
+
 def test_main_window_starts_without_models(qapp, monkeypatch, tmp_path):
     import valorant_translator.config as config
     import valorant_translator.ui.app as ui
@@ -464,6 +476,31 @@ def test_b6_routing_and_automatic_ptt_do_not_share_device_setting(qapp, monkeypa
         window.close()
 
 
+def test_capture_failure_and_virtual_device_guidance(qapp, monkeypatch, tmp_path):
+    from valorant_translator import config
+    from valorant_translator.audio.capture import AudioDevice
+    from valorant_translator.ui import app as ui
+
+    monkeypatch.setattr(config, "APP_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "settings.json")
+    monkeypatch.setattr(ui, "list_devices", lambda: [
+        AudioDevice("cable", "CABLE Output", True),
+        AudioDevice("mic", "CABLE Output", False),
+    ])
+    monkeypatch.setattr(ui, "load_channel", lambda: None)
+    monkeypatch.setattr(ui.MainWindow, "_start_hotkey", lambda self: None)
+    window = ui.MainWindow()
+    try:
+        assert "系统声音请选择 CABLE Output" in window.device_hint.text()
+        assert window.device_hint.isVisible() or not window.isVisible()
+        assert "真实麦克风" in window.microphone_stat.text()
+        window._status("音频采集失败：设备断开")
+        assert "设备断开" in window.caption_hint.text()
+        assert "自动重试" in window.diagnostic_label.text()
+    finally:
+        window.close()
+
+
 def test_b6_history_correction_requires_explicit_scope(qapp, monkeypatch, tmp_path):
     from valorant_translator import config
     from valorant_translator.ui import app as ui
@@ -796,5 +833,24 @@ def test_quick_start_fits_live_captions_history_and_controls_at_default_size(qap
         for control in controls:
             assert control.isVisible()
             assert viewport.rect().contains(QRect(control.mapTo(viewport, QPoint()), control.size()))
+    finally:
+        window.close()
+
+
+def test_runtime_progress_and_discard_have_separate_wrapping_rows(qapp, monkeypatch, tmp_path):
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        window._runtime("识别 CUDA · 翻译 CUDA · 低延迟模式 · Whisper tiny")
+        window._diagnostic("正在识别上一句，队列约 4 句；处理较慢，请等待本句识别返回并查看详细诊断。")
+        window._record_trace(TaskTrace(28, "结果丢弃", "识别完成已过期：距音频结束 17.72 秒，本类 28 次",
+                                       discarded=True))
+        qapp.processEvents()
+        labels = (window.runtime_label, window.diagnostic_label, window.last_discard)
+        assert all(label.isVisible() and label.wordWrap() for label in labels)
+        assert all(label.textFormat() == Qt.TextFormat.PlainText for label in labels)
+        for upper, lower in zip(labels, labels[1:]):
+            assert upper.width() == lower.width()
+            assert lower.mapTo(window, QPoint()).y() - (upper.mapTo(window, QPoint()).y() + upper.height()) >= 8
+        assert "真实麦克风" in window.mic_combo.toolTip()
     finally:
         window.close()

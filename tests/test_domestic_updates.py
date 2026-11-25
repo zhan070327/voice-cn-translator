@@ -199,6 +199,12 @@ def test_windows_updater_script_uses_utf8_bom():
     contents = windows.SCRIPT.read_bytes()
     assert contents.startswith(codecs.BOM_UTF8)
     assert "更新失败" in contents.decode("utf-8-sig")
+    script = contents.decode("utf-8-sig")
+    assert "安装器返回码" in script
+    assert "更新成功；已重开新程序" in script
+    assert "InstallLocation" in script
+    assert windows._powershell_invocation(windows.SCRIPT, "old.exe", 123,
+                                           windows.APP_IDS["cpu"])[1]["VOICECN_UPDATE_APP_ID"] == windows.APP_IDS["cpu"]
 
 
 def _powershell_diagnostics(run: subprocess.CompletedProcess) -> str:

@@ -78,4 +78,48 @@ def test_b7_test_only_language_and_game_flow_through_live_pipeline(monkeypatch):
 
 
 def test_b7_ui_copy_keeps_chinese_default():
-    assert tr("app.0001") == "VALORANT AI 实时语音翻译器"
+    assert tr("app.0001") == "同频 / SameFreq"
+
+
+def test_chinese_speech_keeps_raw_history_and_displays_english(monkeypatch, tmp_path):
+    from valorant_translator.history import HistoryStore
+
+    class ASR:
+        device = "cpu"
+        def transcribe(self, _audio, _language):
+            return Recognition("我有钱", "zh", .99)
+
+    class MT:
+        device = "cpu"
+        def translate_to_english_details(self, _source):
+            return "I have money", "I have money", ""
+
+    class Capture:
+        def __init__(self, *_): pass
+        def start(self): pass
+        def stop(self): pass
+
+    monkeypatch.setattr(pipeline, "AudioCapture", Capture)
+    models = ModelManager()
+    models.register_asr("test_asr", lambda _: ASR())
+    models.register_translation("test_mt", lambda _: MT())
+    results = []
+    history = HistoryStore(tmp_path / "history.sqlite3")
+    worker = pipeline.Pipeline(
+        Settings(language="zh", asr_provider="test_asr", translation_model="test_mt"),
+        lambda _: None, lambda _: None, results.append, models=models, history=history,
+    )
+    worker.start()
+    try:
+        now = time.monotonic()
+        worker.enqueue(SpeechChunk(np.ones(16000, np.float32), now - 1, now))
+        deadline = now + 3
+        while not results and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert len(results) == 1
+        assert (results[0].original, results[0].chinese, results[0].display_original) == (
+            "我有钱", "我有钱", "I have money")
+        entry = history.recent(1)[0]
+        assert (entry.original, entry.display_original) == ("我有钱", "I have money")
+    finally:
+        worker.stop()
