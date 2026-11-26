@@ -4,9 +4,11 @@ import codecs
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -158,15 +160,103 @@ def test_installer_launch_failure_and_success(monkeypatch, tmp_path):
     monkeypatch.setattr(windows.subprocess, "DETACHED_PROCESS", 8, raising=False)
     monkeypatch.setattr(windows.subprocess, "CREATE_NEW_PROCESS_GROUP", 512, raising=False)
     calls = []
-    monkeypatch.setattr(windows.subprocess, "Popen", lambda *a, **k: calls.append((a, k)))
+
+    def spawn(*args, **kwargs):
+        calls.append((args, kwargs))
+        assert windows.update_in_progress()
+        assert windows.read_update_result() is None
+        return SimpleNamespace(pid=os.getpid())
+
+    monkeypatch.setattr(windows.subprocess, "Popen", spawn)
     windows.start_silent_installer(installer, release)
     args, kwargs = calls[0]
     assert args[0][:1] == ["powershell.exe"] and args[0][-2] == "-EncodedCommand"
     assert kwargs["env"]["VOICECN_UPDATE_INSTALLER"] == str(installer)
     assert kwargs["env"]["VOICECN_UPDATE_SCRIPT"] == str(script)
+    assert kwargs["env"]["VOICECN_UPDATE_VERSION"] == str(release.version)
+    # The launched PowerShell wrapper releases the marker when it completes.
+    (tmp_path / "last_result.lock").unlink()
     monkeypatch.setattr(windows.subprocess, "Popen", lambda *a, **k: (_ for _ in ()).throw(OSError("blocked")))
     with pytest.raises(github.UpdateError, match="无法启动"):
         windows.start_silent_installer(installer, release)
+    finished = windows.read_update_result()
+    assert finished is not None and not finished.succeeded
+    assert finished.installer == installer
+    assert "blocked" in finished.summary and not windows.update_in_progress()
+
+
+def test_in_progress_update_keeps_previous_and_pending_logs(monkeypatch, tmp_path):
+    result = tmp_path / "last_result.txt"
+    pending = tmp_path / "last_result.pending.txt"
+    marker = tmp_path / "last_result.lock"
+    installer = tmp_path / github.INSTALLER_NAME
+    monkeypatch.setattr(windows, "RESULT", result)
+    legacy_report = f"启动安装器：{installer}\n更新成功；已重开新程序"
+    result.write_text(legacy_report, encoding="utf-8")
+    pending.write_text(f"安装器路径：{installer}\n准备启动更新器", encoding="utf-8")
+    marker.write_text(f"{os.getpid()} {windows.psutil.Process().create_time()}", encoding="ascii")
+
+    assert windows.read_update_result() is None
+    assert result.read_text(encoding="utf-8") == legacy_report
+    assert pending.is_file()
+
+    failure_report = pending.read_text(encoding="utf-8") + "\n更新失败：安装器返回错误代码 5"
+    pending.write_text(failure_report, encoding="utf-8")
+    pending.replace(result)
+    marker.unlink()
+    finished = windows.read_update_result()
+    assert finished is not None
+    assert not finished.succeeded
+    assert finished.installer == installer
+    assert finished.message == failure_report
+    assert finished.summary == "更新失败：安装器返回错误代码 5"
+    assert result.read_text(encoding="utf-8") == failure_report
+    assert windows.read_update_result() == finished
+
+
+def test_abandoned_update_reports_failure_and_releases_marker(monkeypatch, tmp_path):
+    result = tmp_path / "last_result.txt"
+    pending = result.with_suffix(".pending.txt")
+    marker = result.with_suffix(".lock")
+    installer = tmp_path / github.INSTALLER_NAME
+    monkeypatch.setattr(windows, "RESULT", result)
+    # The process ID is live, but its creation time belongs to a different process.
+    marker.write_text(f"{os.getpid()} 0", encoding="ascii")
+    pending.write_text(f"安装器路径：{installer}\n更新器已启动：{installer}\n", encoding="utf-8")
+
+    finished = windows.read_update_result()
+
+    assert finished is not None and not finished.succeeded
+    assert "更新器意外退出" in finished.message
+    assert finished.installer == installer
+    assert result.is_file() and not pending.exists() and not marker.exists()
+
+
+def test_manual_installer_is_in_the_versioned_cache(monkeypatch, tmp_path):
+    cache = tmp_path / "updates"
+    monkeypatch.setattr(windows, "RESULT", cache / "last_result.txt")
+    version = cache / "0.6.1"
+    version.mkdir(parents=True)
+    cached = version / github.CPU_INSTALLER_NAME
+    cached.touch()
+    outside = tmp_path / github.CPU_INSTALLER_NAME
+    outside.touch()
+    other_exe = version / "other.exe"
+    other_exe.touch()
+
+    assert windows.is_cached_installer(cached)
+    assert not windows.is_cached_installer(outside)
+    assert not windows.is_cached_installer(other_exe)
+    assert not windows.is_cached_installer(version / github.INSTALLER_NAME)
+
+
+def test_legacy_partial_update_log_is_not_a_final_result(monkeypatch, tmp_path):
+    result = tmp_path / "last_result.txt"
+    result.write_text("准备启动更新器\n", encoding="utf-8")
+    monkeypatch.setattr(windows, "RESULT", result)
+
+    assert windows.read_update_result() is None
+    assert result.is_file()
 
 
 def test_manifest_generation_from_actual_installer(tmp_path):
@@ -230,15 +320,101 @@ def test_windows_updater_reports_installer_exit_failure(tmp_path):
 
 @pytest.mark.skipif(sys.platform != "win32", reason="需要 Windows PowerShell")
 def test_windows_updater_launcher_records_parse_failure(tmp_path, monkeypatch):
-    result = tmp_path / "result.txt"
+    result = tmp_path / "last_result.txt"
+    pending = result.with_suffix(".pending.txt")
+    marker = result.with_suffix(".lock")
+    installer = tmp_path / github.INSTALLER_NAME
     broken = tmp_path / "invalid updater.ps1"
     broken.write_text("param(\n", encoding="ascii")
+    result.write_text("更新失败：上次更新失败\n", encoding="utf-8")
+    pending.write_text(f"安装器路径：{installer}\n准备启动更新器\n", encoding="utf-8")
+    marker.touch()
     monkeypatch.setattr(windows, "SCRIPT", broken)
     monkeypatch.setattr(windows, "RESULT", result)
-    command, env = windows._powershell_invocation(tmp_path / "unused.exe", sys.executable, 99999999)
+    command, env = windows._powershell_invocation(
+        installer, sys.executable, 99999999, expected_version="0.6.1", pending=pending,
+    )
     completed = subprocess.run(command, env=env, capture_output=True, text=True,
                                errors="replace", timeout=30)
     diagnostics = _powershell_diagnostics(completed)
     assert completed.returncode == 1, diagnostics
+    assert result.is_file() and not pending.exists() and not marker.exists(), diagnostics
+    finished = windows.read_update_result()
+    assert finished is not None and not finished.succeeded
+    assert finished.installer == installer and finished.summary.startswith("更新脚本无法运行："), diagnostics
+    assert "准备启动更新器" in finished.message and "上次更新失败" not in finished.message
+
+
+def _run_windows_updater(tmp_path, *, parent_pid=99999999, linger=False, version_matches=True):
+    result = tmp_path / "result.txt"
+    harness = tmp_path / "test_updater.ps1"
+    harness.write_text(r"""
+param([string]$Script, [string]$Result, [string]$Exe, [int]$ParentPid,
+      [switch]$Linger, [switch]$WrongVersion)
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+if ($Linger) {
+    $global:UpdaterClockCalls = 0
+    function Get-Date {
+        param([string]$Format)
+        if ($Format) { return Microsoft.PowerShell.Utility\Get-Date -Format $Format }
+        $global:UpdaterClockCalls++
+        $clock = [datetime]'2026-01-01'
+        if ($global:UpdaterClockCalls -gt 1) { return $clock.AddSeconds(46) }
+        return $clock
+    }
+}
+function Start-Process {
+    param([string]$FilePath, [string]$ArgumentList, [switch]$Wait, [switch]$PassThru)
+    if ($ArgumentList -and (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) {
+        throw "Test assertion: parent process still running during installation."
+    }
+    if ($ArgumentList) { Write-Host "installed" }
+    else { Write-Host "restarted $FilePath" }
+    return [pscustomobject]@{ ExitCode = 0; Id = 123 }
+}
+$editionWithoutRegistry = '{E73471F2-EA17-4E9D-84A8-1CAF803A0DF2}'
+$version = (Get-Item -LiteralPath $Exe).VersionInfo.ProductVersion
+if ($WrongVersion) { $version = '0.0.0.0' }
+& $Script -Installer $Exe -AppExe $Exe -ParentPid $ParentPid -ResultPath $Result `
+    -AppId $editionWithoutRegistry -ExpectedVersion $version
+exit $LASTEXITCODE
+""", encoding="ascii")
+    completed = subprocess.run([
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        "-File", str(harness), "-Script", str(windows.SCRIPT), "-Result", str(result),
+        "-Exe", sys.executable, "-ParentPid", str(parent_pid),
+        *(["-Linger"] if linger else []), *(["-WrongVersion"] if not version_matches else []),
+    ], capture_output=True, encoding="utf-8", errors="replace", timeout=30)
+    diagnostics = _powershell_diagnostics(completed)
     assert result.is_file(), diagnostics
-    assert result.read_text(encoding="utf-8-sig").startswith("更新脚本无法运行："), diagnostics
+    return completed, result.read_text(encoding="utf-8-sig"), diagnostics
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="需要 Windows PowerShell")
+def test_windows_updater_ends_lingering_parent_and_installs(tmp_path):
+    with subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"]) as parent:
+        try:
+            completed, message, diagnostics = _run_windows_updater(tmp_path, parent_pid=parent.pid, linger=True)
+            assert completed.returncode == 0, diagnostics
+            assert parent.poll() is not None, diagnostics
+            assert "旧程序未在 45 秒内退出，已强制结束" in message
+            assert "installed" in completed.stdout
+        finally:
+            if parent.poll() is None:
+                parent.kill()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="需要 Windows PowerShell")
+def test_windows_updater_restarts_verified_app_without_registry_entry(tmp_path):
+    completed, message, diagnostics = _run_windows_updater(tmp_path)
+    assert completed.returncode == 0, diagnostics
+    assert f"restarted {sys.executable}" in completed.stdout
+    assert "更新成功；已重开新程序" in message
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="需要 Windows PowerShell")
+def test_windows_updater_does_not_restart_mismatched_executable(tmp_path):
+    completed, message, diagnostics = _run_windows_updater(tmp_path, version_matches=False)
+    assert completed.returncode == 1, diagnostics
+    assert "restarted" not in completed.stdout
+    assert "更新失败" in message and "版本" in message

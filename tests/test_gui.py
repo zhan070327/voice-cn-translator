@@ -1097,3 +1097,193 @@ def test_runtime_progress_and_discard_have_separate_wrapping_rows(qapp, monkeypa
         assert "真实麦克风" in window.mic_combo.toolTip()
     finally:
         window.close()
+
+
+def test_quick_start_shows_live_pipeline_progress_without_changing_tabs(qapp, monkeypatch, tmp_path):
+    from threading import Event
+
+    import numpy as np
+
+    from valorant_translator import pipeline
+    from valorant_translator.audio.capture import AudioDevice
+    from valorant_translator.audio.segmenter import SpeechChunk
+    from valorant_translator.recognition.whisper import LocalWhisper
+    from valorant_translator.ui import app as ui
+
+    finish_recognition = Event()
+    finish_translation = Event()
+    second_recognition_started = Event()
+    finish_second_recognition = Event()
+
+    class Decoder:
+        def __init__(self):
+            self.calls = 0
+
+        def transcribe(self, *_args, **_kwargs):
+            self.calls += 1
+
+            def segments():
+                if self.calls == 1:
+                    yield SimpleNamespace(text="Wait near", no_speech_prob=0.1, avg_logprob=-0.2)
+                    assert finish_recognition.wait(3)
+                    yield SimpleNamespace(text="the entrance", no_speech_prob=0.1, avg_logprob=-0.2)
+                else:
+                    yield SimpleNamespace(text="A", no_speech_prob=0.1, avg_logprob=-0.2)
+                    second_recognition_started.set()
+                    assert finish_second_recognition.wait(5)
+            return segments(), SimpleNamespace(language="en", language_probability=0.99)
+
+    class Translator:
+        device = "cpu"
+
+        def translate(self, text, language):
+            assert (text, language) == ("Wait near the entrance", "en")
+            assert finish_translation.wait(3)
+            return "在入口附近等。"
+
+    class Capture:
+        def __init__(self, device_id, on_audio, on_level, on_status):
+            self.on_level = on_level
+            self.on_status = on_status
+
+        def start(self):
+            self.on_status("音频设备已连接，正在监听")
+
+        def stop(self):
+            pass
+
+    asr = LocalWhisper.__new__(LocalWhisper)
+    asr.device, asr.model = "cpu", Decoder()
+    manager = SimpleNamespace(create_asr=lambda _: asr, create_translation=lambda _: Translator())
+    monkeypatch.setattr(pipeline, "AudioCapture", Capture)
+    monkeypatch.setattr(pipeline, "default_model_manager", lambda *_args, **_kwargs: manager)
+    monkeypatch.setattr(ui.MainWindow, "_torch_version_ok", lambda self: True)
+    monkeypatch.setattr(ui.MainWindow, "_models_ready", lambda self: True)
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        window._apply_devices([AudioDevice("mic", "测试麦克风", False)])
+        qapp.processEvents()
+        stats_geometry = window.quick_stats.geometry()
+        audio_geometry = window.quick_audio_icon.geometry()
+        assert window.live_phase.text() == "空闲"
+        assert window.live_sentence.text() == "等待说话"
+        assert window.live_audio.isHidden()
+        assert window.live_backlog.isHidden()
+
+        window.start_button.click()
+        assert _wait_for(lambda: window.live_phase.text() == "正在听")
+        active = window.pipeline
+        active.capture.on_level(0.34)
+        assert window.live_audio.value() == 34 and window.live_audio.isVisible()
+        assert window.live_audio.accessibleName() == "麦克风音量"
+
+        now = time.monotonic()
+        chunk = SpeechChunk(np.zeros(16000, dtype=np.float32), now - 1, now)
+        active.enqueue(chunk)
+        assert _wait_for(lambda: window.live_phase.text() == "正在识别"
+                         and window.live_sentence.text() == "Wait near")
+        active.enqueue(chunk)
+        assert _wait_for(lambda: window.live_backlog.text() == "待处理 1 段"
+                         and window.live_backlog.isVisible())
+        finish_recognition.set()
+        assert _wait_for(lambda: second_recognition_started.is_set()
+                         and window.live_phase.text() == "正在翻译"
+                         and window.live_sentence.text() == "Wait near the entrance")
+        assert window.live_backlog.isHidden()
+        finish_translation.set()
+        assert _wait_for(lambda: window.live_phase.text() == "已出字幕"
+                         and window.live_sentence.text() == "在入口附近等。")
+        assert window.live_backlog.isHidden()
+        assert window.tabs.currentWidget() is window.quick_page
+        assert window.quick_page.verticalScrollBar().maximum() == 0
+        assert window.quick_stats.geometry() == stats_geometry
+        assert window.quick_audio_icon.geometry() == audio_geometry
+        window.resize(920, 640)
+        qapp.processEvents()
+        viewport = window.quick_page.viewport()
+        for label in (window.live_phase, window.live_sentence, window.live_audio):
+            assert viewport.rect().contains(QRect(label.mapTo(viewport, QPoint()), label.size()))
+        assert _wait_for(lambda: window.live_phase.text() == "正在识别" and window.live_sentence.text() == "A")
+        finish_second_recognition.set()
+        assert _wait_for(lambda: window.live_phase.text() == "正在听")
+        assert window.live_sentence.text() == "等待说话"
+
+        token = window._trace_token
+        window.stop_button.click()
+        window.bridge.live_activity.emit(token, 9, "recognizing", "previous run")
+        window.bridge.level.emit(token, 0.99)
+        assert window.live_phase.text() == "空闲"
+        assert window.live_sentence.text() == "等待说话"
+        assert window.live_audio.isHidden()
+        assert window.live_backlog.isHidden()
+    finally:
+        finish_recognition.set()
+        finish_second_recognition.set()
+        finish_translation.set()
+        window.close()
+
+
+def test_startup_waits_for_finished_update_and_offers_recovery(qapp, monkeypatch, tmp_path):
+    import psutil
+
+    from valorant_translator.ui import app as ui
+    from valorant_translator.updates import github, windows
+
+    log = tmp_path / "updates" / "last_result.txt"
+    installer = log.parent / "0.6.1" / github.CPU_INSTALLER_NAME
+    installer.parent.mkdir(parents=True)
+    installer.touch()
+    pending = log.with_suffix(".pending.txt")
+    pending.write_text(f"安装器路径：{installer}\n准备启动更新器", encoding="utf-8")
+    marker = log.with_suffix(".lock")
+    process = psutil.Process()
+    marker.write_text(f"{process.pid} {process.create_time()}", encoding="ascii")
+    monkeypatch.setattr(windows, "RESULT", log)
+
+    opened, retries, dialogs, warnings = [], [], [], []
+    monkeypatch.setattr(ui.os, "startfile", opened.append, raising=False)
+    monkeypatch.setattr(ui.MainWindow, "_check_update", lambda self: retries.append(True))
+    monkeypatch.setattr(ui.QMessageBox, "warning", lambda _, title, message: warnings.append(message))
+    choice = ["打开安装器"]
+    exec_box = ui.QMessageBox.exec
+
+    def exec_dialog(box):
+        dialogs.append((box.text(), box.detailedText()))
+        assert box.textFormat() == Qt.TextFormat.PlainText
+        buttons = {button.text(): button for button in box.buttons()}
+        assert {"打开安装器", "重试更新"} <= buttons.keys()
+        QTimer.singleShot(0, box, buttons[choice[0]].click)
+        QTimer.singleShot(1000, box, box.reject)
+        return exec_box(box)
+
+    monkeypatch.setattr(ui.QMessageBox, "exec", exec_dialog)
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        qapp.processEvents()
+        assert not dialogs
+        assert "准备启动更新器" in pending.read_text(encoding="utf-8")
+        assert marker.is_file()
+        with pending.open("a", encoding="utf-8") as output:
+            output.write("\n更新失败：安装器返回错误代码 7")
+        pending.replace(log)
+        marker.unlink()
+
+        assert _wait_for(lambda: bool(opened))
+        summary, details = dialogs[0]
+        assert "安装器返回错误代码 7" in summary
+        assert str(installer) in summary
+        assert details == log.read_text(encoding="utf-8")
+        assert opened == [installer]
+
+        choice[0] = "重试更新"
+        window._show_update_result()
+        assert retries == [True]
+
+        choice[0] = "打开安装器"
+        installer.unlink()
+        window._show_update_result()
+        assert len(warnings) == 1 and "找不到安装器" in warnings[0]
+        assert opened == [installer]
+        assert "安装器返回错误代码 7" in log.read_text(encoding="utf-8")
+    finally:
+        window.close()

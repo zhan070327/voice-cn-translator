@@ -53,10 +53,14 @@ def transcribe_segments(model, audio, locked, *, fast_mode: bool, hotwords: str 
     )
 
 
+def _reliable(segment):
+    return segment.no_speech_prob < 0.55 and segment.avg_logprob > -1.1
+
+
 def filter_segments(segments, info, locked, glossary, on_rejection=None,
                     languages: LanguageCatalog | None = None):
     languages = languages or DEFAULT_LANGUAGES
-    reliable = [s for s in segments if s.no_speech_prob < 0.55 and s.avg_logprob > -1.1]
+    reliable = [s for s in segments if _reliable(s)]
     parts = [s.text.strip() for s in reliable]
     text = " ".join(p for p in parts if p).strip()
     lang = locked or info.language
@@ -107,6 +111,8 @@ def filter_segments(segments, info, locked, glossary, on_rejection=None,
 
 
 class LocalWhisper:
+    on_partial = None
+
     def __init__(self, model_name: str, requested_device: str, fast_mode: bool = True,
                  *, model_dir: Path | None = None):
         from faster_whisper import WhisperModel
@@ -160,6 +166,8 @@ class LocalWhisper:
                 raise
             from faster_whisper import WhisperModel
             LOG.warning("Whisper CUDA inference failed; reloading on CPU: %s", exc)
+            if self.on_partial is not None:
+                self.on_partial("")
             del self.model
             gc.collect()
             self.device = "cpu"
@@ -175,6 +183,16 @@ class LocalWhisper:
             hotwords = getattr(glossary, "hotwords", None)
         segments, info = transcribe_segments(self.model, audio, locked,
                                              fast_mode=getattr(self, "fast_mode", True), hotwords=hotwords)
-        return filter_segments(list(segments), info, locked, glossary,
+        if self.on_partial is None:
+            decoded = list(segments)
+        else:
+            decoded = []
+            parts = []
+            for segment in segments:
+                decoded.append(segment)
+                if _reliable(segment) and (part := segment.text.strip()):
+                    parts.append(part)
+                    self.on_partial(" ".join(parts))
+        return filter_segments(decoded, info, locked, glossary,
                                getattr(self, "on_rejection", None),
                                getattr(self, "languages", DEFAULT_LANGUAGES))

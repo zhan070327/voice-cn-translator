@@ -3,6 +3,7 @@ from valorant_translator.ui.texts import tr
 
 import logging
 import math
+import os
 import sys
 import threading
 import time
@@ -55,11 +56,12 @@ from valorant_translator.ui.onboarding import Onboarding
 from valorant_translator.ui.overlay import SubtitleOverlay
 from valorant_translator.ui.routing import RoutingWizard
 from valorant_translator.ui.talk import SILENT_RMS, PushToTalk
+from valorant_translator.updates import windows as windows_updates
 from valorant_translator.updates.channel import check_for_update
 from valorant_translator.updates.domestic import load_channel
 from valorant_translator.updates.github import (UpdateCancelled, download_installer,
                                                 start_installer)
-from valorant_translator.updates.windows import RESULT, start_silent_installer
+from valorant_translator.updates.windows import start_silent_installer
 from valorant_translator.version import APP_VERSION
 
 LOG = logging.getLogger(__name__)
@@ -71,6 +73,8 @@ QUICK_START_GAP = tokens.TIGHT // 2
 class Bridge(QObject):
     status = Signal(str)
     level = Signal(object, float)
+    pipeline_status = Signal(object, str)
+    live_activity = Signal(object, int, str, str)
     result = Signal(object, object)
     toggle = Signal()
     talk_begin = Signal()
@@ -144,6 +148,9 @@ class MainWindow(QMainWindow):
         self._restart_after_stop = False
         self._update_busy = False
         self._update_cancel_event = threading.Event()
+        self._update_result_timer = QTimer(self)
+        self._update_result_timer.setSingleShot(True)
+        self._update_result_timer.timeout.connect(self._show_update_result)
         self._domestic_update = False
         self._model_busy = False
         self._model_moving = False
@@ -165,6 +172,12 @@ class MainWindow(QMainWindow):
         self._trace_token = None
         self._last_diagnostics = None
         self._active_icon_tasks: set[tuple[int, str]] = set()
+        self._live_tasks: dict[int, tuple[str, str]] = {}
+        self._live_listening = False
+        self._live_caption = ""
+        self._live_caption_timer = QTimer(self)
+        self._live_caption_timer.setSingleShot(True)
+        self._live_caption_timer.timeout.connect(self._expire_live_caption)
         self.bridge = Bridge()
         self.talk = PushToTalk(self.bridge.talk_status.emit, self.bridge.talk_result.emit,
                                level=self.bridge.talk_level.emit, details=self.bridge.talk_details.emit,
@@ -177,6 +190,8 @@ class MainWindow(QMainWindow):
         self.bridge.talk_details.connect(self._save_reverse_history)
         self.bridge.model_catalog.connect(self._catalog_ready)
         self.bridge.status.connect(self._status)
+        self.bridge.pipeline_status.connect(self._receive_pipeline_status)
+        self.bridge.live_activity.connect(self._receive_live_activity)
         self.bridge.level.connect(self._receive_live_level)
         self.bridge.result.connect(self._receive_live_result)
         self.bridge.toggle.connect(self._toggle_overlay)
@@ -215,7 +230,7 @@ class MainWindow(QMainWindow):
         self.refresh_devices()
         self._refresh_model_status()
         self._update_mode_hint()
-        QTimer.singleShot(0, self._show_update_result)
+        self._update_result_timer.start(0)
         if self._model_channel and self._model_channel["channel"] in ("domestic", "dual") and "model_manifest_url" in self._model_channel:
             threading.Thread(target=self._fetch_model_catalog, name="model-catalog", daemon=True).start()
         else:
@@ -542,6 +557,7 @@ class MainWindow(QMainWindow):
         self.quick_actions.setObjectName("glassCard")
         self.quick_actions.setMinimumHeight(tokens.WIDE + tokens.SPACE)
         run_row.setContentsMargins(GUTTER, tokens.INSET, GUTTER, tokens.INSET)
+        run_row.addWidget(self._build_live_status(), 1)
         self.quick_actions.setLayout(run_row)
         main_layout.addWidget(self.quick_actions)
         self.quick_page = self._scroll(main_page)
@@ -937,6 +953,79 @@ class MainWindow(QMainWindow):
         self._set_quick_mode(self.settings.speed_mode)
         self._set_quick_audio(0)
         return self.quick_stats
+
+    def _build_live_status(self):
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(tokens.TIGHT)
+
+        row = QHBoxLayout()
+        row.setSpacing(INLINE)
+        heading = QLabel(tr("app.live_status"))
+        heading.setObjectName("statValue")
+        row.addWidget(heading)
+        row.addStretch()
+        self.live_backlog = QLabel()
+        self.live_backlog.setObjectName("muted")
+        self.live_backlog.hide()
+        row.addWidget(self.live_backlog)
+        self.live_audio_label = QLabel()
+        self.live_audio_label.setObjectName("muted")
+        self.live_audio_label.hide()
+        row.addWidget(self.live_audio_label)
+        self.live_audio = QProgressBar()
+        self.live_audio.setRange(0, 100)
+        self.live_audio.setFixedWidth(tokens.VOLUME_WIDTH)
+        self.live_audio.setTextVisible(False)
+        self.live_audio.hide()
+        row.addWidget(self.live_audio)
+        layout.addLayout(row)
+
+        sentence = QHBoxLayout()
+        sentence.setSpacing(INLINE)
+        self.live_phase = QLabel()
+        self.live_phase.setObjectName("statValue")
+        sentence.addWidget(self.live_phase)
+        self.live_sentence = self._compact("")
+        self.live_sentence.setAccessibleName(tr("app.live_sentence"))
+        sentence.addWidget(self.live_sentence, 1)
+        layout.addLayout(sentence)
+        self._refresh_live_status()
+        return panel
+
+    def _refresh_live_status(self) -> None:
+        if self._live_caption:
+            stage, text = "caption", self._live_caption
+        elif self._live_tasks:
+            # Show translation first when decoding and translation overlap.
+            stage, text = max(self._live_tasks.values(), key=lambda task: task[0] == "translating")
+        else:
+            stage, text = ("listening" if self._live_listening else "idle"), tr("app.live_waiting")
+        self.live_phase.setText(tr(f"app.live_{stage}"))
+        self.live_sentence.setText(text)
+
+    def _receive_live_activity(self, token, task_id, stage, text) -> None:
+        if token is not self._trace_token:
+            return
+        if stage == "finished":
+            self._live_tasks.pop(task_id, None)
+        else:
+            self._live_tasks[task_id] = (stage, text)
+        self._refresh_live_status()
+
+    def _expire_live_caption(self) -> None:
+        self._live_caption = ""
+        self._refresh_live_status()
+
+    def _reset_live_status(self) -> None:
+        self._live_listening = False
+        self._live_tasks.clear()
+        self._live_caption_timer.stop()
+        self.live_backlog.hide()
+        self.live_audio.hide()
+        self.live_audio_label.hide()
+        self._expire_live_caption()
 
     def _set_quick_mode(self, mode):
         label = tr("app.quick_local_fallback") if mode == "local_fallback" else tr(f"engine.mode_{mode}")
@@ -1811,16 +1900,26 @@ class MainWindow(QMainWindow):
         self._quick_translation_count = 0
         self.quick_count.setText("0")
         self.quick_latency.setText("—")
+        self._reset_live_status()
         self._trace_token = token = object()
+        device = next((item for item in self.audio_devices if item.id == self.device_combo.currentData()), None)
+        volume_key = "app.live_volume"
+        if device is not None:
+            volume_key = "app.live_system_volume" if device.loopback else "app.live_mic_volume"
+        volume_label = tr(volume_key)
+        self.live_audio_label.setText(volume_label)
+        self.live_audio.setAccessibleName(volume_label)
         effective = self._effective_settings()
         self._running_cloud = effective.speed_mode == "extreme"
         if self._running_cloud:
             effective = replace(effective)
-        self.pipeline = Pipeline(effective, self.bridge.status.emit,
+        self.pipeline = Pipeline(effective, lambda message: self.bridge.pipeline_status.emit(token, message),
                                  lambda level: self.bridge.level.emit(token, level),
                                  lambda result: self.bridge.result.emit(token, result), self.bridge.diagnostic.emit,
                                  self.bridge.runtime.emit, self.history,
                                  on_trace=lambda trace: self.bridge.trace.emit((token, trace)),
+                                 on_activity=lambda task, stage, text: self.bridge.live_activity.emit(
+                                     token, task, stage, text),
                                  on_cloud_blocked=lambda code: self.bridge.cloud_blocked.emit(token, code),
                                  on_effective_mode=lambda mode: self.bridge.effective_mode.emit(token, mode),
                                  cloud_client=CloudClient(self.settings, save_session=self.settings.save),
@@ -1847,6 +1946,7 @@ class MainWindow(QMainWindow):
         self.pipeline = None
         self._running_cloud = False
         self._trace_token = None
+        self._reset_live_status()
         self._set_quick_mode(self.settings.speed_mode)
         self._set_quick_audio(0)
         self.engine_runtime.hide()
@@ -1885,6 +1985,21 @@ class MainWindow(QMainWindow):
             self.chinese_label.setText(text)
             self.chinese_label.setVisible(bool(text))
 
+    def _receive_pipeline_status(self, token, message: str) -> None:
+        if token is not self._trace_token:
+            return
+        if message.startswith(tr("app.0175")):
+            self._reset_live_status()
+        elif message.startswith("音频采集失败"):
+            self._live_listening = False
+            self.live_audio.hide()
+            self.live_audio_label.hide()
+            self._refresh_live_status()
+        elif message.startswith("音频设备已连接"):
+            self._live_listening = True
+            self._refresh_live_status()
+        self._status(message)
+
     def _status(self, message: str) -> None:
         self.status_label.setText(tr("app.0174", p0=message))
         self.status_label.show()
@@ -1920,8 +2035,11 @@ class MainWindow(QMainWindow):
 
     def _receive_trace(self, payload) -> None:
         token, trace = payload
-        if token is self._trace_token:
+        if token is self._trace_token and self.pipeline is not None:
             self._record_trace(trace)
+            pending = self.pipeline.pending_count()
+            self.live_backlog.setText(tr("app.live_pending", count=pending) if pending else "")
+            self.live_backlog.setVisible(pending > 0)
 
     def _record_trace(self, trace: TaskTrace) -> None:
         self._recent_trace.append(trace)
@@ -1990,6 +2108,9 @@ class MainWindow(QMainWindow):
     def _receive_live_result(self, token, result):
         if token is self._trace_token:
             self._result(result)
+            self._live_caption = result.chinese
+            self._live_caption_timer.start(1200)
+            self._refresh_live_status()
 
     def _result(self, result: SubtitleResult) -> None:
         self._recent_results.append(result)
@@ -2047,6 +2168,9 @@ class MainWindow(QMainWindow):
     def _receive_live_level(self, token, level):
         if token is self._trace_token:
             self._show_audio_level(level)
+            self.live_audio.setValue(round(level * 100))
+            self.live_audio.show()
+            self.live_audio_label.show()
 
     def _set_quick_audio(self, level):
         active = self.pipeline is not None and level >= 0.02
@@ -2092,6 +2216,9 @@ class MainWindow(QMainWindow):
             return
         if sys.platform != "win32" or not getattr(sys, "frozen", False):
             QMessageBox.information(self, tr("app.0222"), tr("app.0223"))
+            return
+        if windows_updates.update_in_progress():
+            self._set_update_status(tr("app.update_in_progress"))
             return
         self._set_update_busy(True)
         try:
@@ -2143,20 +2270,14 @@ class MainWindow(QMainWindow):
 
         def task():
             try:
-                RESULT.parent.mkdir(parents=True, exist_ok=True)
-                RESULT.write_text(f"开始下载：{release.installer_name}\n", encoding="utf-8")
                 path = download_installer(release, self.bridge.update_progress.emit,
                                           cancel=self._update_cancel_event,
                                           speed=self.bridge.update_speed.emit)
-                with RESULT.open("a", encoding="utf-8") as log:
-                    log.write(f"下载完成：{path}\n")
                 self.bridge.update_ready.emit((path, release))
             except UpdateCancelled:
                 self.bridge.update_cancelled.emit()
             except Exception as exc:
                 LOG.exception("Update download failed")
-                with RESULT.open("a", encoding="utf-8") as log:
-                    log.write(f"更新失败：下载或校验失败：{exc}\n")
                 self.bridge.update_error.emit(str(exc))
 
         threading.Thread(target=task, name="update-download", daemon=True).start()
@@ -2211,17 +2332,45 @@ class MainWindow(QMainWindow):
         self.update_label.setVisible(bool(text))
 
     def _show_update_result(self) -> None:
-        try:
-            message = RESULT.read_text(encoding="utf-8-sig").strip()
-            RESULT.unlink(missing_ok=True)
-        except OSError:
+        if windows_updates.update_in_progress():
+            self._update_result_timer.start(500)
             return
-        if message:
-            self._set_update_status(message)
-            if "更新成功；已重开新程序" in message and "更新失败" not in message:
-                QMessageBox.information(self, tr("app.0245"), message)
-            else:
-                QMessageBox.warning(self, tr("app.0245"), message)
+        result = windows_updates.read_update_result()
+        if result is None:
+            if windows_updates.update_in_progress():
+                self._update_result_timer.start(500)
+            return
+        self._set_update_status(result.summary)
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("app.0245"))
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setIcon(QMessageBox.Icon.Information if result.succeeded else QMessageBox.Icon.Warning)
+        summary = result.summary
+        if result.installer is not None:
+            summary += "\n" + tr("app.update_installer_path", path=result.installer)
+        box.setText(summary)
+        if result.message != result.summary:
+            box.setDetailedText(result.message)
+        box.setStandardButtons(QMessageBox.StandardButton.Close)
+        box.setDefaultButton(QMessageBox.StandardButton.Close)
+        retry = open_installer = None
+        if not result.succeeded:
+            retry = box.addButton(tr("app.retry_update"), QMessageBox.ButtonRole.ActionRole)
+            if result.installer is not None:
+                open_installer = box.addButton(tr("app.open_installer"), QMessageBox.ButtonRole.ActionRole)
+                open_installer.setEnabled(hasattr(os, "startfile"))
+        box.exec()
+        chosen = box.clickedButton()
+        box.deleteLater()
+        if retry is not None and chosen is retry:
+            self._check_update()
+        elif open_installer is not None and chosen is open_installer:
+            try:
+                if not windows_updates.is_cached_installer(result.installer):
+                    raise FileNotFoundError(tr("app.update_installer_unavailable"))
+                os.startfile(result.installer)
+            except OSError as exc:
+                QMessageBox.warning(self, tr("app.0245"), tr("app.open_installer_failed", error=exc))
 
     def _open_recent_translation(self, item, _column):
         entry_id = item.data(0, Qt.ItemDataRole.UserRole)
@@ -2805,6 +2954,9 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self._cloud_balance_timer.stop()
+        self._update_result_timer.stop()
+        self._live_caption_timer.stop()
+        self._trace_token = None
         self._cloud_mode_check = None
         self._cloud_balance_check = None
         if self.routing_wizard is not None:

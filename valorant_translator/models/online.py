@@ -123,10 +123,18 @@ class _Fallback:
             self._local.languages = self.languages
         if self._stage == "asr":
             self._local.on_rejection = self.on_rejection
-        return getattr(self._local, method)(*args)
+        if self._stage != "asr" or not hasattr(self._local, "on_partial"):
+            return getattr(self._local, method)(*args)
+        self._local.on_partial = self.on_partial
+        try:
+            return getattr(self._local, method)(*args)
+        finally:
+            self._local.on_partial = None
 
 
 class FallbackASR(_Fallback):
+    on_partial = None
+
     def __init__(self, online, make_local):
         super().__init__(online, make_local, "asr")
 

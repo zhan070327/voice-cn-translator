@@ -12,10 +12,11 @@ if not exist ".venv\Scripts\python.exe" (
 if errorlevel 1 goto fail
 ".venv\Scripts\python.exe" -m scripts.create_icon
 if errorlevel 1 goto fail
-".venv\Scripts\python.exe" -m scripts.verify_release
+".venv\Scripts\python.exe" -m scripts.verify_release --write-exe-version
 if errorlevel 1 goto fail
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onedir --windowed ^
   --name ValorantTranslator ^
+  --version-file ".venv\windows-version.txt" ^
   --icon "assets\app_icon.ico" ^
   --add-data "config\glossary.json;config" ^
   --add-data "config\languages.json;config" ^
