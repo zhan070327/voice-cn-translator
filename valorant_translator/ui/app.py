@@ -612,9 +612,6 @@ class MainWindow(QMainWindow):
         self.language_combo = self._combo([(tr("app.0058"), "auto"),
                                             *[(name, code) for code, name in LANGUAGES.items()]], self.settings.language)
         self._row(form, tr("app.0059"), self.language_combo)
-        self.model_combo = self._combo([(name, name) for name in ("tiny", "base", "small", "medium")],
-                                       self.settings.whisper_model)
-        self._row(form, tr("app.0060"), self.model_combo)
         if self._model_channel and self._model_channel["channel"] == "dual":
             self.model_source = self._combo([(tr("app.0061"), "cos"), (tr("app.0062"), "huggingface")],
                                             self.settings.model_source)
@@ -1339,6 +1336,12 @@ class MainWindow(QMainWindow):
         self.speed_combo.setCurrentIndex(self.speed_combo.findData(self.settings.speed_mode))
         self.speed_combo.activated.connect(self._select_speed_mode)
         self._row(form, tr("engine.preset"), self.speed_combo)
+        self.model_combo = self._combo([(name, name) for name in ("tiny", "base", "small", "medium")],
+                                       self.settings.whisper_model)
+        self._row(form, tr("app.0060"), self.model_combo)
+        self.offline_mode_hint = QLabel(tr("engine.offline_limitations"))
+        self.offline_mode_hint.setWordWrap(True)
+        form.addRow(self.offline_mode_hint)
         form.addRow(self._hint(tr("engine.privacy")))
         account = QHBoxLayout()
         self.cloud_balance = self._hint("")
@@ -1351,10 +1354,9 @@ class MainWindow(QMainWindow):
         self._show_cloud_balance()
 
     def _sync_engine_preset(self):
-        widgets = (self.speed_combo, self.model_combo, self.fast_check, *self.glossary_checks.values())
+        widgets = (self.speed_combo, self.fast_check, *self.glossary_checks.values())
         blockers = [QSignalBlocker(widget) for widget in widgets]
         self.speed_combo.setCurrentIndex(self.speed_combo.findData(self.settings.speed_mode))
-        self.model_combo.setCurrentIndex(self.model_combo.findData(self.settings.whisper_model))
         self.fast_check.setChecked(self.settings.fast_mode)
         for key, check in self.glossary_checks.items():
             check.setChecked(getattr(self.settings, key))
@@ -1392,7 +1394,7 @@ class MainWindow(QMainWindow):
         self._request_cloud(self.cloud.entitlement, finished)
 
     def _apply_speed_mode(self, mode):
-        previous = (self.settings.speed_mode, self.settings.whisper_model, self.settings.fast_mode)
+        previous = (self.settings.speed_mode, self.settings.fast_mode)
         if previous[0] == "extreme" and mode != "extreme":
             if self._running_cloud and self.pipeline is not None:
                 self.pipeline.cloud_client.disable_online()
@@ -1400,7 +1402,7 @@ class MainWindow(QMainWindow):
         self.settings.select_speed_mode(mode)
         self._sync_engine_preset()
         self._save_settings()
-        current = (self.settings.speed_mode, self.settings.whisper_model, self.settings.fast_mode)
+        current = (self.settings.speed_mode, self.settings.fast_mode)
         if self.pipeline and previous != current:
             self._restart_after_stop = True
             self.stop_translation()

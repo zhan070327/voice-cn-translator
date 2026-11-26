@@ -12,7 +12,8 @@ import pytest
 
 from valorant_translator import config, pipeline
 from valorant_translator.audio.segmenter import SpeechChunk
-from valorant_translator.models.cloud import CloudASR, CloudClient, CloudTranslation
+from valorant_translator.models.cloud import (CloudASR, CloudClient, CloudTranslation,
+                                              ready_engine_settings)
 from valorant_translator.models.online import JsonRequest, OnlineError, RequestRejected
 from valorant_translator.models.providers import default_model_manager
 from valorant_translator.recognition.whisper import Recognition
@@ -38,11 +39,11 @@ def test_preset_consent_and_legacy_config(monkeypatch, tmp_path):
     assert loaded.whisper_model == "medium" and not loaded.fast_mode
     assert loaded.asr_provider == config.LOCAL_ASR
     assert loaded.select_speed_mode("balanced")
-    assert (loaded.whisper_model, loaded.fast_mode) == ("tiny", True)
+    assert (loaded.whisper_model, loaded.fast_mode) == ("medium", True)
 
     loaded.asr_correction = loaded.official_lines = loaded.game_terms = False
     assert loaded.select_speed_mode("precise")
-    assert (loaded.whisper_model, loaded.fast_mode) == ("small", False)
+    assert (loaded.whisper_model, loaded.fast_mode) == ("medium", False)
     assert loaded.asr_correction and loaded.official_lines and loaded.game_terms
 
     settings = online_settings()
@@ -50,10 +51,11 @@ def test_preset_consent_and_legacy_config(monkeypatch, tmp_path):
     assert config.Settings.load() == settings
     assert settings.cloud_access_token not in repr(settings)
     assert settings.cloud_refresh_token not in repr(settings)
-    path.write_text('{"speed_mode":"extreme","asr_provider":"azure_speech","azure_speech_key":"old"}',
-                    encoding="utf-8")
+    path.write_text('{"speed_mode":"extreme","asr_provider":"azure_speech",'
+                    '"azure_speech_key":"old","whisper_model":"base"}', encoding="utf-8")
     recovered = config.Settings.load()
     assert recovered.speed_mode == "balanced"
+    assert recovered.whisper_model == "base"
     assert recovered.asr_provider == config.LOCAL_ASR
     assert recovered.translation_model == config.LOCAL_TRANSLATION
     assert "azure_" not in path.read_text()
@@ -64,6 +66,41 @@ def test_preset_consent_and_legacy_config(monkeypatch, tmp_path):
         manager.create_asr(settings)
     with pytest.raises(ValueError, match="极速"):
         manager.create_translation(settings)
+
+
+@pytest.mark.parametrize("model", ["tiny", "base"])
+def test_model_choice_survives_each_preset_and_reload(model, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "APP_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    settings = config.Settings.load()
+    assert settings.whisper_model == "tiny"
+    settings.whisper_model = model
+    settings.asr_correction = settings.official_lines = settings.game_terms = False
+
+    for mode in ("precise", "extreme", "balanced", "precise"):
+        settings.select_speed_mode(mode)
+        settings.save()
+        settings = config.Settings.load()
+        assert settings.whisper_model == model
+        assert settings.speed_mode == mode
+        if mode == "precise":
+            assert settings.asr_provider == config.LOCAL_ASR
+            assert settings.translation_model == config.LOCAL_TRANSLATION
+            assert not settings.fast_mode
+            assert settings.asr_correction and settings.official_lines and settings.game_terms
+
+
+def test_cloud_entitlement_fallback_preserves_model_choice(monkeypatch):
+    settings = online_settings()
+    settings.whisper_model = "base"
+    client = CloudClient(settings)
+    monkeypatch.setattr(client, "entitlement", lambda **_: {"online_allowed": False})
+    blocked = []
+    local = ready_engine_settings(settings, client, blocked.append, lambda _: None)
+
+    assert blocked == ["quota_exhausted"]
+    assert (local.speed_mode, local.whisper_model) == ("balanced", "base")
+    assert (settings.speed_mode, settings.whisper_model) == ("extreme", "base")
 
 
 def test_cloud_contracts_and_token_refresh(monkeypatch):

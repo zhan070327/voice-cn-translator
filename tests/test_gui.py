@@ -566,8 +566,9 @@ def test_engine_presets_gate_online_and_sync_actual_settings(qapp, monkeypatch, 
         assert window._cloud_prompt.buttons()[0].text() == tr("engine.sign_in")
         assert not window._cloud_prompt.isModal()
         window._cloud_prompt.close()
+        window.model_combo.setCurrentIndex(window.model_combo.findData("base"))
         window._select_speed_mode(window.speed_combo.findData("precise"))
-        assert window.model_combo.currentData() == "small"
+        assert window.model_combo.currentData() == "base"
         assert not window.fast_check.isChecked()
         assert Settings.load().speed_mode == "precise"
         window.settings.cloud_access_token = "test-session"
@@ -577,7 +578,8 @@ def test_engine_presets_gate_online_and_sync_actual_settings(qapp, monkeypatch, 
         window._select_speed_mode(extreme)
         assert _wait_for(lambda: window.speed_combo.currentData() == "extreme")
         assert window.cloud_balance.text() == "试用剩余 0 小时 35 分 0 秒"
-        assert window.model_combo.currentData() == "tiny"
+        assert window.model_combo.currentData() == "base"
+        assert window.model_combo.isEnabled()
         assert Settings.load().translation_model == ONLINE_TRANSLATION
 
         monkeypatch.setattr(window.cloud, "entitlement", lambda: {
@@ -586,12 +588,46 @@ def test_engine_presets_gate_online_and_sync_actual_settings(qapp, monkeypatch, 
         window._select_speed_mode(extreme)
         assert _wait_for(lambda: window._cloud_prompt is not None)
         assert window.speed_combo.currentData() == "balanced"
+        assert window.model_combo.currentData() == "base"
         assert window.cloud_balance.text() == tr("engine.balance_exhausted")
         assert window._cloud_prompt.buttons()[0].text() == tr("engine.subscribe")
         assert not window._cloud_prompt.isModal()
         window._cloud_prompt.close()
     finally:
         window.close()
+
+
+def test_precise_model_selector_and_offline_notice_are_in_speed_settings(qapp, monkeypatch, tmp_path):
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        window.tabs.setCurrentWidget(window.settings_page)
+        window.speed_combo.activated.emit(window.speed_combo.findData("precise"))
+        assert window.model_combo.isEnabled()
+        assert window.model_combo.currentData() == "tiny"
+        assert [window.model_combo.itemData(i) for i in range(window.model_combo.count())] == [
+            "tiny", "base", "small", "medium",
+        ]
+        assert window.model_combo.parentWidget() is window.speed_combo.parentWidget()
+        assert window.offline_mode_hint.parentWidget() is window.speed_combo.parentWidget()
+        assert window.offline_mode_hint.isVisible()
+        assert "词库没有的词要自己补" in window.offline_mode_hint.text()
+        assert "翻译准确度不如在线模式" in window.offline_mode_hint.text()
+
+        window.model_combo.setCurrentIndex(window.model_combo.findData("base"))
+        for mode in ("balanced", "precise"):
+            window.speed_combo.activated.emit(window.speed_combo.findData(mode))
+            assert window.model_combo.isEnabled()
+            assert window.model_combo.currentData() == "base"
+    finally:
+        window.close()
+
+    reopened = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        assert reopened.speed_combo.currentData() == "precise"
+        assert reopened.model_combo.currentData() == "base"
+        assert reopened.model_combo.isEnabled()
+    finally:
+        reopened.close()
 
 
 def test_online_mode_ignores_entitlement_after_local_selection(qapp, monkeypatch, tmp_path):
