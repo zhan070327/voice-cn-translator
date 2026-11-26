@@ -1,4 +1,4 @@
-name: Verify and publish b8 CPU and GPU
+name: Verify and publish 0.6.0 CPU and GPU
 on:
   push:
     branches: [main]
@@ -10,7 +10,7 @@ on:
         options: [verify, publish]
         default: verify
       confirmation:
-        description: Enter PUBLISH 0.3.0b8 only after completing real Windows checks
+        description: Enter PUBLISH 0.6.0 only after completing real Windows checks
         type: string
 permissions:
   actions: read
@@ -39,7 +39,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'publish' && inputs.confirmation == 'PUBLISH 0.3.0b8'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'publish' && inputs.confirmation == 'PUBLISH 0.6.0'
     environment: cos-production
     concurrency:
       group: cos-production
@@ -68,5 +68,5 @@ jobs:
           COS_SESSION_TOKEN: ${{ secrets.COS_SESSION_TOKEN }}
         run: |
           python -m scripts.publish_paired_release --gpu dist/paired/gpu --cpu dist/paired/cpu \
-            --repo "$GITHUB_REPOSITORY" --expected-commit 82e9e10abfb32ab72d49f98a88a1c670e1140c62 \
-            --expected-run 45756406388 --expected-attempt 1 --confirm 'PUBLISH 0.3.0b8'
+            --repo "$GITHUB_REPOSITORY" --expected-commit 731b4655b770d5bfd4111e66fa323b7885857d2c \
+            --expected-run 45857684725 --expected-attempt 1 --confirm 'PUBLISH 0.6.0'
