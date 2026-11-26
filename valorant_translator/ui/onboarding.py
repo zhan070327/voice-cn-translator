@@ -14,11 +14,13 @@ class Onboarding(QDialog):
         super().__init__(window)
         self.window = window
         self.step = 0
+        self.destination = window.quick_page
         self.test_started = False
         self._loading = False
         self._device_refresh_failed = False
         window.devices_refreshed.connect(self._devices_refreshed)
         self.setWindowTitle(tr("onboarding.0001"))
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setMinimumWidth(525)
         container = QVBoxLayout(self)
         container.setContentsMargins(0, 0, 0, 0)
@@ -35,7 +37,8 @@ class Onboarding(QDialog):
         step_row = QHBoxLayout()
         step_row.setSpacing(GAP)
         self.step_icons = []
-        for name, label in (("chip", tr("onboarding.0002")), ("download", tr("onboarding.0003")), ("mic", tr("onboarding.0004"))):
+        for name, label in (("chat", tr("onboarding.0002")), ("download", tr("onboarding.0003")),
+                            ("mic", tr("onboarding.0004"))):
             group = QVBoxLayout()
             group.setSpacing(4)
             icon = LineIcon(name)
@@ -66,6 +69,11 @@ class Onboarding(QDialog):
         self.details.setWordWrap(True)
         self.details.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         card.addWidget(self.details)
+        self.context = QLabel()
+        self.context.setObjectName("muted")
+        self.context.setTextFormat(Qt.TextFormat.PlainText)
+        self.context.setWordWrap(True)
+        card.addWidget(self.context)
         self.progress = QProgressBar()
         card.addWidget(self.progress)
         self.transfer = CompactLabel()
@@ -77,13 +85,17 @@ class Onboarding(QDialog):
         self.action.setProperty("ghost", True)
         self.action.clicked.connect(self._action)
         card.addWidget(self.action, alignment=Qt.AlignmentFlag.AlignHCenter)
-        self.finish = GlassButton(tr("onboarding.0005"))
+        self.finish = GlassButton(tr("onboarding.0005"), icon="play")
         self.finish.clicked.connect(self.accept)
         buttons = QHBoxLayout()
-        later = GlassButton(tr("onboarding.0006"))
-        later.clicked.connect(self.reject)
-        buttons.addWidget(later)
+        self.skip = GlassButton(tr("onboarding.0006"))
+        self.skip.clicked.connect(self.reject)
+        buttons.addWidget(self.skip)
         buttons.addStretch()
+        self.talk_test = GlassButton(tr("onboarding.0020"), icon="mic")
+        self.talk_test.setToolTip(tr("onboarding.0019"))
+        self.talk_test.clicked.connect(self._test_microphone)
+        buttons.addWidget(self.talk_test)
         buttons.addWidget(self.finish)
         layout.addLayout(buttons)
         layout.addStretch()
@@ -132,27 +144,27 @@ class Onboarding(QDialog):
         w = self.window
         self.progress.setVisible(self.step == 1 and w._model_busy)
         self.finish.setVisible(self.step == 2)
+        self.talk_test.setVisible(self.step == 2)
         if self.step == 0:
             self.transfer.hide()
+            self.context.hide()
             self.action.set_line_icon("next")
             self.title.setText(tr("onboarding.0007"))
-            lines = [f"{label}：{combo.currentText()}" for label, combo in
-                     ((tr("onboarding.device_input"), w.device_combo), (tr("onboarding.microphone"), w.mic_combo)) if combo.currentData()]
-            lines.append(tr("onboarding.recommend_model", p0=self._recommendation()))
-            if self._device_refresh_failed:
-                lines.append(tr("onboarding.device_refresh_failed"))
-            self._set_details("\n".join(lines))
+            self._set_details(tr("onboarding.purpose"))
             self.action.setText(tr("onboarding.0010"))
             self.action.setEnabled(True)
         elif self.step == 1:
             self.title.setText(tr("onboarding.0011"))
+            self._set_details(tr("onboarding.download_instructions"))
             sizes = w.download_sizes()
             models = [f"Whisper {w.model_combo.currentData()}", "M2M100 418M"]
             models = [f"{model} · {sizes[model] / 1024**2:,.1f} MiB" if sizes.get(model) else model
                       for model in models]
-            status = w.model_transfer.text() if w._model_busy and not w.model_transfer.isHidden() else w.status_label.text()
-            self._set_details("\n".join([*models, w.model_status_label.toolTip()]))
-            show_transfer = status != tr("onboarding.0012")
+            self.context.setText("\n".join((" · ".join(models), tr("onboarding.recommend_model", p0=self._recommendation()))))
+            self.context.setToolTip(w.model_status_label.toolTip())
+            self.context.show()
+            status = w.model_transfer.text() if w._model_busy and not w.model_transfer.isHidden() else w._model_error
+            show_transfer = bool(status)
             if show_transfer:
                 self.transfer.setText(status.removeprefix(tr("onboarding.0013")))
             self.transfer.setVisible(show_transfer)
@@ -165,11 +177,20 @@ class Onboarding(QDialog):
         else:
             self.transfer.hide()
             self.title.setText(tr("onboarding.0017"))
-            self.action.set_line_icon("mic")
-            self._set_details(w.talk_state.text() if self.test_started else tr("onboarding.0018"))
-            self.details.setToolTip(tr("onboarding.0019"))
-            self.action.setText(tr("onboarding.0020"))
-            self.action.setEnabled(not w.talk._busy and bool(w.mic_combo.currentData()))
+            self._set_details(tr("onboarding.0018"))
+            self.action.set_line_icon("speaker")
+            self.action.setText(tr("onboarding.configure_audio"))
+            self.action.setEnabled(True)
+            self.talk_test.setEnabled(not w.talk._busy and bool(w.mic_combo.currentData()))
+            lines = [tr("onboarding.device_summary", label=tr(label), name=combo.currentText())
+                     for label, combo in (("onboarding.device_input", w.device_combo),
+                                          ("onboarding.microphone", w.mic_combo)) if combo.currentData()]
+            if self._device_refresh_failed:
+                lines.append(tr("onboarding.device_refresh_failed"))
+            if self.test_started:
+                lines.append(w.talk_state.text())
+            self.context.setText("\n".join(lines))
+            self.context.setVisible(bool(lines))
 
     def _recommendation(self):
         available = psutil.virtual_memory().available
@@ -194,9 +215,17 @@ class Onboarding(QDialog):
                 self.window._pause_model_download()
             else:
                 self.window._download()
-        elif self.window._begin_talk():
+        else:
+            self.destination = self.window.audio_page
+            self.accept()
+            QTimer.singleShot(0, self.window, self.window._open_microphone_wizard)
+            return
+        self._refresh()
+
+    def _test_microphone(self):
+        if self.window._begin_talk():
             self.test_started = True
-            QTimer.singleShot(4000, self.window.talk.end)
+            QTimer.singleShot(4000, self, self.window.talk.end)
         self._refresh()
 
     def _set_loading(self):
@@ -209,8 +238,7 @@ class Onboarding(QDialog):
         if self.step == 0 and self._loading:
             self._loading = False
             self._device_refresh_failed = not success
-            if success:
-                self.step = 1
+            self.step = 1
             self._refresh()
 
     def _show_test(self):
@@ -222,6 +250,6 @@ class Onboarding(QDialog):
     def done(self, result):
         self._loading = False
         self.timer.stop()
-        if self.step == 2:
+        if self.test_started:
             self.window.talk.end()
         super().done(result)

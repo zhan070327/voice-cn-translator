@@ -1,0 +1,434 @@
+{
+  "model": "m2m100_418M",
+  "device": "cpu",
+  "baseline_ptt": false,
+  "platform": "macOS-27.3-arm64-arm-64bit",
+  "processor": "arm",
+  "torch": "2.15.0",
+  "transformers": "4.57.6",
+  "threads": 4,
+  "repeats": 3,
+  "load_ms": 1771.17,
+  "cases": [
+    {
+      "id": "e01",
+      "direction": "en-zh",
+      "origin": "exact_phrases",
+      "focus": "点位、数字",
+      "source": "Two A main.",
+      "expected": "A 大两个。",
+      "translation": "二是主要。",
+      "samples_ms": [
+        208.6,
+        208.85,
+        207.6
+      ],
+      "median_ms": 208.6
+    },
+    {
+      "id": "e02",
+      "direction": "en-zh",
+      "origin": "exact_phrases",
+      "focus": "点位",
+      "source": "Rotate B.",
+      "expected": "转点去 B。",
+      "translation": "旋转B。",
+      "samples_ms": [
+        207.43,
+        225.13,
+        221.89
+      ],
+      "median_ms": 221.89
+    },
+    {
+      "id": "e03",
+      "direction": "en-zh",
+      "origin": "exact_phrases",
+      "focus": "点位",
+      "source": "Retake A.",
+      "expected": "重夺 A 点。",
+      "translation": "回归A。",
+      "samples_ms": [
+        216.9,
+        207.8,
+        207.83
+      ],
+      "median_ms": 207.83
+    },
+    {
+      "id": "e04",
+      "direction": "en-zh",
+      "origin": "exact_phrases",
+      "focus": "否定",
+      "source": "Don't peek.",
+      "expected": "别拉出去对枪。",
+      "translation": "不要打皮。",
+      "samples_ms": [
+        205.63,
+        215.57,
+        206.47
+      ],
+      "median_ms": 206.47
+    },
+    {
+      "id": "e05",
+      "direction": "en-zh",
+      "origin": "exact_phrases",
+      "focus": "否定",
+      "source": "Don't push.",
+      "expected": "别前压。",
+      "translation": "不要推。",
+      "samples_ms": [
+        183.13,
+        183.37,
+        186.15
+      ],
+      "median_ms": 183.37
+    },
+    {
+      "id": "e06",
+      "direction": "en-zh",
+      "origin": "exact_phrases",
+      "focus": "否定",
+      "source": "Don't rotate.",
+      "expected": "别转点。",
+      "translation": "不要旋转。",
+      "samples_ms": [
+        210.47,
+        213.42,
+        209.35
+      ],
+      "median_ms": 210.47
+    },
+    {
+      "id": "e07",
+      "direction": "en-zh",
+      "origin": "exact_phrases",
+      "focus": "数字",
+      "source": "Two low.",
+      "expected": "有两个残血。",
+      "translation": "二低。",
+      "samples_ms": [
+        189.2,
+        186.33,
+        185.48
+      ],
+      "median_ms": 186.33
+    },
+    {
+      "id": "e08",
+      "direction": "en-zh",
+      "origin": "exact_phrases",
+      "focus": "数字",
+      "source": "Three low.",
+      "expected": "有三个残血。",
+      "translation": "三低。",
+      "samples_ms": [
+        161.1,
+        160.02,
+        167.86
+      ],
+      "median_ms": 161.1
+    },
+    {
+      "id": "e09",
+      "direction": "en-zh",
+      "origin": "exact_phrases",
+      "focus": "数字",
+      "source": "One enemy left.",
+      "expected": "剩一个敌人。",
+      "translation": "一个敌人留下。",
+      "samples_ms": [
+        255.55,
+        253.9,
+        254.53
+      ],
+      "median_ms": 254.53
+    },
+    {
+      "id": "e10",
+      "direction": "en-zh",
+      "origin": "exact_phrases",
+      "focus": "方向",
+      "source": "Behind us.",
+      "expected": "在我们后面。",
+      "translation": "背后我们",
+      "samples_ms": [
+        187.81,
+        189.84,
+        197.58
+      ],
+      "median_ms": 189.84
+    },
+    {
+      "id": "e11",
+      "direction": "en-zh",
+      "origin": "contextual_rewrites",
+      "focus": "口语",
+      "source": "Give me a second.",
+      "expected": "等我一下。",
+      "translation": "给我一秒。",
+      "samples_ms": [
+        210.7,
+        213.64,
+        207.89
+      ],
+      "median_ms": 210.7
+    },
+    {
+      "id": "e12",
+      "direction": "en-zh",
+      "origin": "contextual_rewrites",
+      "focus": "动作",
+      "source": "I'm reloading.",
+      "expected": "我在换弹。",
+      "translation": "我正在重新加载。",
+      "samples_ms": [
+        235.19,
+        236.38,
+        236.83
+      ],
+      "median_ms": 236.38
+    },
+    {
+      "id": "e13",
+      "direction": "en-zh",
+      "origin": "contextual_rewrites",
+      "focus": "动作",
+      "source": "I'm blinded.",
+      "expected": "我被致盲了。",
+      "translation": "我是盲目的。",
+      "samples_ms": [
+        246.79,
+        277.86,
+        276.75
+      ],
+      "median_ms": 276.75
+    },
+    {
+      "id": "e14",
+      "direction": "en-zh",
+      "origin": "contextual_rewrites",
+      "focus": "动作",
+      "source": "Spike is down.",
+      "expected": "包掉了。",
+      "translation": "斯皮克下。",
+      "samples_ms": [
+        360.48,
+        248.95,
+        277.84
+      ],
+      "median_ms": 277.84
+    },
+    {
+      "id": "e15",
+      "direction": "en-zh",
+      "origin": "contextual_rewrites",
+      "focus": "动作",
+      "source": "Defuse the spike.",
+      "expected": "拆包。",
+      "translation": "把 spike 放下。",
+      "samples_ms": [
+        312.11,
+        316.42,
+        284.17
+      ],
+      "median_ms": 312.11
+    },
+    {
+      "id": "e16",
+      "direction": "en-zh",
+      "origin": "contextual_rewrites",
+      "focus": "动作",
+      "source": "Hold this angle.",
+      "expected": "架住这个枪线。",
+      "translation": "保持这个角度。",
+      "samples_ms": [
+        212.82,
+        219.1,
+        230.4
+      ],
+      "median_ms": 219.1
+    },
+    {
+      "id": "e17",
+      "direction": "en-zh",
+      "origin": "composed",
+      "focus": "点位、数字、否定",
+      "source": "Two A main, don't rotate to B.",
+      "expected": "A 大两个，别转 B。",
+      "translation": "二 A 主要,不要转向 B。",
+      "samples_ms": [
+        385.52,
+        413.94,
+        381.51
+      ],
+      "median_ms": 385.52
+    },
+    {
+      "id": "e18",
+      "direction": "en-zh",
+      "origin": "composed",
+      "focus": "方向、点位、数字",
+      "source": "One on our left and two behind us at B.",
+      "expected": "左边一个，B 点身后两个。",
+      "translation": "左边有一个,后面有两个,B。",
+      "samples_ms": [
+        401.39,
+        394.93,
+        413.67
+      ],
+      "median_ms": 401.39
+    },
+    {
+      "id": "p01",
+      "direction": "zh-en",
+      "origin": "contextual_rewrites_zh_en",
+      "focus": "口语",
+      "source": "等我一下。",
+      "expected": "Hold on a sec.",
+      "translation": "Wait for me a moment.",
+      "samples_ms": [
+        715.63,
+        650.77,
+        716.75
+      ],
+      "median_ms": 715.63
+    },
+    {
+      "id": "p02",
+      "direction": "zh-en",
+      "origin": "contextual_rewrites_zh_en",
+      "focus": "动作",
+      "source": "我在换弹。",
+      "expected": "I'm reloading.",
+      "translation": "I am changing the bullet.",
+      "samples_ms": [
+        885.34,
+        738.18,
+        716.53
+      ],
+      "median_ms": 738.18
+    },
+    {
+      "id": "p03",
+      "direction": "zh-en",
+      "origin": "contextual_rewrites_zh_en",
+      "focus": "动作",
+      "source": "转点。",
+      "expected": "Rotate.",
+      "translation": "the turnpoint.",
+      "samples_ms": [
+        641.62,
+        545.37,
+        466.01
+      ],
+      "median_ms": 545.37
+    },
+    {
+      "id": "p04",
+      "direction": "zh-en",
+      "origin": "lexical_terms",
+      "focus": "战术",
+      "source": "这局打个默认。",
+      "expected": "Let's play default this round.",
+      "translation": "This agency makes an assumption.",
+      "samples_ms": [
+        832.02,
+        792.64,
+        816.25
+      ],
+      "median_ms": 816.25
+    },
+    {
+      "id": "p05",
+      "direction": "zh-en",
+      "origin": "composed",
+      "focus": "点位、数字、否定",
+      "source": "A 大有两个，先别露头。",
+      "expected": "Two A main. Don't peek yet.",
+      "translation": "There are two, but don’t start.",
+      "samples_ms": [
+        921.88,
+        855.34,
+        865.78
+      ],
+      "median_ms": 865.78
+    },
+    {
+      "id": "p06",
+      "direction": "zh-en",
+      "origin": "composed",
+      "focus": "点位、方向、否定",
+      "source": "别从左边绕，他们在 B 点后面。",
+      "expected": "Don't flank from the left. They're behind B site.",
+      "translation": "Do not turn from the left, they are behind the B point.",
+      "samples_ms": [
+        1209.05,
+        1202.45,
+        1200.23
+      ],
+      "median_ms": 1202.45
+    },
+    {
+      "id": "p07",
+      "direction": "zh-en",
+      "origin": "composed",
+      "focus": "数字、方向",
+      "source": "右边还有三个，最后一个残血。",
+      "expected": "Three more on the right. The last one is low.",
+      "translation": "There are three on the right side, the last with blood.",
+      "samples_ms": [
+        1302.26,
+        1375.75,
+        1328.12
+      ],
+      "median_ms": 1328.12
+    },
+    {
+      "id": "p08",
+      "direction": "zh-en",
+      "origin": "composed",
+      "focus": "点位、动作、否定",
+      "source": "还没下包，先守住 A 点。",
+      "expected": "The spike isn't planted yet. Hold A site.",
+      "translation": "No pack yet, keep the point A.",
+      "samples_ms": [
+        999.43,
+        799.84,
+        818.64
+      ],
+      "median_ms": 818.64
+    },
+    {
+      "id": "p09",
+      "direction": "zh-en",
+      "origin": "composed",
+      "focus": "点位、动作、口语",
+      "source": "等我换完弹，我们再转去 B。",
+      "expected": "Wait until I reload, then let's rotate to B.",
+      "translation": "When I change the ball, I turn to B.",
+      "samples_ms": [
+        961.1,
+        1162.07,
+        1067.07
+      ],
+      "median_ms": 1067.07
+    },
+    {
+      "id": "p10",
+      "direction": "zh-en",
+      "origin": "composed",
+      "focus": "点位、动作、否定",
+      "source": "别拆包，先清 A 大。",
+      "expected": "Don't defuse yet. Clear A main first.",
+      "translation": "Do not break the package, first cleanse a big.",
+      "samples_ms": [
+        1094.58,
+        1050.14,
+        1163.84
+      ],
+      "median_ms": 1094.58
+    }
+  ]
+}

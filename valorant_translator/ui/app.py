@@ -17,7 +17,7 @@ from packaging.version import Version
 
 from PySide6.QtCore import QObject, QSignalBlocker, Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QIcon
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout, QFrame,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFormLayout, QFrame,
                                QHeaderView, QHBoxLayout, QLabel, QLineEdit,
                                QMainWindow, QProgressBar,
                                QScrollArea, QSpinBox, QTabWidget,
@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFormLayout, 
 
 from valorant_translator.audio.capture import list_devices, preferred_microphone
 from valorant_translator.feedback import FeedbackStore
-from valorant_translator.config import APP_DIR, MODEL_DIR, Settings, get_model_dir
+from valorant_translator.config import APP_DIR, MODEL_DIR, SPEED_MODES, Settings, get_model_dir
 from valorant_translator.history import HistoryStore
 from valorant_translator.models.catalog import fetch_catalog, install_selected
 from valorant_translator.models.cos import ModelPaused
@@ -40,17 +40,19 @@ from valorant_translator.translation.glossary import GAMES, read_default_glossar
 from valorant_translator.translation.rules import Rule, RuleStore, now
 from valorant_translator.ui.dialogs import (GlassFileDialog as QFileDialog, GlassInputDialog as QInputDialog,
                                            GlassMessageBox as QMessageBox, apply_dialog_theme)
+from valorant_translator.ui.engine_settings import AzureCredentialsDialog
 from valorant_translator.ui.glass import (BACKGROUND_THEMES, DEFAULT_BACKGROUND_COLOR,
                                         GAP, GUTTER, INLINE, CompactLabel, GlassButton, GlassSection,
                                         GlassSurface, accent_color, glass_styles, tint_icons)
-from valorant_translator.ui.glossary_tools import (default_glossary, entry_text, manage_rules, preview,
+from valorant_translator.ui.glossary_tools import (add_custom_term, default_glossary, entry_text, manage_rules, preview,
                                                    review_feedback, submit_feedback)
 from valorant_translator.ui import tokens
 from valorant_translator.ui.icons import LineIcon
+from valorant_translator.ui.microphone import MicrophoneWizard, is_routed_source
 from valorant_translator.ui.motion import ActionDock, CaptionLight, DetailPanel, LoadingSkeleton, SelectionCapsule, Snapshot, Toast
 from valorant_translator.ui.onboarding import Onboarding
 from valorant_translator.ui.overlay import SubtitleOverlay
-from valorant_translator.ui.routing import RoutingWizard, routing_devices
+from valorant_translator.ui.routing import RoutingWizard
 from valorant_translator.ui.talk import SILENT_RMS, PushToTalk
 from valorant_translator.updates.channel import check_for_update
 from valorant_translator.updates.domestic import load_channel
@@ -140,6 +142,7 @@ class MainWindow(QMainWindow):
         self.catalog_checked = threading.Event()
         self.reverse_text = ""
         self.onboarding = None
+        self.microphone_wizard = None
         self._recent_trace: deque[TaskTrace] = deque(maxlen=10)
         self._recent_results: deque[SubtitleResult] = deque(maxlen=100)
         self._task_timings: dict[int, dict[str, float]] = {}
@@ -181,7 +184,9 @@ class MainWindow(QMainWindow):
         self._build()
         self.tabs.currentChanged.connect(self._page_changed)
         self._refresh_history()
-        self.statusBar()
+        self.engine_runtime = self._compact("")
+        self.statusBar().addPermanentWidget(self.engine_runtime)
+        self.engine_runtime.hide()
         self.overlay = SubtitleOverlay(self.settings)
         self.overlay.position_changed.connect(self._overlay_moved)
         self.overlay.show()
@@ -190,8 +195,6 @@ class MainWindow(QMainWindow):
         self._refresh_model_status()
         self._update_mode_hint()
         QTimer.singleShot(0, self._show_update_result)
-        if sys.platform == "win32" and not self.settings.routing_intro_seen:
-            QTimer.singleShot(0, self._show_routing_intro)
         if self._model_channel and self._model_channel["channel"] in ("domestic", "dual") and "model_manifest_url" in self._model_channel:
             threading.Thread(target=self._fetch_model_catalog, name="model-catalog", daemon=True).start()
         else:
@@ -201,8 +204,17 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         main_page = QWidget()
         main_layout = QVBoxLayout(main_page)
-        main_layout.setContentsMargins(GUTTER, 0, GUTTER + INLINE, 0)
-        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(GUTTER, GAP, GUTTER, GUTTER)
+        main_layout.setSpacing(GAP)
+        audio_page = QWidget()
+        audio_page_layout = QVBoxLayout(audio_page)
+        audio_page_layout.setContentsMargins(GUTTER, GAP, GUTTER, GUTTER)
+        audio_page_layout.setSpacing(GUTTER)
+        self.diagnostics_page = QWidget()
+        diagnostics_layout = QVBoxLayout(self.diagnostics_page)
+        diagnostics_layout.setContentsMargins(GUTTER, GAP, GUTTER, GUTTER)
+        diagnostics_layout.setSpacing(GAP)
+        audio_page_layout.addWidget(self._build_game_bar())
 
         self.update_button = GlassButton(tr("app.0006"), icon="refresh")
         self.update_button.clicked.connect(self._check_update)
@@ -212,7 +224,8 @@ class MainWindow(QMainWindow):
         updates = QVBoxLayout(update_strip)
         updates.setContentsMargins(GUTTER, tokens.TIGHT, GUTTER, tokens.TIGHT)
         updates.setSpacing(INLINE)
-        self.update_label = self._compact(tr("app.0007", p0=APP_VERSION))
+        self.update_label = self._compact("")
+        self.update_label.hide()
         updates.addWidget(self.update_label)
         self.update_bar = QProgressBar()
         self.update_bar.setRange(0, 100)
@@ -239,18 +252,8 @@ class MainWindow(QMainWindow):
         risk.setSpacing(INLINE)
         risk.addWidget(LineIcon("shield"))
         risk.addWidget(QLabel(tr("app.0015")), 1)
-        updates.addWidget(warning)
 
-        columns = QHBoxLayout()
-        columns.setSpacing(GAP)
-        left_column = QVBoxLayout()
-        right_column = QVBoxLayout()
-        left_column.setSpacing(QUICK_START_GAP)
-        right_column.setSpacing(tokens.TIGHT)
-        columns.addLayout(left_column, 11)
-        columns.addLayout(right_column, 9)
-
-        model_group, model_layout = self._quick_start_group(tr("app.0016"), "layers")
+        model_group, model_layout = self._group(tr("app.0016"), "layers")
         self.model_status_label = self._compact(tr("app.0017"))
         model_group.header.addWidget(self.model_status_label, 2)
         self.model_loading = LoadingSkeleton()
@@ -272,7 +275,8 @@ class MainWindow(QMainWindow):
         self.model_pause_button.clicked.connect(self._pause_model_download)
         self.model_pause_button.hide()
         model_row.addWidget(self.model_pause_button)
-        model_group.header.addLayout(model_row)
+        model_row.addStretch()
+        model_layout.addLayout(model_row)
         self.model_progress = QProgressBar()
         self.model_progress.setRange(0, 0)
         self.model_progress.setTextVisible(False)
@@ -284,9 +288,8 @@ class MainWindow(QMainWindow):
         model_layout.addWidget(self.model_transfer)
         self.download_button.setToolTip(tr("app.0021"))
         self.import_button.setToolTip(tr("app.0022"))
-        left_column.addWidget(model_group)
 
-        audio_group, audio_layout = self._quick_start_group(tr("app.0023"), "speaker")
+        audio_group, audio_layout = self._group(tr("app.0023"), "speaker")
         device_row = QHBoxLayout()
         self.device_combo = QComboBox()
         self.device_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
@@ -295,21 +298,21 @@ class MainWindow(QMainWindow):
         self.refresh_button.clicked.connect(self._request_devices)
         device_row.addWidget(self.device_combo, 1)
         device_row.addWidget(self.refresh_button)
-        audio_group.header.addLayout(device_row, 3)
-        self.device_hint = self._compact("")
+        audio_layout.addLayout(device_row)
+        self.device_hint = self._hint("")
+        self.device_hint.setTextFormat(Qt.TextFormat.PlainText)
         audio_layout.addWidget(self.device_hint)
-        left_column.addWidget(audio_group)
+        audio_page_layout.addWidget(audio_group)
 
-        display_group, display_layout = self._quick_start_group(tr("app.0025"), "screen")
+        display_group, display_layout = self._group(tr("app.0025"), "screen")
         self.mode_combo = QComboBox()
         self.mode_combo.addItem(tr("app.0026"), "desktop")
         self.mode_combo.addItem(tr("app.0027"), "game")
         self.mode_combo.setCurrentIndex(0 if self.settings.normal_window else 1)
         self.mode_combo.currentIndexChanged.connect(self._mode_changed)
-        display_group.header.addWidget(self.mode_combo, 3)
-        self.mode_hint = self._compact("")
-        display_group.header.addWidget(self.mode_hint, 2)
+        self.mode_hint = self._hint("")
         overlay_row = QHBoxLayout()
+        overlay_row.addWidget(self.mode_combo)
         self.test_button = GlassButton(tr("app.0028"), icon="screen")
         self.test_button.clicked.connect(self._test_overlay)
         self.position_button = GlassButton(tr("app.0029"))
@@ -319,11 +322,14 @@ class MainWindow(QMainWindow):
         overlay_row.addWidget(self.test_button)
         overlay_row.addWidget(self.show_button)
         overlay_row.addWidget(self.position_button)
+        overlay_row.addStretch()
         overlay_row.setSpacing(tokens.TIGHT)
         display_layout.addLayout(overlay_row)
-        left_column.addWidget(display_group)
+        display_layout.addWidget(self.mode_hint)
+        display_layout.addWidget(warning)
+        audio_page_layout.addWidget(display_group)
 
-        run_group, run_layout = self._group(tr("app.0031"), "play")
+        run_group, run_layout = self._group(tr("app.0031"), "activity")
         run_group.setProperty("compactRun", True)
         run_layout.setContentsMargins(GUTTER, tokens.TIGHT, GUTTER, tokens.TIGHT)
         run_layout.setSpacing(tokens.TIGHT)
@@ -339,13 +345,15 @@ class MainWindow(QMainWindow):
         run_row.addWidget(self.start_button)
         run_row.addWidget(self.stop_button)
         run_row.addStretch()
+        audio_status = QHBoxLayout()
+        audio_status.setSpacing(INLINE)
         self.status_label = self._compact(tr("app.0034"))
         self.status_label.hide()
-        run_row.addWidget(self.status_label, 1)
+        audio_status.addWidget(self.status_label, 1)
         self.audio_icon = LineIcon("activity")
         self.audio_icon.setToolTip(tr("app.0035"))
         self.audio_icon.hide()
-        run_row.addWidget(self.audio_icon)
+        audio_status.addWidget(self.audio_icon)
         self.volume = QProgressBar()
         self.volume.setRange(0, 100)
         self.volume.setValue(0)
@@ -353,8 +361,8 @@ class MainWindow(QMainWindow):
         self.volume.setAccessibleName(tr("app.0036"))
         self.volume.setToolTip(tr("app.0037"))
         self.volume.hide()
-        run_row.addWidget(self.volume)
-        run_layout.addLayout(run_row)
+        audio_status.addWidget(self.volume)
+        run_layout.addLayout(audio_status)
         run_layout.addLayout(cards)
         self.runtime_label = self._hint(tr("app.0038"))
         self.diagnostic_label = self._hint("")
@@ -388,12 +396,13 @@ class MainWindow(QMainWindow):
         talk_row = QHBoxLayout()
         talk_row.setSpacing(INLINE)
         talk_row.addWidget(self.reverse_icon)
-        talk_row.addWidget(self._hint(tr("app.0040")))
         talk_row.addWidget(self.talk_button)
         talk_row.addWidget(self.reverse_copy)
         talk_row.addWidget(self.talk_state, 1)
-        run_layout.addLayout(talk_row)
-        run_layout.addWidget(self.microphone_level)
+        talk_group, talk_layout = self._group(tr("app.talk_section"), "mic")
+        talk_layout.addLayout(talk_row)
+        talk_layout.addWidget(self.microphone_level)
+        audio_page_layout.addWidget(talk_group)
 
         self.hero = QFrame()
         self.hero.setObjectName("hero")
@@ -409,7 +418,6 @@ class MainWindow(QMainWindow):
         header.addStretch()
         self.caption_tools = GlassButton(tr("app.caption_visibility"), icon="screen")
         self.caption_tools.clicked.connect(self._toggle_overlay)
-        header.addWidget(self.caption_tools)
         result_layout.addLayout(header)
         self.chinese_label = QLabel()
         self.chinese_label.hide()
@@ -429,9 +437,10 @@ class MainWindow(QMainWindow):
         captions.addLayout(current)
         self.caption_loading = LoadingSkeleton()
         captions.addWidget(self.caption_loading)
-        self.previous_caption = self._compact("")
+        self.previous_caption = self._hint("")
         self.previous_caption.setObjectName("previousCaption")
         self.previous_caption.setAccessibleName(tr("app.previous_caption"))
+        self.previous_caption.setTextFormat(Qt.TextFormat.PlainText)
         self.previous_caption.hide()
         self.previous_latency = QLabel()
         self.previous_latency.setProperty("metric", True)
@@ -440,12 +449,16 @@ class MainWindow(QMainWindow):
         previous.setSpacing(INLINE)
         previous.addWidget(self.previous_caption, 1)
         previous.addWidget(self.previous_latency, 0, Qt.AlignmentFlag.AlignVCenter)
-        captions.addLayout(previous)
-        result_layout.addWidget(caption_well)
+        self.previous_original = self._hint("")
+        self.previous_original.setTextFormat(Qt.TextFormat.PlainText)
+        self.previous_original.setAccessibleName(tr("app.previous_original"))
+        self.previous_original.hide()
         self.caption_hint = self._hint(FIRST_CAPTION_HINT)
         self.caption_hint.setTextFormat(Qt.TextFormat.PlainText)
-        result_layout.addWidget(self.caption_hint)
-        self.original_label = self._compact("")
+        captions.addWidget(self.caption_hint)
+        result_layout.addWidget(caption_well)
+        self.original_label = self._hint("")
+        self.original_label.setTextFormat(Qt.TextFormat.PlainText)
         self.language_label = QLabel()
         self.language_label.setTextFormat(Qt.TextFormat.PlainText)
         self.language_label.setProperty("metric", True)
@@ -458,10 +471,11 @@ class MainWindow(QMainWindow):
         source.setSpacing(INLINE)
         source.addWidget(self.original_label, 1)
         source.addWidget(self.language_label)
-        result_layout.addLayout(source)
+        captions.addLayout(source)
+        captions.addLayout(previous)
+        captions.addWidget(self.previous_original)
         self.detail_toggle = GlassButton(tr("app.recognition_details"))
         self.detail_toggle.setCheckable(True)
-        header.addWidget(self.detail_toggle)
         self.details_panel = QFrame()
         self.details_panel.setObjectName("glassCard")
         details = QVBoxLayout(self.details_panel)
@@ -475,12 +489,10 @@ class MainWindow(QMainWindow):
         details.addWidget(self.failures_label)
         self.details_panel.hide()
         self.detail_toggle.toggled.connect(self._toggle_details)
-        result_layout.addWidget(self.details_panel)
         self.feedback_button = GlassButton(tr("app.0051"), icon="copy")
-        self.feedback_button.setObjectName("quickStartFeedback")
         self.feedback_button.clicked.connect(self._copy_feedback)
-        recent_group, recent_layout = self._quick_start_group(tr("app.recent_translations"), "clock")
-        self.recent_hint = self._hint(EMPTY_HISTORY)
+        self.recent_group, recent_layout = self._quick_start_group(tr("app.recent_translations"), "clock")
+        self.recent_hint = self._hint("")
         recent_layout.addWidget(self.recent_hint)
         self.recent_list = QTreeWidget()
         self.recent_list.setObjectName("recentTranslations")
@@ -499,15 +511,13 @@ class MainWindow(QMainWindow):
         self.recent_list.itemActivated.connect(self._open_recent_translation)
         self.recent_list.hide()
         recent_layout.addWidget(self.recent_list)
-        right_column.addWidget(recent_group)
         self.caption_light = CaptionLight(self.hero)
         main_layout.addWidget(self.hero)
-        main_layout.addSpacing(INLINE)
-        main_layout.addWidget(update_strip)
-        main_layout.addSpacing(INLINE)
-        main_layout.addWidget(run_group)
-        main_layout.addSpacing(QUICK_START_GAP)
-        main_layout.addLayout(columns, 1)
+        main_layout.addLayout(run_row)
+        main_layout.addStretch()
+        self.quick_page = self._scroll(main_page)
+        self.tabs.addTab(self.quick_page, tr("app.0052"))
+
         self.dock = ActionDock((
             (tr("app.test_caption_action"), "play", self.test_button.click),
             (tr("app.caption_visibility"), "screen", self.show_button.click),
@@ -515,28 +525,44 @@ class MainWindow(QMainWindow):
         ))
         for button in self.dock.buttons:
             button.setFixedSize(tokens.SPACE, tokens.SPACE)
-        quick_actions = QHBoxLayout()
-        quick_actions.addWidget(self.feedback_button)
-        quick_actions.addStretch()
-        quick_actions.addWidget(self.dock)
-        right_column.addLayout(quick_actions)
-        left_column.addStretch()
-        right_column.addStretch()
-        self.tabs.addTab(self._scroll(main_page), tr("app.0052"))
+        diagnostic_actions = QHBoxLayout()
+        diagnostic_actions.addWidget(self.detail_toggle)
+        diagnostic_actions.addWidget(self.feedback_button)
+        diagnostic_actions.addWidget(self.update_button)
+        diagnostic_actions.addStretch()
+        diagnostic_actions.addWidget(self.caption_tools)
+        diagnostic_actions.addWidget(self.dock)
+        diagnostics_layout.addWidget(run_group)
+        diagnostics_layout.addLayout(diagnostic_actions)
+        diagnostics_layout.addWidget(self.details_panel)
+        diagnostics_layout.addStretch()
 
         settings_page = QWidget()
         settings_layout = QVBoxLayout(settings_page)
         settings_layout.setContentsMargins(GUTTER, GAP, GUTTER, GUTTER)
         settings_layout.setSpacing(GAP)
+        tools_row = QHBoxLayout()
+        self.intro_button = GlassButton(tr("onboarding.0001"), icon="book")
+        self.intro_button.clicked.connect(self._show_onboarding)
+        tools_row.addWidget(self.intro_button)
+        self.settings_microphone_wizard_button = GlassButton(tr("mic_setup.title"), icon="mic")
+        self.settings_microphone_wizard_button.clicked.connect(self._open_microphone_wizard)
+        tools_row.addWidget(self.settings_microphone_wizard_button)
+        tools_row.addStretch()
+        settings_layout.addLayout(tools_row)
         form = self._settings_card(settings_layout, tr("app.0053"), "download")
         self.settings_update_button = GlassButton(tr("app.0054"), icon="refresh")
         self.settings_update_button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.settings_update_button.clicked.connect(self._check_update)
         form.addRow(self.settings_update_button)
         self.update_version_label = self._hint(tr("app.0055", p0=APP_VERSION))
-        form.addRow(self.update_version_label)
+        updates.addWidget(self.update_version_label)
         self.update_notes_label = self._hint(tr("app.0056"))
-        form.addRow(self.update_notes_label)
+        self.update_notes_label.hide()
+        updates.addWidget(self.update_notes_label)
+        form.addRow(update_strip)
+        settings_layout.addWidget(model_group)
+        self._engine_controls(self._settings_card(settings_layout, tr("engine.title"), "chip"))
         form = self._settings_card(settings_layout, tr("app.0057"), "chip")
         self.language_combo = self._combo([(tr("app.0058"), "auto"),
                                             *[(name, code) for code, name in LANGUAGES.items()]], self.settings.language)
@@ -567,18 +593,25 @@ class MainWindow(QMainWindow):
         self.fast_check = self._check(tr("app.0068"), self.settings.fast_mode)
         self.fast_check.setToolTip(tr("app.0069"))
         form.addRow(self.fast_check)
+        talk_form = self._form()
+        talk_layout.addLayout(talk_form)
         self.ptt_hotkey_edit = QLineEdit(self.settings.ptt_hotkey)
         self.ptt_hotkey_edit.editingFinished.connect(self._save_settings)
-        self._row(form, tr("app.0070"), self.ptt_hotkey_edit)
+        self._row(talk_form, tr("app.0070"), self.ptt_hotkey_edit)
         self.mic_combo = QComboBox()
         self.mic_combo.setToolTip(tr("app.ptt_microphone_help"))
         self.mic_combo.currentIndexChanged.connect(self._save_settings)
-        self._row(form, tr("app.0071"), self.mic_combo)
+        self._row(talk_form, tr("app.0071"), self.mic_combo)
         self.routing_button = GlassButton(tr("app.0072"), icon="speaker")
         self.routing_button.clicked.connect(self._open_routing)
-        form.addRow(self.routing_button)
+        route_row = QHBoxLayout()
+        self.microphone_wizard_button = GlassButton(tr("mic_setup.title"), icon="mic")
+        self.microphone_wizard_button.clicked.connect(self._open_microphone_wizard)
+        route_row.addWidget(self.microphone_wizard_button)
+        route_row.addWidget(self.routing_button)
         self.routing_status = self._hint("")
-        form.addRow(self.routing_status)
+        route_row.addWidget(self.routing_status, 1)
+        audio_layout.addLayout(route_row)
         self.advanced_button = GlassButton(tr("app.0073"), icon="settings")
         self.advanced_button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.advanced_button.setCheckable(True)
@@ -669,7 +702,11 @@ class MainWindow(QMainWindow):
         glossary_form.addRow(self.glossary_loading)
         self._glossary_actions(glossary_form)
         settings_layout.addStretch()
-        self.tabs.addTab(self._scroll(settings_page), tr("app.0110"))
+        audio_page_layout.addStretch()
+        self.audio_page = self._scroll(audio_page)
+        self.tabs.addTab(self.audio_page, tr("app.audio_page"))
+        self.settings_page = self._scroll(settings_page)
+        self.tabs.addTab(self.settings_page, tr("app.0110"))
 
         self.history_page = QWidget()
         self.history_page.setObjectName("historyPage")
@@ -678,6 +715,7 @@ class MainWindow(QMainWindow):
         history_hint = self._hint(tr("app.0111"))
         history_hint.setToolTip(tr("app.0112"))
         history_layout.addWidget(history_hint)
+        history_layout.addWidget(self.recent_group)
         self.history_state = self._hint("")
         self.history_state.setTextFormat(Qt.TextFormat.PlainText)
         history_layout.addWidget(self.history_state)
@@ -717,6 +755,8 @@ class MainWindow(QMainWindow):
         history_layout.addLayout(extra)
         self.history_table.doubleClicked.connect(self._history_details)
         self.tabs.addTab(self.history_page, tr("app.0129"))
+        self.runtime_page = self._scroll(self.diagnostics_page)
+        self.tabs.addTab(self.runtime_page, tr("app.runtime_page"))
         self._build_shell()
 
     def _build_shell(self):
@@ -735,8 +775,11 @@ class MainWindow(QMainWindow):
         side.addWidget(brand)
         side.addSpacing(GAP)
         self.nav = QButtonGroup(self)
+        icons = {self.quick_page: "chat", self.audio_page: "speaker", self.settings_page: "settings",
+                 self.history_page: "clock", self.runtime_page: "activity"}
         for index in range(self.tabs.count()):
-            button = GlassButton(self.tabs.tabText(index), icon=("chat", "settings", "clock")[index])
+            page = self.tabs.widget(index)
+            button = GlassButton(self.tabs.tabText(index), icon=icons[page])
             button.setProperty("navigation", True)
             button.setCheckable(True)
             self.nav.addButton(button, index)
@@ -755,6 +798,32 @@ class MainWindow(QMainWindow):
         shell.addWidget(sidebar)
         content = QVBoxLayout()
         content.setSpacing(GAP)
+        self.game_notice = Toast(self.surface)
+        self.tabs.tabBar().hide()
+        content.addWidget(self.tabs, 1)
+        shell.addLayout(content, 1)
+        self.setCentralWidget(self.surface)
+        self.page_snapshot = Snapshot(self.tabs)
+        self.skin_snapshot = Snapshot(self.surface)
+        self.toast_timer = QTimer(self, singleShot=True)
+        self.toast_timer.timeout.connect(self.game_notice.dismiss)
+        self.detail_effect = DetailPanel(self.diagnostics_page)
+        self.detail_effect.hide()
+        self._apply_theme()
+        self._refresh_glossary()
+        order = [*self.nav.buttons(), guide, self.start_button, self.stop_button,
+                 *self.game_group.buttons(), self.device_combo, self.refresh_button,
+                 self.microphone_wizard_button, self.routing_button,
+                 self.mode_combo, self.test_button, self.show_button, self.position_button,
+                 self.talk_button, self.reverse_copy, self.ptt_hotkey_edit, self.mic_combo,
+                 self.intro_button, self.settings_microphone_wizard_button, self.settings_update_button,
+                 self.update_cancel_button, self.download_button,
+                 self.import_button, self.model_pause_button, self.recent_list, self.history_table,
+                 self.detail_toggle, self.feedback_button, self.update_button, self.caption_tools, *self.dock.buttons]
+        for previous, following in zip(order, order[1:]):
+            QWidget.setTabOrder(previous, following)
+
+    def _build_game_bar(self):
         game_bar = QFrame()
         game_bar.setObjectName("glassCard")
         games = QHBoxLayout(game_bar)
@@ -773,29 +842,7 @@ class MainWindow(QMainWindow):
         self.game_capsule = SelectionCapsule(game_bar)
         self.game_capsule.select(self.game_group.checkedButton(), animated=False)
         self.game_group.buttonClicked.connect(self.game_capsule.select)
-        games.addWidget(self.update_button)
-        content.addWidget(game_bar)
-        self.game_notice = Toast(self.surface)
-        self.tabs.tabBar().hide()
-        content.addWidget(self.tabs, 1)
-        shell.addLayout(content, 1)
-        self.setCentralWidget(self.surface)
-        self.page_snapshot = Snapshot(self.tabs)
-        self.skin_snapshot = Snapshot(self.surface)
-        self.toast_timer = QTimer(self, singleShot=True)
-        self.toast_timer.timeout.connect(self.game_notice.dismiss)
-        self.detail_effect = DetailPanel(self.hero)
-        self.detail_effect.hide()
-        self._apply_theme()
-        self._refresh_glossary()
-        order = [*self.nav.buttons(), guide, *self.game_group.buttons(), self.update_button,
-                 self.caption_tools, self.detail_toggle, self.start_button, self.stop_button,
-                 self.talk_button, self.reverse_copy, self.download_button, self.import_button,
-                 self.model_pause_button, self.device_combo, self.refresh_button, self.mode_combo,
-                 self.test_button, self.show_button, self.position_button, self.recent_list, self.feedback_button,
-                 *self.dock.buttons]
-        for previous, following in zip(order, order[1:]):
-            QWidget.setTabOrder(previous, following)
+        return game_bar
 
     def _stat(self, row, title, initial, name):
         frame = QFrame()
@@ -920,15 +967,16 @@ class MainWindow(QMainWindow):
         self.page_snapshot.reveal(image, tokens.PAGE_MS)
 
     def _page_changed(self, index):
-        if index == 2:
+        page = self.tabs.widget(index)
+        if page is self.history_page:
             self._request_history()
-        elif index == 1:
+        elif page is self.settings_page:
             self._refresh_glossary()
 
     def _toggle_details(self, opened):
         if opened:
             self.details_panel.show()
-            self.hero.layout().activate()
+            self.diagnostics_page.layout().activate()
         self.detail_effect.show_from(self.detail_toggle, self.details_panel.geometry(), opening=opened)
         if not opened:
             self.details_panel.hide()
@@ -971,6 +1019,12 @@ class MainWindow(QMainWindow):
             self._restart_after_stop = True
             self.stop_translation()
 
+    def _show_first_run(self):
+        if not self.settings.onboarding_done:
+            self._show_onboarding()
+        elif sys.platform == "win32" and not self.settings.routing_intro_seen:
+            self._show_routing_intro()
+
     def _show_onboarding(self):
         if self.onboarding and self.onboarding.isVisible():
             self.onboarding.raise_()
@@ -979,9 +1033,15 @@ class MainWindow(QMainWindow):
         self.onboarding.finished.connect(self._onboarding_finished)
         self.onboarding.open()
 
-    def _onboarding_finished(self, _result):
+    def _onboarding_finished(self, result):
+        destination = self.onboarding.destination
+        self.onboarding = None
+        if not self.settings.onboarding_done and sys.platform == "win32":
+            self.settings.routing_intro_seen = True
         self.settings.onboarding_done = True
         self.settings.save()
+        if result == QDialog.DialogCode.Accepted:
+            self._navigate(self.tabs.indexOf(destination))
 
     def _fetch_model_catalog(self):
         try:
@@ -1088,6 +1148,68 @@ class MainWindow(QMainWindow):
         return (model_ready(folder / f"whisper-{self.model_combo.currentData()}", WHISPER_FILES)
                 and model_ready(folder / "m2m100_418M", M2M_FILES))
 
+    def _engine_controls(self, form):
+        self.speed_combo = QComboBox()
+        for mode in SPEED_MODES:
+            name = tr(f"engine.mode_{mode}")
+            self.speed_combo.addItem(name, mode)
+            self._row(form, name, self._hint(tr(f"engine.config_{mode}")))
+        self.speed_combo.setCurrentIndex(self.speed_combo.findData(self.settings.speed_mode))
+        self.speed_combo.activated.connect(self._select_speed_mode)
+        self._row(form, tr("engine.preset"), self.speed_combo)
+        form.addRow(self._hint(tr("engine.privacy")))
+        self.engine_credentials_button = GlassButton(tr("engine.credentials"), icon="settings")
+        self.engine_credentials_button.clicked.connect(self._edit_engine_credentials)
+        form.addRow(self.engine_credentials_button)
+        self.engine_key_hint = self._hint(tr("engine.credentials_required"))
+        self.engine_key_hint.setHidden(self.settings.online_configured())
+        form.addRow(self.engine_key_hint)
+
+    def _sync_engine_preset(self):
+        widgets = (self.speed_combo, self.model_combo, self.fast_check, *self.glossary_checks.values())
+        blockers = [QSignalBlocker(widget) for widget in widgets]
+        self.speed_combo.setCurrentIndex(self.speed_combo.findData(self.settings.speed_mode))
+        self.model_combo.setCurrentIndex(self.model_combo.findData(self.settings.whisper_model))
+        self.fast_check.setChecked(self.settings.fast_mode)
+        for key, check in self.glossary_checks.items():
+            check.setChecked(getattr(self.settings, key))
+        del blockers
+
+    def _select_speed_mode(self, index):
+        previous = (self.settings.speed_mode, self.settings.whisper_model, self.settings.fast_mode)
+        selected = self.settings.select_speed_mode(self.speed_combo.itemData(index))
+        self._sync_engine_preset()
+        if not selected:
+            self.engine_key_hint.show()
+            self.engine_credentials_button.setFocus()
+            self.statusBar().showMessage(tr("engine.credentials_required"), 5000)
+            return
+        self._save_settings()
+        current = (self.settings.speed_mode, self.settings.whisper_model, self.settings.fast_mode)
+        if self.pipeline and previous != current:
+            self._restart_after_stop = True
+            self.stop_translation()
+
+    def _edit_engine_credentials(self):
+        dialog = AzureCredentialsDialog(self.settings, self)
+        if not dialog.exec():
+            return
+        values = dialog.values()
+        changed = any(getattr(self.settings, name) != value for name, value in values.items())
+        was_online = self.settings.speed_mode == "extreme"
+        for name, value in values.items():
+            setattr(self.settings, name, value)
+        configured = self.settings.online_configured()
+        self.engine_key_hint.setHidden(configured)
+        if was_online and not configured:
+            self.settings.select_speed_mode("balanced")
+            self._sync_engine_preset()
+            self.statusBar().showMessage(tr("engine.credentials_required"), 5000)
+        self._save_settings()
+        if self.pipeline and was_online and changed:
+            self._restart_after_stop = True
+            self.stop_translation()
+
     @staticmethod
     def _torch_version_ok() -> bool:
         try:
@@ -1151,7 +1273,9 @@ class MainWindow(QMainWindow):
         settings.overlay_x, settings.overlay_y = self.x_spin.value(), self.y_spin.value()
         settings.overlay_opacity = self.opacity_spin.value()
         settings.show_original = self.original_check.isChecked()
-        self.original_label.setVisible(self._has_result and settings.show_original and bool(self.original_label.text()))
+        for label in (self.original_label, self.previous_original):
+            label.setVisible(self._has_result and bool(label.text())
+                             and (settings.show_original or label.property("bilingual")))
         settings.save_history = self.history_check.isChecked()
         settings.normal_window = self.mode_combo.currentData() == "desktop"
         settings.click_through = self.click_check.isChecked() and not settings.normal_window
@@ -1251,23 +1375,27 @@ class MainWindow(QMainWindow):
 
         def task():
             try:
-                if sys.platform == "win32":
-                    from ctypes import windll
-                    com = windll.ole32
-                    hr = com.CoInitializeEx(None, 0)
-                    if hr < 0:
-                        raise OSError(tr("app.0151", p0=hr & 0xffffffff))
-                    try:
-                        devices = list_devices()
-                    finally:
-                        com.CoUninitialize()
-                else:
-                    devices = list_devices()
+                devices = self._enumerate_audio_devices()
                 self.bridge.devices_ready.emit(devices, "")
             except Exception as exc:
                 self.bridge.devices_ready.emit(None, str(exc) or type(exc).__name__)
 
         threading.Thread(target=task, name="refresh-audio-devices", daemon=True).start()
+
+    @staticmethod
+    def _enumerate_audio_devices():
+        if sys.platform != "win32":
+            return list_devices()
+        from ctypes import windll
+
+        com = windll.ole32
+        hr = com.CoInitializeEx(None, 0)
+        if hr < 0:
+            raise OSError(tr("app.0151", p0=hr & 0xffffffff))
+        try:
+            return list_devices()
+        finally:
+            com.CoUninitialize()
 
     def _finish_device_refresh(self, devices, error: str) -> None:
         self.refresh_button.setText(tr("app.0152"))
@@ -1278,27 +1406,44 @@ class MainWindow(QMainWindow):
             self._apply_devices(devices)
         self.devices_refreshed.emit(not error)
 
-    def _apply_devices(self, devices) -> None:
+    def _apply_devices(self, devices, *, persist=True) -> None:
         self.audio_devices = list(devices)
         devices = self.audio_devices
-        self.device_combo.blockSignals(True)
-        self.device_combo.clear()
-        for device in devices:
-            prefix = tr("app.0154") if device.loopback else tr("app.0155")
-            self.device_combo.addItem(f"{prefix}：{device.name}", device.id)
-            self.device_combo.setItemData(self.device_combo.count() - 1, device.loopback,
-                                          Qt.ItemDataRole.UserRole + 1)
-        index = self.device_combo.findData(self.settings.device_id)
-        if index < 0:
-            index = next((i for i, device in enumerate(devices) if device.loopback), 0)
-        self.device_combo.setCurrentIndex(index)
-        self.device_combo.blockSignals(False)
+        with QSignalBlocker(self.device_combo):
+            self.device_combo.clear()
+            for device in devices:
+                system_sound = device.loopback or is_routed_source(device)
+                prefix = tr("app.0154") if system_sound else tr("app.0155")
+                self.device_combo.addItem(f"{prefix}：{device.name}", device.id)
+                self.device_combo.setItemData(self.device_combo.count() - 1, system_sound,
+                                              Qt.ItemDataRole.UserRole + 1)
+            index = self.device_combo.findData(self.settings.device_id)
+            if index < 0:
+                index = next((i for i, device in enumerate(devices) if device.loopback), 0)
+            self.device_combo.setCurrentIndex(index)
         microphone = preferred_microphone(devices, self.settings.microphone_id)
         self._apply_microphones(devices, microphone)
+        if not persist:
+            self._update_device_hint()
+            return
         old = self.settings.microphone_id
         self._save_settings()
         if microphone and old != microphone.id:
             self.statusBar().showMessage(tr("app.0156", p0=microphone.name), 5000)
+
+    def _save_audio_setup(self, devices, microphone_id, source):
+        settings = self.settings
+        old_device = settings.device_id
+        verified = source.id if is_routed_source(source) else ""
+        # Persist a copy before publishing the selections to this window or its pipeline.
+        replace(settings, microphone_id=microphone_id, device_id=source.id, routing_verified_id=verified).save()
+        settings.microphone_id = microphone_id
+        settings.device_id = source.id
+        settings.routing_verified_id = verified
+        self._apply_devices(devices, persist=False)
+        if self.pipeline and old_device != source.id:
+            self._restart_after_stop = True
+            self.stop_translation()
 
     def _apply_microphones(self, devices, microphone):
         with QSignalBlocker(self.mic_combo):
@@ -1316,8 +1461,8 @@ class MainWindow(QMainWindow):
         ) else ""
         self.microphone_stat.setText(
             (tr("app.0157", p0=mic) + microphone_warning) if mic else tr("app.0158"))
-        route = next((device for device in routing_devices(self.audio_devices)
-                      if device.id == self.device_combo.currentData()), None)
+        route = next((device for device in self.audio_devices
+                      if device.id == self.device_combo.currentData() and is_routed_source(device)), None)
         routed = route is not None and route.id == self.settings.routing_verified_id
         self.routing_status.setText(tr("app.0159", p0=route.name) if routed else
                                     tr("app.0160", p0=route.name) if route else tr("app.0161"))
@@ -1387,6 +1532,7 @@ class MainWindow(QMainWindow):
         if pipeline is None:
             return
         self.pipeline = None
+        self.engine_runtime.hide()
         self._active_icon_tasks.clear()
         self.run_icon.set_mode("idle")
         self.audio_icon.set_mode("idle")
@@ -1414,7 +1560,7 @@ class MainWindow(QMainWindow):
             self.start_translation()
 
     def _caption_state(self, state, hint=""):
-        self.caption_loading.setVisible(state == "loading" or (state == "empty" and not self._has_result))
+        self.caption_loading.setVisible(state == "loading")
         self.caption_hint.setText(hint)
         self.caption_hint.setVisible(bool(hint))
         if not self._has_result:
@@ -1493,6 +1639,9 @@ class MainWindow(QMainWindow):
         runtime, marker, model = message.partition(" · Whisper ")
         devices = runtime.rsplit(" · ", 1)[0].replace(tr("app.0190"), "").replace(tr("app.0191"), "")
         self.device_stat.setText(devices)
+        if self.pipeline and self.settings.speed_mode == "extreme":
+            self.engine_runtime.setText(runtime.rsplit(" · ", 1)[0])
+            self.engine_runtime.show()
         if marker and model:
             self.model_stat.setText(model)
 
@@ -1506,6 +1655,7 @@ class MainWindow(QMainWindow):
     def _show_caption(self, translated, original, language, seconds, *, historical=False):
         self._has_result = True
         self._caption_state("default")
+        self.original_label.setProperty("bilingual", language == "zh")
         self.language_label.setText(tr("app.0193", p0=LANGUAGES.get(language, language)) if language else "")
         self.language_label.setVisible(bool(language))
         self.original_label.setText(tr("app.0194", p0=original) if original else "")
@@ -1524,6 +1674,7 @@ class MainWindow(QMainWindow):
         if self._has_result:
             self.previous_caption.setText(self.chinese_label.text())
             self.previous_caption.show()
+            self._set_previous_original(self.original_label.text(), self.original_label.property("bilingual"))
             self.previous_latency.setText(self.latency_stat.text())
             self.previous_latency.setToolTip(self.latency_stat.toolTip())
             self.previous_latency.setVisible(bool(self.previous_latency.text()))
@@ -1633,6 +1784,7 @@ class MainWindow(QMainWindow):
             return
         self.update_version_label.setText(tr("app.0227", p0=APP_VERSION, p1=release.version))
         self.update_notes_label.setText(tr("app.0228", p0=release.notes[:600] or tr("app.0315")))
+        self.update_notes_label.show()
         self._set_update_status(tr("app.0229", p0=release.version))
         box = QMessageBox(self)
         box.setWindowTitle(tr("app.0230"))
@@ -1719,6 +1871,7 @@ class MainWindow(QMainWindow):
 
     def _set_update_status(self, text: str) -> None:
         self.update_label.setText(text)
+        self.update_label.setVisible(bool(text))
 
     def _show_update_result(self) -> None:
         try:
@@ -1733,10 +1886,19 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.warning(self, tr("app.0245"), message)
 
-    def _open_recent_translation(self, *_):
+    def _open_recent_translation(self, item, _column):
+        entry_id = item.data(0, Qt.ItemDataRole.UserRole)
         self._navigate(self.tabs.indexOf(self.history_page))
+        for row in range(self.history_table.rowCount()):
+            first = self.history_table.item(row, 0)
+            if first and first.data(Qt.ItemDataRole.UserRole) == entry_id:
+                self.history_table.selectRow(row)
+                self.history_table.scrollToItem(first)
+                self.history_table.setFocus()
+                break
 
     def _refresh_recent_translations(self):
+        read_failed = False
         try:
             entries = self.history.recent(3, target_language="zh") if self.history is not None else []
             message = EMPTY_HISTORY if self.history is not None else tr("app.recent_history_unavailable")
@@ -1744,6 +1906,7 @@ class MainWindow(QMainWindow):
             LOG.exception("Could not read recent translations")
             entries = []
             message = tr("app.recent_history_read_failed")
+            read_failed = True
         self.recent_list.clear()
         for entry in entries:
             timestamp = entry.created_at
@@ -1753,12 +1916,14 @@ class MainWindow(QMainWindow):
                 pass
             text = entry.corrected_chinese or entry.chinese
             item = QTreeWidgetItem((text, timestamp))
+            item.setData(0, Qt.ItemDataRole.UserRole, entry.id)
             item.setToolTip(0, text)
             item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.recent_list.addTopLevelItem(item)
         self.recent_hint.setText(message)
         self.recent_hint.setVisible(not entries)
         self.recent_list.setVisible(bool(entries))
+        self.recent_group.setVisible(bool(entries) or read_failed)
         if entries:
             hint = self.recent_list.sizeHintForRow(0)
             self.recent_list.setFixedHeight(max(hint, self.recent_list.fontMetrics().height()) * len(entries)
@@ -1767,9 +1932,15 @@ class MainWindow(QMainWindow):
             return
         self._restore_history_caption(entries)
 
+    def _set_previous_original(self, text, bilingual):
+        self.previous_original.setText(text)
+        self.previous_original.setProperty("bilingual", bool(bilingual))
+        self.previous_original.setVisible(bool(text) and (self.settings.show_original or bilingual))
+
     def _restore_history_caption(self, entries):
         self.previous_caption.hide()
         self.previous_latency.hide()
+        self._set_previous_original("", False)
         if entries:
             latest = entries[0]
             original = latest.display_original if latest.language == "zh" else latest.original
@@ -1779,6 +1950,9 @@ class MainWindow(QMainWindow):
                 previous = entries[1]
                 self.previous_caption.setText(previous.corrected_chinese or previous.chinese)
                 self.previous_caption.show()
+                original = previous.display_original if previous.language == "zh" else previous.original
+                self._set_previous_original(tr("app.0194", p0=original) if original else "",
+                                            previous.language == "zh")
                 self._set_caption_latency(self.previous_latency, previous.total_seconds,
                                           tr("app.caption_latency_historical"))
         else:
@@ -1886,6 +2060,9 @@ class MainWindow(QMainWindow):
         review_feedback(self, self.feedback_store, self.custom_rules)
 
     def _glossary_actions(self, form):
+        self.add_term_button = GlassButton(tr("terms.add"))
+        self.add_term_button.clicked.connect(lambda: add_custom_term(self, self.custom_rules))
+        form.addRow(self.add_term_button)
         row = QHBoxLayout()
         for text, action in ((tr("app.0262"), lambda: default_glossary(self)),
                              (tr("app.0263"), lambda: manage_rules(self, self.custom_rules)),
@@ -2152,6 +2329,17 @@ class MainWindow(QMainWindow):
         self.routing_wizard.activateWindow()
         self._request_devices()
 
+    def _open_microphone_wizard(self):
+        if self.microphone_wizard is not None:
+            self.microphone_wizard.raise_()
+            return
+        self.microphone_wizard = MicrophoneWizard(self)
+        self.microphone_wizard.finished.connect(self._microphone_wizard_finished)
+        self.microphone_wizard.open()
+
+    def _microphone_wizard_finished(self):
+        self.microphone_wizard = None
+
     def _begin_talk(self):
         if self._model_busy or not self._models_ready():
             self._talk_status(tr("app.0297"))
@@ -2281,6 +2469,8 @@ class MainWindow(QMainWindow):
             wizard, self.routing_wizard = self.routing_wizard, None
             wizard.close()
             wizard.deleteLater()
+        if self.microphone_wizard is not None:
+            self.microphone_wizard.reject()
         self._model_pause.set()
         self.talk.close()
         if self.pipeline:
@@ -2304,6 +2494,5 @@ def run() -> int:
     app.setApplicationName(tr("app.0312"))
     window = MainWindow()
     window.show()
-    if not window.settings.onboarding_done:
-        QTimer.singleShot(0, window._show_onboarding)
+    QTimer.singleShot(0, window._show_first_run)
     return app.exec()

@@ -1,0 +1,95 @@
+run	id	verdict	note
+m2m100_418M-cpu	e01	错	丢 A 大，把点位译成人数判断
+m2m100_418M-cpu	e02	可接受	保留转向和 B，术语生硬
+m2m100_418M-cpu	e03	错	回到 A 和夺回 A 含义不同
+m2m100_418M-cpu	e04	错	把 peek 译成打皮
+m2m100_418M-cpu	e05	错	没有明确是战术前压
+m2m100_418M-cpu	e06	可接受	保留否定和转向，术语生硬
+m2m100_418M-cpu	e07	错	只剩数字和低，没有说明是残血
+m2m100_418M-cpu	e08	错	只剩数字和低，没有说明是残血
+m2m100_418M-cpu	e09	可接受	剩余敌人数可推断，语序生硬
+m2m100_418M-cpu	e10	可接受	方向正确，语序生硬
+m2m100_418M-cpu	e11	对	保留短暂等候
+m2m100_418M-cpu	e12	可接受	保留重装动作，武器语境下生硬
+m2m100_418M-cpu	e13	错	把致盲状态译成主观盲目
+m2m100_418M-cpu	e14	错	没说明爆能器掉落
+m2m100_418M-cpu	e15	错	把拆包译成放下爆能器
+m2m100_418M-cpu	e16	可接受	可以推断是维持当前架枪角度
+m2m100_418M-cpu	e17	错	人数、A 大点位的关系不清；保留了别去 B
+m2m100_418M-cpu	e18	错	B 点和后方人数的关系不清
+m2m100_418M-cpu	p01	对	保留短暂等候
+m2m100_418M-cpu	p02	错	换了一发子弹和换弹动作有别
+m2m100_418M-cpu	p03	错	名词短语代替转点指令
+m2m100_418M-cpu	p04	错	没有默认打法或战术建议
+m2m100_418M-cpu	p05	错	丢 A 大，把别露头译成别开始
+m2m100_418M-cpu	p06	错	把绕后译成转向
+m2m100_418M-cpu	p07	错	保留人数和方向，没说明最后一个残血
+m2m100_418M-cpu	p08	错	没有传达爆能器尚未下包
+m2m100_418M-cpu	p09	错	丢换弹、共同转点和先后关系
+m2m100_418M-cpu	p10	错	拆包和 A 大都错
+m2m100_1.2B-cpu	e01	错	人数和 A 大点位的关系丢失
+m2m100_1.2B-cpu	e02	错	把转点译成轮回
+m2m100_1.2B-cpu	e03	错	回到 A 和夺回 A 含义不同
+m2m100_1.2B-cpu	e04	错	把 peek 当作专名
+m2m100_1.2B-cpu	e05	错	没有明确是战术前压
+m2m100_1.2B-cpu	e06	可接受	保留否定和转向，术语生硬
+m2m100_1.2B-cpu	e07	错	没说明是残血
+m2m100_1.2B-cpu	e08	错	没说明是残血
+m2m100_1.2B-cpu	e09	错	漏掉仅剩一人
+m2m100_1.2B-cpu	e10	可接受	方向正确，语序生硬
+m2m100_1.2B-cpu	e11	对	保留短暂等候
+m2m100_1.2B-cpu	e12	错	把换弹译成重装
+m2m100_1.2B-cpu	e13	错	没传达是当前被致盲
+m2m100_1.2B-cpu	e14	错	把爆能器掉落译成下去
+m2m100_1.2B-cpu	e15	可接受	拆除 Spike 能让队友理解拆包
+m2m100_1.2B-cpu	e16	可接受	可以推断是维持当前架枪角度
+m2m100_1.2B-cpu	e17	错	人数像条目序号，A 大表达不清
+m2m100_1.2B-cpu	e18	可接受	两个方向、人数及 B 均保留，语序生硬
+m2m100_1.2B-cpu	p01	可接受	保留等待，缺少短暂这一信息
+m2m100_1.2B-cpu	p02	错	换子弹和换弹动作有别
+m2m100_1.2B-cpu	p03	错	把转点译成转身
+m2m100_1.2B-cpu	p04	错	没有默认打法或战术建议
+m2m100_1.2B-cpu	p05	错	丢 A 大，把别露头译成别出现
+m2m100_1.2B-cpu	p06	错	把绕后译成转向
+m2m100_1.2B-cpu	p07	错	把右侧译成左侧，丢残血
+m2m100_1.2B-cpu	p08	错	没有传达爆能器尚未下包
+m2m100_1.2B-cpu	p09	错	把换弹译成换子弹，并加入返回含义
+m2m100_1.2B-cpu	p10	错	拆包和 A 大都错
+nllb-200-distilled-600M-cpu	e01	错	A 大变成 A 主要
+nllb-200-distilled-600M-cpu	e02	可接受	保留 B 和转向，术语生硬
+nllb-200-distilled-600M-cpu	e03	错	没有重夺 A 的动作
+nllb-200-distilled-600M-cpu	e04	错	动作缺失
+nllb-200-distilled-600M-cpu	e05	错	没有明确是战术前压
+nllb-200-distilled-600M-cpu	e06	可接受	保留否定和转向，术语生硬
+nllb-200-distilled-600M-cpu	e07	错	没传达两个残血
+nllb-200-distilled-600M-cpu	e08	错	没传达三个残血
+nllb-200-distilled-600M-cpu	e09	对	剩余敌人数正确
+nllb-200-distilled-600M-cpu	e10	对	方向正确
+nllb-200-distilled-600M-cpu	e11	可接受	可以推断要队友等一秒
+nllb-200-distilled-600M-cpu	e12	可接受	保留重装动作，武器语境下生硬
+nllb-200-distilled-600M-cpu	e13	可接受	能听懂失去视野，但没说明是被闪
+nllb-200-distilled-600M-cpu	e14	错	把爆能器掉落译成下降
+nllb-200-distilled-600M-cpu	e15	错	没有拆包动作
+nllb-200-distilled-600M-cpu	e16	可接受	可以推断是维持当前架枪角度
+nllb-200-distilled-600M-cpu	e17	错	失去 A 大点位，保留别去 B
+nllb-200-distilled-600M-cpu	e18	错	漏掉 B 点
+nllb-200-distilled-600M-cpu	p01	错	把让队友等候译成自己要看看
+nllb-200-distilled-600M-cpu	p02	错	换了一发子弹和换弹动作有别
+nllb-200-distilled-600M-cpu	p03	错	把转点译成转身
+nllb-200-distilled-600M-cpu	p04	错	漏掉这局的战术建议
+nllb-200-distilled-600M-cpu	p05	错	漏掉 A 大，把否定翻成肯定
+nllb-200-distilled-600M-cpu	p06	错	把别从左侧绕后变成别左转
+nllb-200-distilled-600M-cpu	p07	错	把残血译成剩余
+nllb-200-distilled-600M-cpu	p08	错	没有传达尚未下包，A 点的动作含义不清
+nllb-200-distilled-600M-cpu	p09	错	丢换弹，转点先后关系错误
+nllb-200-distilled-600M-cpu	p10	错	拆包和 A 大都错
+m2m100_418M-ptt-cpu	p01	对	保留短暂等候
+m2m100_418M-ptt-cpu	p02	错	换了一发子弹和换弹动作有别
+m2m100_418M-ptt-cpu	p03	错	名词短语代替转点指令
+m2m100_418M-ptt-cpu	p04	错	保留 default，丢打法建议和这局
+m2m100_418M-ptt-cpu	p05	错	丢 A 大，把别露头译成别开始
+m2m100_418M-ptt-cpu	p06	错	把绕后译成转向
+m2m100_418M-ptt-cpu	p07	错	保留人数和方向，没说明最后一个残血
+m2m100_418M-ptt-cpu	p08	错	没有传达爆能器尚未下包
+m2m100_418M-ptt-cpu	p09	错	丢换弹、共同转点和先后关系
+m2m100_418M-ptt-cpu	p10	错	拆包和 A 大都错

@@ -5,7 +5,7 @@
   #define MyAppName "同频"
   #define MySetupName "SameFreq_Beta_Setup"
 #endif
-#define MyAppVersion "0.3.0b8"
+#define MyAppVersion "0.6.0"
 #define MyAppExe "ValorantTranslator.exe"
 
 [Setup]

@@ -9,7 +9,7 @@ from dataclasses import replace
 import numpy as np
 
 from valorant_translator.audio.capture import SAMPLE_RATE, AudioCapture
-from valorant_translator.models.providers import default_model_manager
+from valorant_translator.models.providers import configure_fallback_status, default_model_manager
 from valorant_translator.translation.enhancement import GameEnhancer
 from valorant_translator.translation.glossary import game_glossary
 
@@ -115,6 +115,7 @@ class PushToTalk:
                     settings = self._settings
                     models = default_model_manager()
                     asr = models.create_asr(settings)
+                    configure_fallback_status(asr, self.status)
                     asr.on_rejection = rejected
                     recognized = asr.transcribe_chinese_callout(audio)
                     asr_seconds = time.monotonic() - started
@@ -129,6 +130,7 @@ class PushToTalk:
                             english, rule = match.translation, match.rules
                         else:
                             translator = models.create_translation(settings)
+                            configure_fallback_status(translator, self.status)
                             english, raw, fallback_rule = translator.translate_to_english_details(
                                 glossary.prepare_zh_en(match.text))
                             english = glossary.finish_zh_en(english, match.text)
