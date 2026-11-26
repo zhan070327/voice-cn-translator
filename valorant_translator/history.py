@@ -32,6 +32,7 @@ class HistoryEntry:
     game: str = "valorant"
     target_language: str = "zh"
     glossary_rules: str = ""
+    display_original: str = ""
 
 
 _DETAILS = {
@@ -40,6 +41,7 @@ _DETAILS = {
     "game": "TEXT NOT NULL DEFAULT 'valorant'",
     "target_language": "TEXT NOT NULL DEFAULT 'zh'",
     "glossary_rules": "TEXT NOT NULL DEFAULT ''",
+    "display_original": "TEXT NOT NULL DEFAULT ''",
 }
 
 
@@ -83,13 +85,13 @@ class HistoryStore:
                 INSERT INTO history
                 (created_at, original, chinese, language,
                  asr_seconds, translation_seconds, total_seconds, corrected_original,
-                 machine_translation, game, target_language, glossary_rules)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 machine_translation, game, target_language, glossary_rules, display_original)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (datetime.now().astimezone().isoformat(timespec="seconds"),
                   result.original, result.chinese, result.language,
                   result.asr_seconds, result.translation_seconds, result.total_seconds,
                   result.corrected_original, result.machine_translation, result.game,
-                  result.target_language, result.glossary_rules))
+                  result.target_language, result.glossary_rules, result.display_original))
             database.execute("DELETE FROM history WHERE id <= (SELECT MAX(id) - 1000 FROM history)")
 
     def _entries(self, condition, parameters) -> list[HistoryEntry]:
@@ -97,7 +99,7 @@ class HistoryStore:
             rows = database.execute("""
                 SELECT id, created_at, original, chinese, corrected_chinese, language,
                        asr_seconds, translation_seconds, total_seconds, corrected_original,
-                       machine_translation, game, target_language, glossary_rules
+                       machine_translation, game, target_language, glossary_rules, display_original
                 FROM history
             """ + condition, parameters).fetchall()
         return [HistoryEntry(*row) for row in rows]

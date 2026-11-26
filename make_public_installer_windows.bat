@@ -28,9 +28,11 @@ if not defined ISCC_EXE goto no_inno
 :compile
 "%ISCC_EXE%" "installer\ValorantTranslator.iss"
 if errorlevel 1 goto fail
-if not exist "dist\VoiceCNTranslator_Beta_Setup.exe" goto fail
+set "SETUP_NAME=SameFreq_Beta_Setup.exe"
+if "%VALORANT_CPU_PACKAGE%"=="1" set "SETUP_NAME=SameFreq_CPU_Beta_Setup.exe"
+if not exist "dist\%SETUP_NAME%" goto fail
 echo.
-echo READY: dist\VoiceCNTranslator_Beta_Setup.exe
+echo READY: dist\%SETUP_NAME%
 echo Send THIS EXE to testers after checking it on another Windows PC.
 echo Testers double-click it, install, then click Download Models in the app.
 if "%PAUSE_ON_EXIT%"=="1" pause

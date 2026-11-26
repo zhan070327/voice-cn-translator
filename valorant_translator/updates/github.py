@@ -27,8 +27,8 @@ from valorant_translator.config import APP_DIR
 from valorant_translator.version import APP_VERSION
 
 CHANNEL_FILE = Path(__file__).resolve().parents[2] / "config" / "update_channel.json"
-INSTALLER_NAME = "VoiceCNTranslator_Beta_Setup.exe"
-CPU_INSTALLER_NAME = "VoiceCNTranslator_CPU_Beta_Setup.exe"
+INSTALLER_NAME = "SameFreq_Beta_Setup.exe"
+CPU_INSTALLER_NAME = "SameFreq_CPU_Beta_Setup.exe"
 INSTALLERS = {"gpu": INSTALLER_NAME, "cpu": CPU_INSTALLER_NAME}
 MAX_INSTALLER_BYTES = 4 * 1024**3
 MAX_RESPONSE_BYTES = 2 * 1024**2

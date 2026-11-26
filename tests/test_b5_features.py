@@ -23,7 +23,7 @@ def test_b5_attachment_glossary_and_game_profiles():
     dictionary = glossary.Glossary(ROOT / "config/glossary.json")
     assert tuple(len(dictionary.data[key]) for key in (
         "exact_phrases", "location_aliases", "target_replacements", "recognition_hotwords",
-        "entity_aliases", "translated_name_aliases", "contextual_rewrites")) == (572, 173, 269, 79, 41, 38, 14)
+        "entity_aliases", "translated_name_aliases", "contextual_rewrites")) == (573, 173, 269, 79, 41, 38, 17)
     assert dictionary.exact("finding") == "致盲。"
     assert dictionary.exact("veto ult") == "Veto 开大了。"
     assert dictionary.callout("hookah") == "B 水烟。"
@@ -102,8 +102,8 @@ def test_cpu_and_gpu_updates_are_disjoint_and_fallback_keeps_edition(monkeypatch
     configs.update(channel="dual", edition="cpu", github_repository="a/b")
 
     def entry(edition):
-        return {"version": "0.3.0b8", "release_notes": "new", "sha256": "a" * 64, "size": 123,
-                "download_url": f"https://{configs['download_hosts'][0]}/releases/0.3.0b8/{github.INSTALLERS[edition]}"}
+        return {"version": "0.3.0b9", "release_notes": "new", "sha256": "a" * 64, "size": 123,
+                "download_url": f"https://{configs['download_hosts'][0]}/releases/0.3.0b9/{github.INSTALLERS[edition]}"}
 
     payload = {**entry("gpu"), "editions": {"cpu": entry("cpu")}}
     assert domestic.parse_manifest(json.dumps(entry("gpu")).encode(), configs["download_hosts"], edition="cpu") is None

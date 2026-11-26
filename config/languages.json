@@ -6,5 +6,8 @@
   "th": {"name": "泰语", "asr": true, "translation": true},
   "ja": {"name": "日语", "asr": true, "translation": true},
   "ko": {"name": "韩语", "asr": true, "translation": true},
+  "vi": {"name": "越南语", "asr": true, "translation": true},
+  "tl": {"name": "菲律宾语／他加禄语", "asr": true, "translation": true},
+  "id": {"name": "印尼语", "asr": true, "translation": true},
   "zh": {"name": "中文（直接显示）", "asr": true, "translation": true}
 }

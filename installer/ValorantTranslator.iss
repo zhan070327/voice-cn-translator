@@ -1,9 +1,11 @@
 #if GetEnv("VALORANT_CPU_PACKAGE") == "1"
-  #define MyAppName "队友语音翻译器 CPU 版"
+  #define MyAppName "同频 CPU 版"
+  #define MySetupName "SameFreq_CPU_Beta_Setup"
 #else
-  #define MyAppName "队友语音翻译器"
+  #define MyAppName "同频"
+  #define MySetupName "SameFreq_Beta_Setup"
 #endif
-#define MyAppVersion "0.3.0b7"
+#define MyAppVersion "0.3.0b8"
 #define MyAppExe "ValorantTranslator.exe"
 
 [Setup]
@@ -22,7 +24,7 @@ PrivilegesRequired=lowest
 UsePreviousAppDir=yes
 CloseApplications=yes
 OutputDir=..\dist
-OutputBaseFilename=VoiceCNTranslator_Beta_Setup
+OutputBaseFilename={#MySetupName}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -44,7 +46,7 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExe}"; Description: "立即启动翻译器"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExe}"; Description: "立即启动同频"; Flags: nowait postinstall skipifsilent
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
