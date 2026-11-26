@@ -17,7 +17,7 @@ from packaging.version import Version
 
 from PySide6.QtCore import QObject, QSignalBlocker, Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QIcon
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFormLayout, QFrame,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFormLayout, QFrame, QGridLayout,
                                QHeaderView, QHBoxLayout, QLabel, QLineEdit,
                                QMainWindow, QProgressBar,
                                QScrollArea, QSpinBox, QTabWidget,
@@ -30,6 +30,7 @@ from valorant_translator.feedback import FeedbackStore
 from valorant_translator.config import APP_DIR, MODEL_DIR, SPEED_MODES, Settings, get_model_dir
 from valorant_translator.history import HistoryStore
 from valorant_translator.models.catalog import fetch_catalog, install_selected
+from valorant_translator.models.cloud import CloudClient, CloudError
 from valorant_translator.models.cos import ModelPaused
 from valorant_translator.models.download import (check_huggingface_space, download_models, import_models,
                                                  model_ready, WHISPER_FILES, M2M_FILES)
@@ -40,7 +41,7 @@ from valorant_translator.translation.glossary import GAMES, read_default_glossar
 from valorant_translator.translation.rules import Rule, RuleStore, now
 from valorant_translator.ui.dialogs import (GlassFileDialog as QFileDialog, GlassInputDialog as QInputDialog,
                                            GlassMessageBox as QMessageBox, apply_dialog_theme)
-from valorant_translator.ui.engine_settings import AzureCredentialsDialog
+from valorant_translator.ui.cloud_account import AccountDialog, PaymentDialog, PlanDialog
 from valorant_translator.ui.glass import (BACKGROUND_THEMES, DEFAULT_BACKGROUND_COLOR,
                                         GAP, GUTTER, INLINE, CompactLabel, GlassButton, GlassSection,
                                         GlassSurface, accent_color, glass_styles, tint_icons)
@@ -69,8 +70,8 @@ QUICK_START_GAP = tokens.TIGHT // 2
 
 class Bridge(QObject):
     status = Signal(str)
-    level = Signal(float)
-    result = Signal(object)
+    level = Signal(object, float)
+    result = Signal(object, object)
     toggle = Signal()
     talk_begin = Signal()
     talk_end = Signal()
@@ -87,6 +88,9 @@ class Bridge(QObject):
     trace = Signal(object)
     devices_ready = Signal(object, str)
     runtime = Signal(str)
+    cloud_reply = Signal(object, object, str)
+    cloud_blocked = Signal(object, str)
+    effective_mode = Signal(object, str)
     update_checked = Signal(object)
     update_progress = Signal(int)
     update_ready = Signal(object)
@@ -101,6 +105,18 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = Settings.load()
+        self.cloud = CloudClient(self.settings, save_session=self.settings.save)
+        self._cloud_mode_check = None
+        self._cloud_account_dialog = None
+        self._cloud_plan_dialog = None
+        self._cloud_prompt = None
+        self._cloud_balance_check = None
+        self._cloud_auth_pending = False
+        self._cloud_signing_out = False
+        self._running_cloud = False
+        self._cloud_balance_timer = QTimer(self)
+        self._cloud_balance_timer.setInterval(30000)
+        self._cloud_balance_timer.timeout.connect(self._refresh_cloud_balance)
         if not isinstance(self.settings.game_accents, dict):
             self.settings.game_accents = {}
         if not self.settings.game_accents and accent_color(self.settings.accent).lower() != tokens.LEGACY_ACCENT:
@@ -161,8 +177,8 @@ class MainWindow(QMainWindow):
         self.bridge.talk_details.connect(self._save_reverse_history)
         self.bridge.model_catalog.connect(self._catalog_ready)
         self.bridge.status.connect(self._status)
-        self.bridge.level.connect(self._show_audio_level)
-        self.bridge.result.connect(self._result)
+        self.bridge.level.connect(self._receive_live_level)
+        self.bridge.result.connect(self._receive_live_result)
         self.bridge.toggle.connect(self._toggle_overlay)
         self.bridge.download_done.connect(self._download_done)
         self.bridge.model_location_done.connect(self._finish_model_location_move)
@@ -172,6 +188,9 @@ class MainWindow(QMainWindow):
         self.bridge.trace.connect(self._receive_trace)
         self.bridge.devices_ready.connect(self._finish_device_refresh)
         self.bridge.runtime.connect(self._runtime)
+        self.bridge.cloud_reply.connect(self._cloud_reply)
+        self.bridge.cloud_blocked.connect(self._cloud_blocked)
+        self.bridge.effective_mode.connect(self._receive_effective_mode)
         self.bridge.update_checked.connect(self._update_checked)
         self.bridge.update_progress.connect(self._update_progress)
         self.bridge.update_ready.connect(self._update_ready)
@@ -185,8 +204,10 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._page_changed)
         self._refresh_history()
         self.engine_runtime = self._compact("")
-        self.statusBar().addPermanentWidget(self.engine_runtime)
+        status_bar = self.statusBar()
+        status_bar.addPermanentWidget(self.engine_runtime)
         self.engine_runtime.hide()
+        status_bar.setMinimumHeight(status_bar.sizeHint().height())
         self.overlay = SubtitleOverlay(self.settings)
         self.overlay.position_changed.connect(self._overlay_moved)
         self.overlay.show()
@@ -428,8 +449,9 @@ class MainWindow(QMainWindow):
         caption_well = QFrame()
         caption_well.setObjectName("captionWell")
         captions = QVBoxLayout(caption_well)
-        captions.setContentsMargins(INLINE, tokens.TIGHT, INLINE, tokens.TIGHT)
-        captions.setSpacing(tokens.TIGHT)
+        captions.setContentsMargins(GAP, GUTTER, GAP, GUTTER)
+        captions.setSpacing(INLINE)
+        captions.addStretch()
         current = QHBoxLayout()
         current.setSpacing(INLINE)
         current.addWidget(self.chinese_label, 1)
@@ -454,9 +476,10 @@ class MainWindow(QMainWindow):
         self.previous_original.setAccessibleName(tr("app.previous_original"))
         self.previous_original.hide()
         self.caption_hint = self._hint(FIRST_CAPTION_HINT)
+        self.caption_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.caption_hint.setTextFormat(Qt.TextFormat.PlainText)
         captions.addWidget(self.caption_hint)
-        result_layout.addWidget(caption_well)
+        result_layout.addWidget(caption_well, 1)
         self.original_label = self._hint("")
         self.original_label.setTextFormat(Qt.TextFormat.PlainText)
         self.language_label = QLabel()
@@ -474,6 +497,7 @@ class MainWindow(QMainWindow):
         captions.addLayout(source)
         captions.addLayout(previous)
         captions.addWidget(self.previous_original)
+        captions.addStretch()
         self.detail_toggle = GlassButton(tr("app.recognition_details"))
         self.detail_toggle.setCheckable(True)
         self.details_panel = QFrame()
@@ -512,9 +536,14 @@ class MainWindow(QMainWindow):
         self.recent_list.hide()
         recent_layout.addWidget(self.recent_list)
         self.caption_light = CaptionLight(self.hero)
-        main_layout.addWidget(self.hero)
-        main_layout.addLayout(run_row)
-        main_layout.addStretch()
+        main_layout.addWidget(self.hero, 1)
+        main_layout.addWidget(self._build_quick_stats())
+        self.quick_actions = QFrame()
+        self.quick_actions.setObjectName("glassCard")
+        self.quick_actions.setMinimumHeight(tokens.WIDE + tokens.SPACE)
+        run_row.setContentsMargins(GUTTER, tokens.INSET, GUTTER, tokens.INSET)
+        self.quick_actions.setLayout(run_row)
+        main_layout.addWidget(self.quick_actions)
         self.quick_page = self._scroll(main_page)
         self.tabs.addTab(self.quick_page, tr("app.0052"))
 
@@ -864,6 +893,59 @@ class MainWindow(QMainWindow):
         row.addWidget(frame, 1)
         return value, icon
 
+    def _build_quick_stats(self):
+        self.quick_stats = QWidget()
+        row = QHBoxLayout(self.quick_stats)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(INLINE)
+        self.quick_mode = self._compact("")
+        self.quick_latency = self._compact("—")
+        self.quick_count = self._compact("0")
+        self._quick_translation_count = 0
+        self.quick_volume = QProgressBar()
+        self.quick_volume.setRange(0, 100)
+        self.quick_volume.setTextVisible(False)
+        self.quick_volume.setAccessibleName(tr("app.0036"))
+        self.quick_volume.setToolTip(tr("app.0037"))
+        for key, icon_name, value in (
+            ("mode", "layers", self.quick_mode),
+            ("latency", "clock", self.quick_latency),
+            ("audio", "activity", self.quick_volume),
+            ("count", "chat", self.quick_count),
+        ):
+            title = tr(f"app.quick_{key}")
+            card = QFrame()
+            card.setObjectName("glassCard")
+            card.setMinimumHeight(tokens.WIDE + tokens.SPACE + INLINE)
+            card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            layout = QVBoxLayout(card)
+            layout.setContentsMargins(tokens.INSET, tokens.INSET, tokens.INSET, tokens.INSET)
+            layout.setSpacing(INLINE)
+            header = QHBoxLayout()
+            icon = LineIcon(icon_name, accented=True)
+            header.addWidget(icon)
+            label = self._compact(title)
+            label.setObjectName("statLabel")
+            header.addWidget(label, 1)
+            layout.addLayout(header)
+            if key == "audio":
+                self.quick_audio_icon = icon
+            else:
+                value.setObjectName("statValue")
+            layout.addWidget(value)
+            row.addWidget(card, 1)
+        self._set_quick_mode(self.settings.speed_mode)
+        self._set_quick_audio(0)
+        return self.quick_stats
+
+    def _set_quick_mode(self, mode):
+        label = tr("app.quick_local_fallback") if mode == "local_fallback" else tr(f"engine.mode_{mode}")
+        self.quick_mode.setText(label)
+
+    def _receive_effective_mode(self, token, mode):
+        if token is self._trace_token:
+            self._set_quick_mode(mode)
+
     def download_sizes(self):
         if not self._uses_cos_models():
             return {}
@@ -972,6 +1054,10 @@ class MainWindow(QMainWindow):
             self._request_history()
         elif page is self.settings_page:
             self._refresh_glossary()
+            self._refresh_cloud_balance()
+            self._cloud_balance_timer.start()
+        if page is not self.settings_page:
+            self._cloud_balance_timer.stop()
 
     def _toggle_details(self, opened):
         if opened:
@@ -1150,20 +1236,30 @@ class MainWindow(QMainWindow):
 
     def _engine_controls(self, form):
         self.speed_combo = QComboBox()
-        for mode in SPEED_MODES:
+        modes = QGridLayout()
+        modes.setHorizontalSpacing(GUTTER)
+        modes.setColumnStretch(1, 1)
+        for index, mode in enumerate(SPEED_MODES, start=1):
             name = tr(f"engine.mode_{mode}")
             self.speed_combo.addItem(name, mode)
-            self._row(form, name, self._hint(tr(f"engine.config_{mode}")))
+            modes.addWidget(self._compact(name), index, 0)
+            modes.addWidget(self._hint(tr(f"engine.config_{mode}")), index, 1)
+        modes.addWidget(self._hint(tr("engine.mode_column")), 0, 0)
+        modes.addWidget(self._hint(tr("engine.config_column")), 0, 1)
+        form.addRow(modes)
         self.speed_combo.setCurrentIndex(self.speed_combo.findData(self.settings.speed_mode))
         self.speed_combo.activated.connect(self._select_speed_mode)
         self._row(form, tr("engine.preset"), self.speed_combo)
         form.addRow(self._hint(tr("engine.privacy")))
-        self.engine_credentials_button = GlassButton(tr("engine.credentials"), icon="settings")
-        self.engine_credentials_button.clicked.connect(self._edit_engine_credentials)
-        form.addRow(self.engine_credentials_button)
-        self.engine_key_hint = self._hint(tr("engine.credentials_required"))
-        self.engine_key_hint.setHidden(self.settings.online_configured())
-        form.addRow(self.engine_key_hint)
+        account = QHBoxLayout()
+        self.cloud_balance = self._hint("")
+        self.cloud_balance.setTextFormat(Qt.TextFormat.PlainText)
+        self.cloud_account_button = GlassButton(tr("engine.sign_in"))
+        self.cloud_account_button.clicked.connect(self._open_cloud_account)
+        account.addWidget(self.cloud_balance, 1)
+        account.addWidget(self.cloud_account_button)
+        form.addRow(tr("engine.cloud_account"), account)
+        self._show_cloud_balance()
 
     def _sync_engine_preset(self):
         widgets = (self.speed_combo, self.model_combo, self.fast_check, *self.glossary_checks.values())
@@ -1174,41 +1270,244 @@ class MainWindow(QMainWindow):
         for key, check in self.glossary_checks.items():
             check.setChecked(getattr(self.settings, key))
         del blockers
+        if self.pipeline is None:
+            self._set_quick_mode(self.settings.speed_mode)
 
     def _select_speed_mode(self, index):
-        previous = (self.settings.speed_mode, self.settings.whisper_model, self.settings.fast_mode)
-        selected = self.settings.select_speed_mode(self.speed_combo.itemData(index))
-        self._sync_engine_preset()
-        if not selected:
-            self.engine_key_hint.show()
-            self.engine_credentials_button.setFocus()
-            self.statusBar().showMessage(tr("engine.credentials_required"), 5000)
+        mode = self.speed_combo.itemData(index)
+        if self._cloud_mode_check is not None and mode != "extreme":
+            self.statusBar().clearMessage()
+        self._cloud_mode_check = None
+        if mode != "extreme":
+            self._apply_speed_mode(mode)
             return
+        self._sync_engine_preset()
+        if self._cloud_signing_out or not self._cloud_signed_in():
+            self._cloud_blocked(None, "unauthenticated")
+            return
+        check = self._cloud_mode_check = object()
+        self.statusBar().showMessage(tr("engine.checking"))
+
+        def finished(entitlement, error):
+            if self._cloud_mode_check is not check:
+                return
+            self._cloud_mode_check = None
+            self._show_cloud_balance(entitlement)
+            if entitlement and entitlement["online_allowed"]:
+                self.statusBar().clearMessage()
+                self._apply_speed_mode("extreme")
+            else:
+                reason = "account_blocked" if entitlement and entitlement.get("blocked") else "quota_exhausted"
+                self._cloud_blocked(None, error or reason)
+
+        self._request_cloud(self.cloud.entitlement, finished)
+
+    def _apply_speed_mode(self, mode):
+        previous = (self.settings.speed_mode, self.settings.whisper_model, self.settings.fast_mode)
+        if previous[0] == "extreme" and mode != "extreme":
+            if self._running_cloud and self.pipeline is not None:
+                self.pipeline.cloud_client.disable_online()
+            self.talk.cancel_capture()
+        self.settings.select_speed_mode(mode)
+        self._sync_engine_preset()
         self._save_settings()
         current = (self.settings.speed_mode, self.settings.whisper_model, self.settings.fast_mode)
         if self.pipeline and previous != current:
             self._restart_after_stop = True
             self.stop_translation()
 
-    def _edit_engine_credentials(self):
-        dialog = AzureCredentialsDialog(self.settings, self)
-        if not dialog.exec():
+    def _cloud_signed_in(self):
+        return bool(self.settings.cloud_access_token or self.settings.cloud_refresh_token)
+
+    def _request_cloud(self, request, completed):
+        def task():
+            try:
+                result, error = request(), ""
+            except CloudError as exc:
+                result, error = None, exc.code
+            except Exception:
+                result, error = None, "unavailable"
+            self.bridge.cloud_reply.emit(completed, result, error)
+
+        threading.Thread(target=task, name="cloud-account", daemon=True).start()
+
+    def _cloud_reply(self, completed, result, error):
+        completed(result, error)
+
+    def _show_cloud_balance(self, entitlement=None):
+        signed_in = self._cloud_signed_in()
+        self.cloud_account_button.setText(tr("engine.account_action" if signed_in else "engine.sign_in"))
+        if not signed_in:
+            label = tr("engine.signed_out")
+        elif entitlement is None:
+            label = tr("engine.balance_pending")
+        elif entitlement["subscribed"]:
+            label = tr("engine.subscribed")
+        elif remaining := entitlement["trial_remaining_ms"]:
+            minutes, seconds = divmod((remaining + 999) // 1000, 60)
+            hours, minutes = divmod(minutes, 60)
+            label = tr("engine.balance", hours=hours, minutes=minutes, seconds=seconds)
+        else:
+            label = tr("engine.balance_exhausted")
+        self.cloud_balance.setText(label)
+        if self._cloud_account_dialog is not None:
+            self._cloud_account_dialog.set_balance(label)
+
+    def _refresh_cloud_balance(self):
+        if self._cloud_auth_pending:
             return
-        values = dialog.values()
-        changed = any(getattr(self.settings, name) != value for name, value in values.items())
-        was_online = self.settings.speed_mode == "extreme"
-        for name, value in values.items():
-            setattr(self.settings, name, value)
-        configured = self.settings.online_configured()
-        self.engine_key_hint.setHidden(configured)
-        if was_online and not configured:
-            self.settings.select_speed_mode("balanced")
-            self._sync_engine_preset()
-            self.statusBar().showMessage(tr("engine.credentials_required"), 5000)
-        self._save_settings()
-        if self.pipeline and was_online and changed:
-            self._restart_after_stop = True
-            self.stop_translation()
+        if not self._cloud_signed_in():
+            self._show_cloud_balance()
+            return
+        if self._cloud_balance_check is not None:
+            return
+        check = self._cloud_balance_check = object()
+
+        def finished(entitlement, error):
+            if self._cloud_balance_check is not check:
+                return
+            self._cloud_balance_check = None
+            self._show_cloud_balance(entitlement)
+            dialog = self._cloud_account_dialog
+            if error == "unauthenticated" and dialog is not None and dialog.signed_in and not self._cloud_signed_in():
+                dialog.reject()
+                self._open_cloud_account()
+
+        self._request_cloud(self.cloud.entitlement, finished)
+
+    def _open_cloud_account(self):
+        if self._cloud_account_dialog is not None:
+            self._cloud_account_dialog.raise_()
+            return
+        if self._cloud_auth_pending:
+            return
+        dialog = AccountDialog(self._cloud_signed_in(), self.cloud_balance.text(), self)
+        self._cloud_account_dialog = dialog
+        dialog.finished.connect(self._cloud_account_closed)
+        dialog.sign_in.connect(self._cloud_authenticate)
+        dialog.sign_out.connect(self._cloud_sign_out)
+        dialog.subscribe.connect(self._open_cloud_plans)
+        dialog.open()
+        self._refresh_cloud_balance()
+
+    def _cloud_account_closed(self):
+        self._cloud_account_dialog = None
+
+    def _cloud_authenticate(self, action, email, password):
+        dialog = self._cloud_account_dialog
+        authenticate = self.cloud.register if action == "register" else self.cloud.login
+        self._cloud_mode_check = None
+        self._cloud_balance_check = None
+        self._cloud_auth_pending = True
+        self.cloud_account_button.setEnabled(False)
+
+        def finished(result, error):
+            self._cloud_auth_pending = False
+            self.cloud_account_button.setEnabled(True)
+            if not error:
+                self._show_cloud_balance()
+                self._refresh_cloud_balance()
+            if self._cloud_account_dialog is dialog:
+                dialog.complete(error)
+
+        self._request_cloud(lambda: authenticate(email, password), finished)
+
+    def _cloud_sign_out(self):
+        self._cloud_mode_check = None
+        self._cloud_balance_check = None
+        self._cloud_auth_pending = True
+        self.cloud_account_button.setEnabled(False)
+        self._cloud_signing_out = True
+        if self.settings.speed_mode == "extreme":
+            self._apply_speed_mode("balanced")
+        dialog = self._cloud_account_dialog
+
+        def finished(result, error):
+            self._cloud_auth_pending = False
+            self.cloud_account_button.setEnabled(True)
+            self._cloud_signing_out = False
+            self._show_cloud_balance()
+            if self._cloud_account_dialog is dialog:
+                dialog.complete(error if self._cloud_signed_in() else "")
+            if self._cloud_signed_in():
+                self._refresh_cloud_balance()
+
+        self._request_cloud(self.cloud.logout, finished)
+
+    def _open_cloud_plans(self):
+        if not self._cloud_signed_in():
+            self._open_cloud_account()
+            return
+        if self._cloud_plan_dialog is not None:
+            self._cloud_plan_dialog.raise_()
+            return
+        dialog = PlanDialog(self)
+        self._cloud_plan_dialog = dialog
+        dialog.finished.connect(self._cloud_plan_closed)
+        dialog.order.connect(lambda plan, channel: self._create_cloud_order(dialog, plan, channel))
+
+        def finished(plans, error):
+            if self._cloud_plan_dialog is dialog:
+                dialog.set_plans(plans, error)
+
+        dialog.open()
+        self._request_cloud(self.cloud.plans, finished)
+
+    def _cloud_plan_closed(self):
+        self._cloud_plan_dialog = None
+
+    def _create_cloud_order(self, dialog, plan, channel):
+        def finished(order, error):
+            if self._cloud_plan_dialog is not dialog:
+                return
+            if error:
+                dialog.order_error(error)
+                return
+            dialog.accept()
+            payment = PaymentDialog(order, self)
+            payment.finished.connect(self._refresh_cloud_balance)
+            payment.open()
+
+        self._request_cloud(lambda: self.cloud.create_order(plan, channel), finished)
+
+    def _cloud_blocked(self, token, code):
+        if token is not None and token is not self._trace_token:
+            return
+        if self.settings.speed_mode == "extreme":
+            if token is None:
+                self._apply_speed_mode("balanced")
+            else:
+                self.talk.cancel_capture()
+                self.settings.select_speed_mode("balanced")
+                self._sync_engine_preset()
+                self.settings.save()
+        message_key = {
+            "unauthenticated": "sign_in_required",
+            "quota_exhausted": "upgrade_required",
+            "account_blocked": "account_blocked",
+        }.get(code, "unavailable")
+        message = tr(f"engine.{message_key}")
+        self.statusBar().showMessage(message, 5000)
+        if token is not None:
+            self._refresh_cloud_balance()
+        if code not in ("unauthenticated", "quota_exhausted") or self._cloud_prompt is not None:
+            return
+        prompt = QMessageBox(self)
+        self._cloud_prompt = prompt
+        prompt.setWindowTitle(tr("engine.cloud_account"))
+        prompt.setText(message)
+        sign_in = code == "unauthenticated"
+        button = prompt.addButton(tr("engine.sign_in" if sign_in else "engine.subscribe"),
+                                  QMessageBox.ButtonRole.ActionRole)
+        action = self._open_cloud_account if sign_in else self._open_cloud_plans
+        prompt.buttonClicked.connect(lambda clicked: action() if clicked is button else None)
+        prompt.finished.connect(self._cloud_prompt_closed)
+        prompt.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        prompt.setWindowModality(Qt.WindowModality.NonModal)
+        prompt.show()
+
+    def _cloud_prompt_closed(self):
+        self._cloud_prompt = None
 
     @staticmethod
     def _torch_version_ok() -> bool:
@@ -1509,11 +1808,22 @@ class MainWindow(QMainWindow):
         self._task_timings.clear()
         self._active_icon_tasks.clear()
         self.last_discard.hide()
+        self._quick_translation_count = 0
+        self.quick_count.setText("0")
+        self.quick_latency.setText("—")
         self._trace_token = token = object()
-        self.pipeline = Pipeline(self._effective_settings(), self.bridge.status.emit, self.bridge.level.emit,
-                                 self.bridge.result.emit, self.bridge.diagnostic.emit,
+        effective = self._effective_settings()
+        self._running_cloud = effective.speed_mode == "extreme"
+        if self._running_cloud:
+            effective = replace(effective)
+        self.pipeline = Pipeline(effective, self.bridge.status.emit,
+                                 lambda level: self.bridge.level.emit(token, level),
+                                 lambda result: self.bridge.result.emit(token, result), self.bridge.diagnostic.emit,
                                  self.bridge.runtime.emit, self.history,
                                  on_trace=lambda trace: self.bridge.trace.emit((token, trace)),
+                                 on_cloud_blocked=lambda code: self.bridge.cloud_blocked.emit(token, code),
+                                 on_effective_mode=lambda mode: self.bridge.effective_mode.emit(token, mode),
+                                 cloud_client=CloudClient(self.settings, save_session=self.settings.save),
                                  custom_rules=self.custom_rules)
         self._last_diagnostics = self.pipeline.diagnostics
         self.start_button.setText(tr("app.0171"))
@@ -1531,7 +1841,14 @@ class MainWindow(QMainWindow):
         pipeline = self.pipeline
         if pipeline is None:
             return
+        if self._running_cloud:
+            pipeline.cloud_client.disable_online()
+            self.talk.cancel_capture()
         self.pipeline = None
+        self._running_cloud = False
+        self._trace_token = None
+        self._set_quick_mode(self.settings.speed_mode)
+        self._set_quick_audio(0)
         self.engine_runtime.hide()
         self._active_icon_tasks.clear()
         self.run_icon.set_mode("idle")
@@ -1573,6 +1890,7 @@ class MainWindow(QMainWindow):
         self.status_label.show()
         self.statusBar().showMessage(message)
         if message.startswith("音频采集失败"):
+            self._set_quick_audio(0)
             self._caption_state("error", tr("app.capture_failed_hint", p0=message))
             self.diagnostic_label.setText(tr("app.capture_failed_hint", p0=message))
             self.diagnostic_label.show()
@@ -1639,7 +1957,7 @@ class MainWindow(QMainWindow):
         runtime, marker, model = message.partition(" · Whisper ")
         devices = runtime.rsplit(" · ", 1)[0].replace(tr("app.0190"), "").replace(tr("app.0191"), "")
         self.device_stat.setText(devices)
-        if self.pipeline and self.settings.speed_mode == "extreme":
+        if self.pipeline and self._running_cloud:
             self.engine_runtime.setText(runtime.rsplit(" · ", 1)[0])
             self.engine_runtime.show()
         if marker and model:
@@ -1669,6 +1987,10 @@ class MainWindow(QMainWindow):
         hint = tr("app.caption_latency_historical") if historical else tr("app.caption_latency_measured")
         self._set_caption_latency(self.latency_stat, seconds, hint)
 
+    def _receive_live_result(self, token, result):
+        if token is self._trace_token:
+            self._result(result)
+
     def _result(self, result: SubtitleResult) -> None:
         self._recent_results.append(result)
         if self._has_result:
@@ -1684,6 +2006,9 @@ class MainWindow(QMainWindow):
                                   always_bilingual=result.language == "zh" and bool(result.display_original))
         total = result.total_seconds if result.audio_end_time is None else time.monotonic() - result.audio_end_time
         self._show_caption(result.chinese, display_original, result.language, total)
+        self._quick_translation_count += 1
+        self.quick_count.setText(str(self._quick_translation_count))
+        self.quick_latency.setText(tr("app.0197", p0=total) if math.isfinite(total) and total >= 0 else "—")
         self.result_icon.set_mode("done", highlight=True, restart=True)
         self.caption_light.animate()
         confidence = result.confidence
@@ -1717,6 +2042,18 @@ class MainWindow(QMainWindow):
         self.audio_icon.set_level(level)
         active = self.pipeline is not None and level >= 0.02
         self.audio_icon.set_mode("pulse" if active else "idle", highlight=active)
+        self._set_quick_audio(level)
+
+    def _receive_live_level(self, token, level):
+        if token is self._trace_token:
+            self._show_audio_level(level)
+
+    def _set_quick_audio(self, level):
+        active = self.pipeline is not None and level >= 0.02
+        self.quick_volume.setValue(int(level * 100) if active else 0)
+        self.quick_volume.setTextVisible(self.pipeline is not None)
+        self.quick_audio_icon.set_level(level if active else 0)
+        self.quick_audio_icon.set_mode("pulse" if active else "idle", highlight=active)
 
     def _copy_feedback(self) -> None:
         report = "\n".join((
@@ -2365,6 +2702,8 @@ class MainWindow(QMainWindow):
         return self.talk.begin(
             self._effective_settings(),
             diagnostic_session=self.pipeline.translate_microphone_details if self.pipeline else None,
+            cloud_client=CloudClient(self.settings, save_session=self.settings.save),
+            on_cloud_blocked=lambda code: self.bridge.cloud_blocked.emit(None, code),
         )
 
     def _talk_level(self, rms):
@@ -2465,6 +2804,9 @@ class MainWindow(QMainWindow):
         if self._model_moving:
             event.ignore()
             return
+        self._cloud_balance_timer.stop()
+        self._cloud_mode_check = None
+        self._cloud_balance_check = None
         if self.routing_wizard is not None:
             wizard, self.routing_wizard = self.routing_wizard, None
             wizard.close()

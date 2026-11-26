@@ -54,7 +54,7 @@ def create_local_model(factory, settings: Settings, *args):
     return factory(*args)
 
 
-def default_model_manager(asr_factory=None, translation_factory=None) -> ModelManager:
+def default_model_manager(asr_factory=None, translation_factory=None, *, cloud_client=None) -> ModelManager:
     if asr_factory is None:
         from valorant_translator.recognition.whisper import LocalWhisper
         asr_factory = lambda s: create_local_model(LocalWhisper, s, s.whisper_model, s.compute_device, s.fast_mode)
@@ -66,18 +66,18 @@ def default_model_manager(asr_factory=None, translation_factory=None) -> ModelMa
     manager.register_translation(LOCAL_TRANSLATION, translation_factory)
 
     def online_asr(settings):
-        from valorant_translator.models.azure import AzureSpeech
+        from valorant_translator.models.cloud import CloudASR, CloudClient
         from valorant_translator.models.online import FallbackASR
 
         _require_online(settings)
-        return FallbackASR(AzureSpeech(settings), lambda: asr_factory(settings))
+        return FallbackASR(CloudASR(cloud_client or CloudClient(settings)), lambda: asr_factory(settings))
 
     def online_translation(settings):
-        from valorant_translator.models.azure import AzureTranslator
+        from valorant_translator.models.cloud import CloudClient, CloudTranslation
         from valorant_translator.models.online import FallbackTranslation
 
         _require_online(settings)
-        return FallbackTranslation(AzureTranslator(settings), lambda: translation_factory(settings))
+        return FallbackTranslation(CloudTranslation(cloud_client or CloudClient(settings)), lambda: translation_factory(settings))
 
     manager.register_asr(ONLINE_ASR, online_asr)
     manager.register_translation(ONLINE_TRANSLATION, online_translation)
@@ -85,10 +85,8 @@ def default_model_manager(asr_factory=None, translation_factory=None) -> ModelMa
 
 
 def _require_online(settings: Settings) -> None:
-    if settings.speed_mode != "extreme" or not settings.online_configured():
-        from valorant_translator.ui.texts import tr
-
-        raise ValueError(tr("engine.credentials_required"))
+    if settings.speed_mode != "extreme":
+        raise ValueError("在线引擎需要先选择极速档。")
 
 
 def configure_fallback_status(provider, on_status) -> None:

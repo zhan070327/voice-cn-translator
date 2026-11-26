@@ -17,8 +17,9 @@ from valorant_translator.audio.segmenter import SpeechChunk, SpeechSegmenter
 from valorant_translator.config import Settings
 from valorant_translator.diagnostics import Diagnostics
 from valorant_translator.languages import DEFAULT_LANGUAGES, LanguageCatalog
+from valorant_translator.models.cloud import CloudClient, ready_engine_settings
 from valorant_translator.models.providers import (
-    ModelManager, configure_fallback_status, create_local_model, default_model_manager, translate_pair,
+    ModelManager, create_local_model, default_model_manager, translate_pair,
 )
 from valorant_translator.recognition.whisper import LocalWhisper, Recognition
 from valorant_translator.translation.enhancement import GameEnhancer
@@ -76,8 +77,16 @@ class Pipeline:
                  on_runtime: Callable[[str], None] | None = None,
                  history=None, *, on_trace: Callable[[TaskTrace], None] | None = None,
                  custom_rules=None, languages: LanguageCatalog | None = None,
-                 models: ModelManager | None = None, games=None):
+                 models: ModelManager | None = None, games=None, cloud_client: CloudClient | None = None,
+                 on_cloud_blocked: Callable[[str], None] | None = None,
+                 on_effective_mode: Callable[[str], None] | None = None):
         self.settings = settings
+        self.requested_speed_mode = settings.speed_mode
+        self.cloud_client = cloud_client or CloudClient(settings)
+        self.on_cloud_blocked = on_cloud_blocked or (lambda _: None)
+        self.on_effective_mode = on_effective_mode or (lambda _: None)
+        self._fallback_announced = False
+        self._fallback_lock = threading.Lock()
         self.languages = languages or DEFAULT_LANGUAGES
         self.models = models
         self.games = games
@@ -130,6 +139,7 @@ class Pipeline:
         self.worker.start()
 
     def stop(self) -> None:
+        self.cloud_client.disable_online()
         self.stop_event.set()
         if self.capture:
             self.capture.stop()
@@ -256,7 +266,12 @@ class Pipeline:
         return provider.device.upper()
 
     def _report_runtime(self, asr, translator) -> None:
-        mode = tr(f"engine.mode_{self.settings.speed_mode}")
+        mode = self.settings.speed_mode
+        if self.requested_speed_mode == "extreme" and (
+                mode != "extreme" or any(p.device not in ("online", "pending") for p in (asr, translator))):
+            mode = "local_fallback"
+        self.on_effective_mode(mode)
+        mode = "本地回退" if mode == "local_fallback" else tr(f"engine.mode_{mode}")
         path = getattr(asr, "path", None)
         model = f" · Whisper {path.name.removeprefix('whisper-')}" if path else ""
         self.on_runtime(f"识别 {self._device_label(asr)} · 翻译 {self._device_label(translator)} · {mode}{model}")
@@ -305,19 +320,32 @@ class Pipeline:
             machine_translation=raw, glossary_rules=rule, confidence=recognized.probability,
         )
 
+    def _notify_fallback(self, stage: str) -> None:
+        with self._fallback_lock:
+            if self._fallback_announced:
+                return
+            self._fallback_announced = True
+        self.on_status(tr(f"engine.fallback_{stage}"))
+
     def _work(self) -> None:
         try:
             self.languages.source(self.settings.source_language)
             self.languages.target(self.settings.target_language)
+            self.settings = ready_engine_settings(
+                self.settings, self.cloud_client, self.on_cloud_blocked, self.on_status)
+            if self.stop_event.is_set():
+                return
             models = self.models or default_model_manager(
                 lambda s: create_local_model(LocalWhisper, s, s.whisper_model, s.compute_device, s.fast_mode),
-                lambda s: create_local_model(LocalM2M, s, s.compute_device, s.fast_mode))
+                lambda s: create_local_model(LocalM2M, s, s.compute_device, s.fast_mode),
+                cloud_client=self.cloud_client)
             self.on_status(tr("engine.loading_asr"))
             asr = models.create_asr(self.settings)
             self.on_status(tr("engine.loading_translation"))
             translator = models.create_translation(self.settings)
-            configure_fallback_status(asr, self.on_status)
-            configure_fallback_status(translator, self.on_status)
+            for provider in (asr, translator):
+                if hasattr(provider, "on_fallback"):
+                    provider.on_fallback = self._notify_fallback
             self._report_runtime(asr, translator)
             if self.games is None:
                 glossary = game_glossary(self.settings.game)

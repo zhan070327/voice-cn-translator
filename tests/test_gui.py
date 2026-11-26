@@ -553,8 +553,8 @@ def _launch_upgrade_preview(monkeypatch, tmp_path):
     return window
 
 
-def test_engine_presets_block_missing_keys_and_sync_actual_settings(qapp, monkeypatch, tmp_path):
-    from valorant_translator.config import Settings
+def test_engine_presets_gate_online_and_sync_actual_settings(qapp, monkeypatch, tmp_path):
+    from valorant_translator.config import ONLINE_TRANSLATION, Settings
     from valorant_translator.ui.texts import tr
 
     window = _launch_upgrade_preview(monkeypatch, tmp_path)
@@ -562,19 +562,168 @@ def test_engine_presets_block_missing_keys_and_sync_actual_settings(qapp, monkey
         extreme = window.speed_combo.findData("extreme")
         window._select_speed_mode(extreme)
         assert window.speed_combo.currentData() == "balanced"
-        assert window.statusBar().currentMessage() == tr("engine.credentials_required")
+        assert window.statusBar().currentMessage() == tr("engine.sign_in_required")
+        assert window._cloud_prompt.buttons()[0].text() == tr("engine.sign_in")
+        assert not window._cloud_prompt.isModal()
+        window._cloud_prompt.close()
         window._select_speed_mode(window.speed_combo.findData("precise"))
         assert window.model_combo.currentData() == "small"
         assert not window.fast_check.isChecked()
         assert Settings.load().speed_mode == "precise"
-        window.settings.azure_speech_resource = "test-speech"
-        window.settings.azure_speech_key = "mock-key"
-        window.settings.azure_translator_region = "global"
-        window.settings.azure_translator_key = "mock-key"
+        window.settings.cloud_access_token = "test-session"
+        monkeypatch.setattr(window.cloud, "entitlement", lambda: {
+            "trial_remaining_ms": 2_100_000, "subscribed": False, "online_allowed": True,
+        })
         window._select_speed_mode(extreme)
-        assert window.speed_combo.currentData() == "extreme"
+        assert _wait_for(lambda: window.speed_combo.currentData() == "extreme")
+        assert window.cloud_balance.text() == "试用剩余 0 小时 35 分 0 秒"
         assert window.model_combo.currentData() == "tiny"
-        assert Settings.load().translation_model == "azure_translator"
+        assert Settings.load().translation_model == ONLINE_TRANSLATION
+
+        monkeypatch.setattr(window.cloud, "entitlement", lambda: {
+            "trial_remaining_ms": 0, "subscribed": False, "online_allowed": False,
+        })
+        window._select_speed_mode(extreme)
+        assert _wait_for(lambda: window._cloud_prompt is not None)
+        assert window.speed_combo.currentData() == "balanced"
+        assert window.cloud_balance.text() == tr("engine.balance_exhausted")
+        assert window._cloud_prompt.buttons()[0].text() == tr("engine.subscribe")
+        assert not window._cloud_prompt.isModal()
+        window._cloud_prompt.close()
+    finally:
+        window.close()
+
+
+def test_online_mode_ignores_entitlement_after_local_selection(qapp, monkeypatch, tmp_path):
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        window.settings.cloud_access_token = "test-session"
+        replies = []
+        monkeypatch.setattr(window, "_request_cloud", lambda request, completed: replies.append(completed))
+        window._select_speed_mode(window.speed_combo.findData("extreme"))
+        window._select_speed_mode(window.speed_combo.findData("balanced"))
+        [reply] = replies
+        reply({"trial_remaining_ms": 900_000, "subscribed": False, "online_allowed": True}, "")
+        assert window.settings.speed_mode == "balanced"
+    finally:
+        window.close()
+
+
+def test_cloud_account_authentication_and_subscription_checkout(qapp, monkeypatch, tmp_path):
+    import base64
+
+    from PySide6.QtCore import QBuffer, QIODevice
+    from PySide6.QtGui import QPixmap
+    from PySide6.QtWidgets import QLineEdit
+    from valorant_translator.models.cloud import CloudError
+    from valorant_translator.ui.cloud_account import PaymentDialog, PlanDialog
+    from valorant_translator.ui.texts import tr
+
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        calls = []
+
+        def login(email, password):
+            calls.append(("login", email))
+            raise CloudError("unauthenticated")
+
+        def register(email, password):
+            calls.append(("register", email))
+            window.settings.cloud_access_token = "test-session"
+
+        def logout():
+            calls.append(("logout",))
+            window.settings.cloud_access_token = ""
+
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        image = QPixmap(10, 10)
+        image.fill(Qt.GlobalColor.white)
+        assert image.save(buffer, "PNG")
+        encoded = base64.b64encode(buffer.data()).decode()
+
+        def order(plan, channel):
+            calls.append((plan, channel))
+            return {"qr_png_base64": encoded, "pay_url": "weixin://checkout-fixture"}
+
+        monkeypatch.setattr(window.cloud, "login", login)
+        monkeypatch.setattr(window.cloud, "register", register)
+        monkeypatch.setattr(window.cloud, "logout", logout)
+        monkeypatch.setattr(window.cloud, "entitlement", lambda: {
+            "trial_remaining_ms": 143_000, "subscribed": False, "online_allowed": True,
+        })
+        monkeypatch.setattr(window.cloud, "plans", lambda: [{
+            "id": "test-monthly", "name": "测试套餐", "price_cents": 123,
+        }])
+        monkeypatch.setattr(window.cloud, "create_order", order)
+
+        window._select_speed_mode(window.speed_combo.findData("extreme"))
+        window._cloud_prompt.buttons()[0].click()
+        account = window._cloud_account_dialog
+        assert account.password.echoMode() == QLineEdit.EchoMode.Password
+        account.email.setText("test@example.test")
+        account.password.setText("test-password")
+        login_button = next(b for b in account.findChildren(GlassButton) if b.text() == tr("engine.login"))
+        login_button.click()
+        assert _wait_for(lambda: account.message.text() == tr("engine.login_failed"))
+        register_button = next(b for b in account.findChildren(GlassButton) if b.text() == tr("engine.register"))
+        register_button.click()
+        assert _wait_for(lambda: window._cloud_account_dialog is None)
+        assert _wait_for(lambda: "2 分 23 秒" in window.cloud_balance.text())
+
+        window._open_cloud_account()
+        account = window._cloud_account_dialog
+        next(b for b in account.findChildren(GlassButton) if b.text() == tr("engine.subscribe")).click()
+        plan = window.findChild(PlanDialog)
+        assert _wait_for(plan.pay.isEnabled)
+        assert "测试套餐 · ¥1.23 / 月" == plan.plans.currentText()
+        plan.channels_combo.setCurrentIndex(plan.channels_combo.findData("wechat"))
+        plan.pay.click()
+        assert _wait_for(lambda: window.findChild(PaymentDialog) is not None)
+        payment = window.findChild(PaymentDialog)
+        assert any(child.accessibleName() == tr("engine.payment_qr") for child in payment.findChildren(QLabel))
+        payment.accept()
+        next(b for b in account.findChildren(GlassButton) if b.text() == tr("engine.sign_out")).click()
+        assert _wait_for(lambda: window._cloud_account_dialog is None)
+        assert window.cloud_balance.text() == tr("engine.signed_out")
+        assert calls == [("login", "test@example.test"), ("register", "test@example.test"),
+                         ("test-monthly", "wechat"), ("logout",)]
+    finally:
+        window.close()
+
+
+def test_leaving_online_mode_discards_held_microphone_audio(qapp, monkeypatch, tmp_path):
+    import numpy as np
+
+    from valorant_translator.ui import talk as talk_ui
+    from valorant_translator.ui.texts import tr
+
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        requests = []
+        monkeypatch.setattr(talk_ui, "ready_engine_settings", lambda *args: requests.append(args))
+
+        class Capture:
+            def __init__(self, device, frame, *_):
+                self.frame = frame
+
+            def start(self):
+                self.frame(np.full(8000, .04, dtype=np.float32), 0)
+
+            def stop(self):
+                pass
+
+        window.talk.capture_factory = Capture
+        window.settings.microphone_id = "mic"
+        window.settings.select_speed_mode("extreme")
+        assert window.talk.begin(window.settings, cloud_client=window.cloud)
+        window._select_speed_mode(window.speed_combo.findData("balanced"))
+        window.talk.end()
+        assert _wait_for(lambda: not window.talk._busy)
+        assert window.talk.capture is None
+        assert window.talk._frames == []
+        assert window.talk_state.text() == tr("talk.capture_cancelled")
+        assert not requests
     finally:
         window.close()
 
@@ -867,17 +1016,29 @@ def test_quick_start_fits_two_bilingual_captions_and_run_controls_at_default_siz
             assert scroll.verticalScrollBar().maximum() == 0
             assert scroll.horizontalScrollBar().maximum() == 0
             assert not scroll.verticalScrollBar().isVisible()
-            for control in (window.hero, window.start_button, window.stop_button):
+            for control in (window.hero, window.quick_stats, window.quick_actions,
+                            window.start_button, window.stop_button):
                 assert control.isVisible()
                 assert viewport.rect().contains(QRect(control.mapTo(viewport, QPoint()), control.size()))
+            assert not window.hero.geometry().intersects(window.quick_stats.geometry())
+            assert not window.quick_stats.geometry().intersects(window.quick_actions.geometry())
 
         assert window.size().toTuple() == (1160, 840)
         check_quick_start()
+        assert window.quick_count.text() == "0"
+        assert window.quick_latency.text() == "—"
+        assert window.quick_mode.text() == "平衡"
         window.pipeline = SimpleNamespace(failures=0, stop=lambda: None)
         window._status("正在翻译（识别 cpu，翻译 cpu）")
         window._runtime("识别 CPU · 翻译 CPU · 低延迟模式 · Whisper small")
         window._diagnostic("翻译已显示在字幕窗口")
         window._show_audio_level(0.2)
+        assert window.quick_volume.value() == 20
+        assert window.quick_audio_icon.mode == "pulse"
+        window._show_audio_level(.001)
+        assert window.quick_volume.value() == 0
+        assert window.quick_audio_icon.mode == "idle"
+        assert not window.quick_audio_icon._timer.isActive()
         for original, line in (
             ("I heard footsteps behind us near the doorway. Hold B and don't rotate yet.",
              "我听到我们身后门口有脚步声。守住 B 点，先别转点。"),
@@ -892,6 +1053,13 @@ def test_quick_start_fits_two_bilingual_captions_and_run_controls_at_default_siz
         assert "mid stairs" in window.original_label.text()
         assert "footsteps behind us" in window.previous_original.text()
         assert window.previous_original.isVisible()
+        assert window.quick_count.text() == "2"
+        assert window.quick_latency.text() == "0.50 秒"
+        window._trace_token = token = object()
+        window.bridge.effective_mode.emit(token, "local_fallback")
+        assert window.quick_mode.text() == "本地回退"
+        window.bridge.effective_mode.emit(object(), "extreme")
+        assert window.quick_mode.text() == "本地回退"
         for page, widgets in (
             (window.audio_page, (window.device_combo, window.refresh_button, window.mode_combo,
                                  window.test_button, window.show_button, window.position_button,

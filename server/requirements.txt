@@ -1,0 +1,7 @@
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+httpx>=0.28,<1
+cryptography>=44,<51
+PyJWT>=2.10,<3
+qrcode>=8,<9
+pypng>=0.20220715.0

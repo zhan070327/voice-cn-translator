@@ -9,6 +9,7 @@ from dataclasses import replace
 import numpy as np
 
 from valorant_translator.audio.capture import SAMPLE_RATE, AudioCapture
+from valorant_translator.models.cloud import CloudClient, ready_engine_settings
 from valorant_translator.models.providers import configure_fallback_status, default_model_manager
 from valorant_translator.translation.enhancement import GameEnhancer
 from valorant_translator.translation.glossary import game_glossary
@@ -27,10 +28,11 @@ class PushToTalk:
         self.custom_rules = custom_rules
         self.capture_factory = capture
         self.capture = None
+        self._cloud_client = None
         self._busy = False
         self._closed = False
 
-    def begin(self, settings, session=None, *, diagnostic_session=None):
+    def begin(self, settings, session=None, *, diagnostic_session=None, cloud_client=None, on_cloud_blocked=None):
         if self._busy or self._closed:
             return False
         if not settings.microphone_id:
@@ -44,6 +46,8 @@ class PushToTalk:
         self._settings = replace(settings)
         self._session = session
         self._diagnostic_session = diagnostic_session
+        self._cloud_client = cloud_client
+        self._on_cloud_blocked = on_cloud_blocked or (lambda _: self.status("在线不可用，已继续使用本地翻译。"))
 
         def frame(audio, _):
             remaining = MAX_SECONDS * SAMPLE_RATE - self._samples
@@ -112,8 +116,9 @@ class PushToTalk:
                     recognized, english = self._session(audio)
                     evidence = {}
                 else:
-                    settings = self._settings
-                    models = default_model_manager()
+                    client = self._cloud_client or CloudClient(self._settings)
+                    settings = ready_engine_settings(self._settings, client, self._on_cloud_blocked, self.status)
+                    models = default_model_manager(cloud_client=client)
                     asr = models.create_asr(settings)
                     configure_fallback_status(asr, self.status)
                     asr.on_rejection = rejected
@@ -159,6 +164,24 @@ class PushToTalk:
                 self._busy = False
 
         threading.Thread(target=transcribe, name="push-to-talk", daemon=True).start()
+
+    def cancel_capture(self):
+        if self._cloud_client is not None:
+            self._cloud_client.disable_online()
+        capture, self.capture = self.capture, None
+        if capture is None:
+            return
+
+        def discard():
+            try:
+                capture.stop()
+            finally:
+                self._frames.clear()
+                self.level(-1.0)
+                self._busy = False
+
+        self.status(tr("talk.capture_cancelled"))
+        threading.Thread(target=discard, name="push-to-talk-cancel", daemon=True).start()
 
     def close(self):
         self._closed = True

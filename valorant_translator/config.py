@@ -5,14 +5,17 @@ import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from threading import Lock
 
 APP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".valorant-translator")) / "ValorantTranslator"
 MODEL_DIR = APP_DIR / "models"
 CONFIG_FILE = APP_DIR / "config.json"
 LOCAL_ASR = "whisper"
 LOCAL_TRANSLATION = "m2m100_418M"
-ONLINE_ASR = "azure_speech"
-ONLINE_TRANSLATION = "azure_translator"
+ONLINE_ASR = "samefreq_cloud_asr"
+ONLINE_TRANSLATION = "samefreq_cloud_translation"
+DEFAULT_CLOUD_URL = "https://cloud.samefreq.example"
+_SAVE_LOCK = Lock()
 SPEED_MODES = {
     "extreme": (ONLINE_ASR, ONLINE_TRANSLATION, "tiny", True),
     "balanced": (LOCAL_ASR, LOCAL_TRANSLATION, "tiny", True),
@@ -30,11 +33,9 @@ class Settings:
     fast_mode: bool = True
     translation_model: str = LOCAL_TRANSLATION
     speed_mode: str = "balanced"
-    azure_cloud: str = "global"
-    azure_speech_resource: str = ""
-    azure_speech_key: str = field(default="", repr=False)
-    azure_translator_region: str = ""
-    azure_translator_key: str = field(default="", repr=False)
+    cloud_url: str = DEFAULT_CLOUD_URL
+    cloud_access_token: str = field(default="", repr=False)
+    cloud_refresh_token: str = field(default="", repr=False)
     compute_device: str = "auto"
     font_size: int = 28
     overlay_x: int = 80
@@ -73,15 +74,7 @@ class Settings:
         """Legacy `language` remains the persisted source-language setting."""
         return self.language
 
-    def online_configured(self) -> bool:
-        return self.azure_cloud in ("global", "china") and all(isinstance(value, str) and value.strip() for value in (
-            self.azure_speech_resource, self.azure_speech_key,
-            self.azure_translator_region, self.azure_translator_key,
-        ))
-
     def select_speed_mode(self, mode: str) -> bool:
-        if mode == "extreme" and not self.online_configured():
-            return False
         self.asr_provider, self.translation_model, self.whisper_model, self.fast_mode = SPEED_MODES[mode]
         self.speed_mode = mode
         if mode == "precise":
@@ -95,30 +88,32 @@ class Settings:
             settings = cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
             if settings.speed_mode not in SPEED_MODES:
                 settings.speed_mode = "balanced"
-            if settings.speed_mode == "extreme":
-                if settings.online_configured():
-                    settings.asr_provider, settings.translation_model = ONLINE_ASR, ONLINE_TRANSLATION
-                else:
-                    settings.select_speed_mode("balanced")
+            if settings.speed_mode == "extreme" and settings.asr_provider == ONLINE_ASR:
+                settings.asr_provider, settings.translation_model = ONLINE_ASR, ONLINE_TRANSLATION
             else:
-                if settings.asr_provider == ONLINE_ASR:
-                    settings.asr_provider = LOCAL_ASR
-                if settings.translation_model == ONLINE_TRANSLATION:
-                    settings.translation_model = LOCAL_TRANSLATION
+                if settings.speed_mode == "extreme":
+                    settings.select_speed_mode("balanced")
+                settings.asr_provider, settings.translation_model = LOCAL_ASR, LOCAL_TRANSLATION
+            if any(key.startswith("azure_") for key in data):
+                try:
+                    settings.save()
+                except OSError:
+                    pass
             return settings
         except (OSError, ValueError, TypeError):
             return cls()
 
     def save(self) -> None:
-        APP_DIR.mkdir(parents=True, exist_ok=True)
-        temporary = NamedTemporaryFile(mode="w", encoding="utf-8", dir=CONFIG_FILE.parent, delete=False)
-        tmp = Path(temporary.name)
-        try:
-            with temporary:
-                json.dump(asdict(self), temporary, ensure_ascii=False, indent=2)
-            tmp.replace(CONFIG_FILE)
-        finally:
-            tmp.unlink(missing_ok=True)
+        with _SAVE_LOCK:
+            APP_DIR.mkdir(parents=True, exist_ok=True)
+            temporary = NamedTemporaryFile(mode="w", encoding="utf-8", dir=CONFIG_FILE.parent, delete=False)
+            tmp = Path(temporary.name)
+            try:
+                with temporary:
+                    json.dump(asdict(self), temporary, ensure_ascii=False, indent=2)
+                tmp.replace(CONFIG_FILE)
+            finally:
+                tmp.unlink(missing_ok=True)
 
 
 def get_model_dir(settings: Settings | None = None, *, default: Path | None = None) -> Path:
