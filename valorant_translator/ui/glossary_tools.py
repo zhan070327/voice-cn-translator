@@ -96,8 +96,8 @@ def _buttons(layout, items):
     return buttons
 
 
-def _rule_editor(parent, rule):
-    window, layout = dialog(parent, tr("glossary_tools.0015"))
+def _rule_editor(parent, rule, *, quick_term=False):
+    window, layout = dialog(parent, tr("terms.add" if quick_term else "glossary_tools.0015"))
     form = QFormLayout()
     game = QComboBox()
     for code, name in GAMES.items():
@@ -115,6 +115,12 @@ def _rule_editor(parent, rule):
     priority.setValue(rule.priority)
     fields = [(tr("glossary_tools.0018"), game), (tr("glossary_tools.0019"), source), (tr("glossary_tools.0020"), target), (tr("glossary_tools.0021"), original),
               (tr("glossary_tools.0022"), translated), (tr("glossary_tools.0023"), priority)]
+    direction = QComboBox()
+    if quick_term:
+        direction.addItem(tr("terms.en_zh"), ("en", "zh"))
+        direction.addItem(tr("terms.zh_en"), ("zh", "en"))
+        fields = [(tr("terms.direction"), direction), (tr("glossary_tools.0021"), original),
+                  (tr("glossary_tools.0022"), translated)]
     if rule.kind == "asr_correction":
         fields.insert(4, (tr("glossary_tools.0024"), corrected))
     for title, widget in fields:
@@ -129,6 +135,9 @@ def _rule_editor(parent, rule):
                           target=target.text().strip().lower(), original=original.text().strip(),
                           translated=translated.text().strip(), corrected=corrected.text().strip(),
                           priority=priority.value(), origin=tr("glossary_tools.0025"), verified=False, updated=now())
+        if quick_term:
+            pair = direction.currentData()
+            changed = replace(changed, source=pair[0], target=pair[1])
         try:
             selected = Rule.parse(vars(changed))
         except ValueError as exc:
@@ -143,6 +152,18 @@ def _rule_editor(parent, rule):
     window.exec()
     window.deleteLater()
     return selected
+
+
+def add_custom_term(parent, store):
+    term = _rule_editor(parent, Rule(parent.settings.game, "en", "zh", "", priority=1000), quick_term=True)
+    if term is None:
+        return
+    try:
+        conflict = store.add(term)
+    except (ValueError, OSError) as exc:
+        QMessageBox.warning(parent, tr("glossary_tools.0058"), str(exc))
+        return
+    parent.statusBar().showMessage(tr("glossary_tools.0056" if conflict else "glossary_tools.0057"), 5000)
 
 
 def default_glossary(parent):

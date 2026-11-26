@@ -29,7 +29,7 @@ _CHINESE_CALLOUT_HOTWORDS = (
 class Recognition:
     text: str
     language: str
-    probability: float
+    probability: float | None
 
 
 def cuda_available() -> bool:

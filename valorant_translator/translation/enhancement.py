@@ -9,7 +9,8 @@ from valorant_translator.translation.glossary import Glossary
 from valorant_translator.translation.rules import Rule, RuleStore, parse_rules
 
 LOG = logging.getLogger(__name__)
-_SENTENCES = re.compile(r"(?<=[.!?。！？])\s+|(?<=[。！？])|[;；]\s*")
+_SENTENCES = re.compile(r"((?<=[.!?])\s+|(?<=[。！？])\s*|[;；]\s*)")
+_COMMAS = re.compile(r"([,，]\s*)")
 
 
 @dataclass(frozen=True)
@@ -56,8 +57,32 @@ class GameEnhancer:
         # Full normalized equality gives match confidence 1. No fuzzy substitutions.
         return rule
 
+    def _correct_clauses(self, parts, source, target):
+        corrected, evidence = [], []
+        for index, clause in enumerate(parts):
+            if index % 2 or not self.glossary.normalize(clause):
+                corrected.append(clause)
+                continue
+            rule = self._correct(clause, source, target)
+            if rule:
+                evidence.append(f"asr_correction:{self.glossary.normalize(clause)}")
+                next_separator = parts[index + 1] if index + 1 < len(parts) else ""
+                replacement = rule.corrected
+                if next_separator.startswith((",", "，", ";", "；")):
+                    replacement = replacement.rstrip(".!?。！？")
+                elif (ending := re.search(r"[.!?。！？]+$", clause)) and replacement[-1] not in ".!?。！？":
+                    replacement += ending[0]
+                corrected.append(replacement)
+            else:
+                corrected.append(clause)
+        return corrected, evidence
+
     def _translate(self, text, source, target, settings):
         normalized = self.glossary.normalize(text)
+        if self.custom and settings.game_terms:
+            custom = self.custom.index.get((self.game, source, target, "term", normalized))
+            if custom:
+                return custom.translated, f"custom_term:{normalized}"
         if settings.official_lines:
             official = self._rule(normalized, source, target, "official_line")
             if official and official.verified:
@@ -84,28 +109,36 @@ class GameEnhancer:
             translated, used = self._translate(text, source, target, settings)
             if translated:
                 return Match(text, translated, " · ".join(filter(None, (correction, used))))
-            clauses = [part.strip() for part in _SENTENCES.split(text) if self.glossary.normalize(part)]
+            parts = _SENTENCES.split(text)
+            rules = [correction] if correction else []
+            if settings.asr_correction and not rule:
+                parts, evidence = self._correct_clauses(parts, source, target)
+                rules.extend(evidence)
+                for index in range(0, len(parts), 2):
+                    comma_parts = _COMMAS.split(parts[index])
+                    if len(comma_parts) == 1:
+                        continue
+                    comma_parts, evidence = self._correct_clauses(comma_parts, source, target)
+                    if evidence:
+                        parts[index] = "".join(comma_parts)
+                        rules.extend(evidence)
+                if rules:
+                    text = "".join(parts)
+                    translated, used = self._translate(text, source, target, settings)
+                    if translated:
+                        return Match(text, translated, " · ".join((*rules, used)))
+            clauses = [part.strip() for part in parts[::2] if self.glossary.normalize(part)]
             if len(clauses) < 2:
-                return Match(text, rules=correction)
-            outputs, rules, corrected = [], [], []
+                return Match(text, rules=" · ".join(rules))
+            outputs, terms = [], []
             for clause in clauses:
-                rule = self._correct(clause, source, target) if settings.asr_correction else None
-                if rule:
-                    rules.append(f"asr_correction:{self.glossary.normalize(clause)}")
-                    clause = rule.corrected
-                corrected.append(clause)
                 translated, used = self._translate(clause, source, target, settings)
                 outputs.append(translated)
                 if used:
-                    rules.append(used)
+                    terms.append(used)
             if all(outputs):
-                return Match(" ".join(corrected), "".join(outputs), " · ".join(rules))
-            if any(old != new for old, new in zip(clauses, corrected)):
-                # Keep every clause, including the ones without a vocabulary match.
-                joined = _SENTENCES.split(text)
-                replacements = iter(corrected)
-                text = " ".join(next(replacements) if self.glossary.normalize(part) else part for part in joined)
-            return Match(text, rules=" · ".join(rule for rule in rules if rule.startswith("asr_correction:")))
+                return Match(text, "".join(outputs), " · ".join((*rules, *terms)))
+            return Match(text, rules=" · ".join(rules))
         except (TypeError, ValueError, KeyError, AttributeError):
             LOG.exception("Glossary matching failed for %s %s→%s", self.game, source, target)
             return Match(original)

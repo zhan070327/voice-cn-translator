@@ -17,11 +17,15 @@ from valorant_translator.audio.segmenter import SpeechChunk, SpeechSegmenter
 from valorant_translator.config import Settings
 from valorant_translator.diagnostics import Diagnostics
 from valorant_translator.languages import DEFAULT_LANGUAGES, LanguageCatalog
-from valorant_translator.models.providers import ModelManager, create_local_model, default_model_manager, translate_pair
+from valorant_translator.models.cloud import CloudClient, ready_engine_settings
+from valorant_translator.models.providers import (
+    ModelManager, create_local_model, default_model_manager, translate_pair,
+)
 from valorant_translator.recognition.whisper import LocalWhisper, Recognition
 from valorant_translator.translation.enhancement import GameEnhancer
 from valorant_translator.translation.glossary import Glossary, game_glossary
 from valorant_translator.translation.m2m import LocalM2M
+from valorant_translator.ui.texts import tr
 
 LOG = logging.getLogger(__name__)
 
@@ -73,8 +77,16 @@ class Pipeline:
                  on_runtime: Callable[[str], None] | None = None,
                  history=None, *, on_trace: Callable[[TaskTrace], None] | None = None,
                  custom_rules=None, languages: LanguageCatalog | None = None,
-                 models: ModelManager | None = None, games=None):
+                 models: ModelManager | None = None, games=None, cloud_client: CloudClient | None = None,
+                 on_cloud_blocked: Callable[[str], None] | None = None,
+                 on_effective_mode: Callable[[str], None] | None = None):
         self.settings = settings
+        self.requested_speed_mode = settings.speed_mode
+        self.cloud_client = cloud_client or CloudClient(settings)
+        self.on_cloud_blocked = on_cloud_blocked or (lambda _: None)
+        self.on_effective_mode = on_effective_mode or (lambda _: None)
+        self._fallback_announced = False
+        self._fallback_lock = threading.Lock()
         self.languages = languages or DEFAULT_LANGUAGES
         self.models = models
         self.games = games
@@ -112,6 +124,13 @@ class Pipeline:
         measured = (self.asr_seconds_per_audio or 0) * SpeechSegmenter.MAX_FRAMES * .02
         return max(self.settings.max_task_age, min(24.0, max(baseline, measured + 4.0)))
 
+    def _expected_asr_seconds(self, asr, audio) -> float:
+        # The online adapter can recover on the next utterance. A slow local
+        # attempt should not prevent that utterance from reaching the provider.
+        if getattr(asr, "on_fallback", None) is not None:
+            return 0.0
+        return (self.asr_seconds_per_audio or 0) * len(audio) / 16000
+
     def start(self) -> None:
         if self.worker and self.worker.is_alive():
             return
@@ -120,6 +139,7 @@ class Pipeline:
         self.worker.start()
 
     def stop(self) -> None:
+        self.cloud_client.disable_online()
         self.stop_event.set()
         if self.capture:
             self.capture.stop()
@@ -197,7 +217,7 @@ class Pipeline:
 
         def overdue():
             if self.asr_busy.is_set() and not self.stop_event.is_set():
-                phase = "Whisper 推理" if decoding.is_set() else "等待识别锁"
+                phase = tr("engine.asr_inference") if decoding.is_set() else "等待识别锁"
                 message = f"{phase}已超过 {time.monotonic() - t0:.1f} 秒，仍在等待返回"
                 self._trace(chunk, "5 秒看门狗", message)
                 self.on_diagnostic(message)
@@ -210,7 +230,7 @@ class Pipeline:
                 started = time.monotonic()
                 limit = self._age_limit(asr)
                 age = started - chunk.end_time
-                expected = (self.asr_seconds_per_audio or 0) * len(chunk.audio) / 16000
+                expected = self._expected_asr_seconds(asr, chunk.audio)
                 if age >= limit or (expected and age + expected >= limit):
                     self._discard(chunk, f"等待识别锁后已过期：距音频结束 {age:.2f} 秒 / 上限 {limit:.1f} 秒")
                     return None, "已过期", 0.0
@@ -228,7 +248,8 @@ class Pipeline:
                     asr.on_rejection = None
                 elapsed = time.monotonic() - started
                 ratio = elapsed / max(0.1, len(chunk.audio) / 16000)
-                self.asr_seconds_per_audio = (ratio if self.asr_seconds_per_audio is None else
+                reset_estimate = self.asr_seconds_per_audio is None or getattr(asr, "fallback_seconds", 0)
+                self.asr_seconds_per_audio = (ratio if reset_estimate else
                                               .5 * self.asr_seconds_per_audio + .5 * ratio)
                 detail = f"耗时 {elapsed:.3f} 秒，{result.language} {result.text[:160]!r}" if result \
                     else f"耗时 {elapsed:.3f} 秒，无可用识别结果"
@@ -238,11 +259,22 @@ class Pipeline:
             self.asr_busy.clear()
             watchdog.cancel()
 
+    @staticmethod
+    def _device_label(provider) -> str:
+        if provider.device in ("online", "pending"):
+            return tr(f"engine.route_{provider.device}")
+        return provider.device.upper()
+
     def _report_runtime(self, asr, translator) -> None:
-        mode = "低延迟模式" if self.settings.fast_mode else "准确优先模式"
+        mode = self.settings.speed_mode
+        if self.requested_speed_mode == "extreme" and (
+                mode != "extreme" or any(p.device not in ("online", "pending") for p in (asr, translator))):
+            mode = "local_fallback"
+        self.on_effective_mode(mode)
+        mode = "本地回退" if mode == "local_fallback" else tr(f"engine.mode_{mode}")
         path = getattr(asr, "path", None)
         model = f" · Whisper {path.name.removeprefix('whisper-')}" if path else ""
-        self.on_runtime(f"识别 {asr.device.upper()} · 翻译 {translator.device.upper()} · {mode}{model}")
+        self.on_runtime(f"识别 {self._device_label(asr)} · 翻译 {self._device_label(translator)} · {mode}{model}")
 
     def translate_microphone(self, audio, on_rejection=None):
         recognized, english, _ = self.translate_microphone_details(audio, on_rejection)
@@ -262,6 +294,7 @@ class Pipeline:
             finally:
                 asr.on_rejection = previous
         if not recognized:
+            self._report_runtime(asr, translator)
             return None, "", {}
         translated_at = time.monotonic()
         enhancer = getattr(self, "enhancer", None)
@@ -280,23 +313,39 @@ class Pipeline:
             english = glossary.finish_zh_en(english, corrected)
             if match and match.rules:
                 rule = " · ".join(filter(None, (match.rules, rule)))
+        self._report_runtime(asr, translator)
         return recognized, english, dict(
             asr_seconds=translated_at - started, translation_seconds=time.monotonic() - translated_at,
             corrected_original=corrected if corrected != recognized.text else "",
             machine_translation=raw, glossary_rules=rule, confidence=recognized.probability,
         )
 
+    def _notify_fallback(self, stage: str) -> None:
+        with self._fallback_lock:
+            if self._fallback_announced:
+                return
+            self._fallback_announced = True
+        self.on_status(tr(f"engine.fallback_{stage}"))
+
     def _work(self) -> None:
         try:
             self.languages.source(self.settings.source_language)
             self.languages.target(self.settings.target_language)
+            self.settings = ready_engine_settings(
+                self.settings, self.cloud_client, self.on_cloud_blocked, self.on_status)
+            if self.stop_event.is_set():
+                return
             models = self.models or default_model_manager(
                 lambda s: create_local_model(LocalWhisper, s, s.whisper_model, s.compute_device, s.fast_mode),
-                lambda s: create_local_model(LocalM2M, s, s.compute_device, s.fast_mode))
-            self.on_status("加载本地识别模型…")
+                lambda s: create_local_model(LocalM2M, s, s.compute_device, s.fast_mode),
+                cloud_client=self.cloud_client)
+            self.on_status(tr("engine.loading_asr"))
             asr = models.create_asr(self.settings)
-            self.on_status("加载本地翻译模型…")
+            self.on_status(tr("engine.loading_translation"))
             translator = models.create_translation(self.settings)
+            for provider in (asr, translator):
+                if hasattr(provider, "on_fallback"):
+                    provider.on_fallback = self._notify_fallback
             self._report_runtime(asr, translator)
             if self.games is None:
                 glossary = game_glossary(self.settings.game)
@@ -316,7 +365,7 @@ class Pipeline:
             self.capture = AudioCapture(self.settings.device_id, self.segmenter.feed,
                                         self.on_level, self.on_status)
             self.capture.start()
-            self.on_status(f"正在翻译（识别 {asr.device}，翻译 {translator.device}）")
+            self.on_status(tr("engine.running", asr=self._device_label(asr), translation=self._device_label(translator)))
             self.on_diagnostic("等待语音；音量条跳动不代表已检测到说话")
             while not self.stop_event.is_set():
                 try:
@@ -329,7 +378,7 @@ class Pipeline:
                 waited = now - chunk.queued_at
                 self._trace(chunk, "识别出队", f"排队 {waited:.2f} 秒，距音频结束 {age:.2f} 秒", 识别排队=waited)
                 limit = self._age_limit(asr)
-                expected = (self.asr_seconds_per_audio or 0) * len(chunk.audio) / 16000
+                expected = self._expected_asr_seconds(asr, chunk.audio)
                 if age >= limit or (expected and age + expected >= limit):
                     self._discard(chunk, f"识别排队过期：距音频结束 {age:.2f} 秒 / 上限 {limit:.1f} 秒")
                     continue
@@ -425,6 +474,7 @@ class Pipeline:
                 translated, used = matched.translation, matched.rules
                 raw_translation = None
                 display_original = ""
+                fallback_seconds = 0.0
                 if self.history is not None and self.settings.game == "valorant" and target == "zh":
                     try:
                         legacy = self.history.lookup_correction(normalized, recognized.language)
@@ -442,6 +492,7 @@ class Pipeline:
                             source_text = (glossary.prepare_zh_en(matched.text)
                                            if recognized.language == "zh" and target == "en" else matched.text)
                             raw_translation = translate_pair(translator, source_text, recognized.language, target)
+                            fallback_seconds = getattr(translator, "fallback_seconds", 0.0)
                         self._trace(chunk, "翻译推理", f"等锁 {lock_wait:.3f} 秒", 翻译等锁=lock_wait)
                         translated = raw_translation
                         if translated and recognized.language == "zh" and target == "en":
@@ -462,6 +513,7 @@ class Pipeline:
                         else:
                             english = translate_pair(translator, source_text, "zh", "en")
                             english_rule = ""
+                        fallback_seconds = getattr(translator, "fallback_seconds", 0.0)
                     display_original = glossary.finish_zh_en(english, matched.text) if english else ""
                     if english_rule:
                         used = " · ".join(filter(None, (used, english_rule)))
@@ -472,6 +524,8 @@ class Pipeline:
                 self._trace(chunk, "翻译结束", f"翻译 {translation_seconds:.2f} 秒，距音频结束 {age:.2f} 秒",
                             翻译=translation_seconds)
                 translation_limit = max(self.settings.translation_timeout, 8.0) if display_original else self.settings.translation_timeout
+                translation_limit += fallback_seconds
+                limit += fallback_seconds
                 if translation_seconds > translation_limit or age > limit:
                     self.failures += 1
                     self._discard(chunk, f"字幕已过期：翻译 {translation_seconds:.2f} 秒 / 上限 "

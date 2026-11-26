@@ -1,0 +1,29 @@
+id	direction	origin	focus	source	expected
+e01	en-zh	exact_phrases	点位、数字	Two A main.	A 大两个。
+e02	en-zh	exact_phrases	点位	Rotate B.	转点去 B。
+e03	en-zh	exact_phrases	点位	Retake A.	重夺 A 点。
+e04	en-zh	exact_phrases	否定	Don't peek.	别拉出去对枪。
+e05	en-zh	exact_phrases	否定	Don't push.	别前压。
+e06	en-zh	exact_phrases	否定	Don't rotate.	别转点。
+e07	en-zh	exact_phrases	数字	Two low.	有两个残血。
+e08	en-zh	exact_phrases	数字	Three low.	有三个残血。
+e09	en-zh	exact_phrases	数字	One enemy left.	剩一个敌人。
+e10	en-zh	exact_phrases	方向	Behind us.	在我们后面。
+e11	en-zh	contextual_rewrites	口语	Give me a second.	等我一下。
+e12	en-zh	contextual_rewrites	动作	I'm reloading.	我在换弹。
+e13	en-zh	contextual_rewrites	动作	I'm blinded.	我被致盲了。
+e14	en-zh	contextual_rewrites	动作	Spike is down.	包掉了。
+e15	en-zh	contextual_rewrites	动作	Defuse the spike.	拆包。
+e16	en-zh	contextual_rewrites	动作	Hold this angle.	架住这个枪线。
+e17	en-zh	composed	点位、数字、否定	Two A main, don't rotate to B.	A 大两个，别转 B。
+e18	en-zh	composed	方向、点位、数字	One on our left and two behind us at B.	左边一个，B 点身后两个。
+p01	zh-en	contextual_rewrites_zh_en	口语	等我一下。	Hold on a sec.
+p02	zh-en	contextual_rewrites_zh_en	动作	我在换弹。	I'm reloading.
+p03	zh-en	contextual_rewrites_zh_en	动作	转点。	Rotate.
+p04	zh-en	lexical_terms	战术	这局打个默认。	Let's play default this round.
+p05	zh-en	composed	点位、数字、否定	A 大有两个，先别露头。	Two A main. Don't peek yet.
+p06	zh-en	composed	点位、方向、否定	别从左边绕，他们在 B 点后面。	Don't flank from the left. They're behind B site.
+p07	zh-en	composed	数字、方向	右边还有三个，最后一个残血。	Three more on the right. The last one is low.
+p08	zh-en	composed	点位、动作、否定	还没下包，先守住 A 点。	The spike isn't planted yet. Hold A site.
+p09	zh-en	composed	点位、动作、口语	等我换完弹，我们再转去 B。	Wait until I reload, then let's rotate to B.
+p10	zh-en	composed	点位、动作、否定	别拆包，先清 A 大。	Don't defuse yet. Clear A main first.

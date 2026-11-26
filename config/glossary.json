@@ -1132,10 +1132,14 @@
       "b generator"
     ],
     "A 后点": [
-      "a back"
+      "a back",
+      "a back site",
+      "a backsite"
     ],
     "B 后点": [
-      "b back"
+      "b back",
+      "b back site",
+      "b backsite"
     ],
     "A 树": [
       "a tree",
@@ -1461,6 +1465,19 @@
     "中路图书馆": [
       "mid library",
       "library"
+    ],
+    "C 后点": [
+      "c back site",
+      "c backsite"
+    ],
+    "A 连接": [
+      "a connector"
+    ],
+    "B 连接": [
+      "b connector"
+    ],
+    "C 连接": [
+      "c connector"
     ]
   },
   "weapon_names": [
@@ -2086,6 +2103,15 @@
       "game": "valorant",
       "source": "en",
       "target": "zh",
+      "original": "to AMAIN",
+      "corrected": "Two A Main.",
+      "kind": "asr_correction",
+      "origin": "test_audio/diagnose_asr_macos_report.json · CPU without hotwords"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
       "original": "my ultimus ready",
       "corrected": "My ultimate is ready.",
       "kind": "asr_correction",
@@ -2167,6 +2193,213 @@
       "origin": "VALORANT 战术术语",
       "verified": false,
       "updated": "2026-11-20T00:00:00Z"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "dont peek left",
+      "translated": "别从左边露头。",
+      "kind": "term",
+      "origin": "VALORANT 队友报点术语"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "dont peek right",
+      "translated": "别从右边露头。",
+      "kind": "term",
+      "origin": "VALORANT 队友报点术语"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "dont push a main",
+      "translated": "别压 A 大。",
+      "kind": "term",
+      "origin": "VALORANT 队友报点术语"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "dont push b main",
+      "translated": "别压 B 大。",
+      "kind": "term",
+      "origin": "VALORANT 队友报点术语"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "dont rotate to a",
+      "translated": "别转 A。",
+      "kind": "term",
+      "origin": "VALORANT 队友报点术语"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "dont rotate to b",
+      "translated": "别转 B。",
+      "kind": "term",
+      "origin": "VALORANT 队友报点术语"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "dont rotate to c",
+      "translated": "别转 C。",
+      "kind": "term",
+      "origin": "VALORANT 队友报点术语"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "dont plant yet",
+      "translated": "先别下包。",
+      "kind": "term",
+      "origin": "VALORANT 队友报点术语"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "dont defuse yet",
+      "translated": "先别拆包。",
+      "kind": "term",
+      "origin": "VALORANT 队友报点术语"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "spike isnt planted",
+      "translated": "还没下包。",
+      "kind": "term",
+      "origin": "VALORANT 队友报点术语"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "ascent",
+      "translated": "亚海悬城。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/maps/"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "haven",
+      "translated": "隐世修所。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/maps/"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "sunset",
+      "translated": "日落之城。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/maps/"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "killjoy alarmbot",
+      "translated": "奇乐的警报机器人。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/agents/killjoy/"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "killjoy lockdown",
+      "translated": "奇乐大招。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/agents/killjoy/"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "sova recon bolt",
+      "translated": "猎枭的侦察箭。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/agents/sova/"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "viper pit",
+      "translated": "蝰蛇大招。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/agents/viper/"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "arc rose",
+      "translated": "维斯的闪。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/agents/vyse/"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "classic pistol",
+      "translated": "标配手枪。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/arsenal/"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "op sniper",
+      "translated": "大狙。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/arsenal/"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "odin machine gun",
+      "translated": "奥丁重机枪。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/arsenal/"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "vandal rifle",
+      "translated": "狂徒步枪。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/arsenal/"
+    },
+    {
+      "game": "valorant",
+      "source": "en",
+      "target": "zh",
+      "original": "jett dash",
+      "translated": "捷风突进。",
+      "kind": "term",
+      "origin": "https://playvalorant.com/en-us/agents/jett/"
     }
   ],
   "suppressed_lines": [
@@ -2202,7 +2435,8 @@
       "source": "等我一下",
       "literal": [
         "wait for me for a moment",
-        "give me a moment"
+        "give me a moment",
+        "wait for me a moment"
       ],
       "natural": "hold on a sec"
     },
@@ -2210,7 +2444,10 @@
       "source": "我在换弹",
       "literal": [
         "I am loading again",
-        "I am reloading the gun"
+        "I am reloading the gun",
+        "I am changing the bullet",
+        "I am changing bullets",
+        "I’m switching bullets"
       ],
       "natural": "I’m reloading"
     },
@@ -2218,9 +2455,103 @@
       "source": "转点",
       "literal": [
         "change points",
-        "turn point"
+        "turn point",
+        "the turnpoint",
+        "turnpoint",
+        "change the point",
+        "change site"
       ],
       "natural": "rotate"
+    },
+    {
+      "source": "等我一下下",
+      "literal": [
+        "wait for me a little bit",
+        "wait for me a moment"
+      ],
+      "natural": "hold on a sec"
+    },
+    {
+      "source": "等我会儿",
+      "literal": [
+        "wait for me for a while",
+        "wait for me a moment"
+      ],
+      "natural": "give me a sec"
+    },
+    {
+      "source": "稍等一下",
+      "literal": [
+        "wait a little bit",
+        "wait a little while"
+      ],
+      "natural": "hold on a sec"
+    },
+    {
+      "source": "等我一秒",
+      "literal": [
+        "wait for me for one second",
+        "wait for me one second"
+      ],
+      "natural": "give me a sec"
+    },
+    {
+      "source": "我在换子弹",
+      "literal": [
+        "I am changing bullets",
+        "I’m changing bullets"
+      ],
+      "natural": "I’m reloading"
+    },
+    {
+      "source": "换完弹",
+      "literal": [
+        "finished changing bullets",
+        "finished changing the bullet"
+      ],
+      "natural": "finished reloading"
+    },
+    {
+      "source": "正在换弹",
+      "literal": [
+        "changing the ammunition",
+        "loading again"
+      ],
+      "natural": "reloading"
+    },
+    {
+      "source": "转个点",
+      "literal": [
+        "change a point",
+        "make a turnpoint"
+      ],
+      "natural": "rotate"
+    },
+    {
+      "source": "转去",
+      "literal": [
+        "switch the point to",
+        "change the point to"
+      ],
+      "natural": "rotate to"
+    },
+    {
+      "source": "转到",
+      "literal": [
+        "change the point to",
+        "turn the point to"
+      ],
+      "natural": "rotate to"
+    },
+    {
+      "source": "换弹",
+      "literal": [
+        "change the bullet",
+        "change bullets",
+        "load again",
+        "change the ball"
+      ],
+      "natural": "reload"
     }
   ]
 }

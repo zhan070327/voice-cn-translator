@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from typing import Callable, Protocol
 
-from valorant_translator.config import Settings, get_model_dir
+from valorant_translator.config import (
+    LOCAL_ASR, LOCAL_TRANSLATION, ONLINE_ASR, ONLINE_TRANSLATION, Settings, get_model_dir,
+)
 
 
 class ASRProvider(Protocol):
@@ -52,7 +54,7 @@ def create_local_model(factory, settings: Settings, *args):
     return factory(*args)
 
 
-def default_model_manager(asr_factory=None, translation_factory=None) -> ModelManager:
+def default_model_manager(asr_factory=None, translation_factory=None, *, cloud_client=None) -> ModelManager:
     if asr_factory is None:
         from valorant_translator.recognition.whisper import LocalWhisper
         asr_factory = lambda s: create_local_model(LocalWhisper, s, s.whisper_model, s.compute_device, s.fast_mode)
@@ -60,9 +62,38 @@ def default_model_manager(asr_factory=None, translation_factory=None) -> ModelMa
         from valorant_translator.translation.m2m import LocalM2M
         translation_factory = lambda s: create_local_model(LocalM2M, s, s.compute_device, s.fast_mode)
     manager = ModelManager()
-    manager.register_asr("whisper", asr_factory)
-    manager.register_translation("m2m100_418M", translation_factory)
+    manager.register_asr(LOCAL_ASR, asr_factory)
+    manager.register_translation(LOCAL_TRANSLATION, translation_factory)
+
+    def online_asr(settings):
+        from valorant_translator.models.cloud import CloudASR, CloudClient
+        from valorant_translator.models.online import FallbackASR
+
+        _require_online(settings)
+        return FallbackASR(CloudASR(cloud_client or CloudClient(settings)), lambda: asr_factory(settings))
+
+    def online_translation(settings):
+        from valorant_translator.models.cloud import CloudClient, CloudTranslation
+        from valorant_translator.models.online import FallbackTranslation
+
+        _require_online(settings)
+        return FallbackTranslation(CloudTranslation(cloud_client or CloudClient(settings)), lambda: translation_factory(settings))
+
+    manager.register_asr(ONLINE_ASR, online_asr)
+    manager.register_translation(ONLINE_TRANSLATION, online_translation)
     return manager
+
+
+def _require_online(settings: Settings) -> None:
+    if settings.speed_mode != "extreme":
+        raise ValueError("在线引擎需要先选择极速档。")
+
+
+def configure_fallback_status(provider, on_status) -> None:
+    if hasattr(provider, "on_fallback"):
+        from valorant_translator.ui.texts import tr
+
+        provider.on_fallback = lambda stage: on_status(tr(f"engine.fallback_{stage}"))
 
 
 def translate_pair(provider: TranslationProvider, text: str, source: str, target: str) -> str:

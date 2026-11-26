@@ -3,7 +3,8 @@ from __future__ import annotations
 import time
 from types import SimpleNamespace
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
+import pytest
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QTimer, Qt
 from PySide6.QtGui import QColor, QEnterEvent, QHideEvent, QPalette, QShowEvent, QTextLayout
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QVBoxLayout, QWidget
@@ -86,14 +87,16 @@ def test_main_window_starts_without_models(qapp, monkeypatch, tmp_path):
     assert "当前选的是麦克风" in window.device_hint.text()
     window.device_combo.setCurrentIndex(1)
     assert "正在听系统播放声音" in window.device_hint.text()
-    assert window.tabs.tabText(2) == "翻译历史"
+    assert [window.tabs.tabText(index) for index in range(window.tabs.count())] == [
+        "快速开始", "声音与字幕", "详细设置", "翻译历史", "运行详情",
+    ]
     window.history.add_result(SubtitleResult("Go rush A", "快攻 A。", "en", 0.2, 0.1, 0.3))
     window._refresh_history()
     assert window.history_table.item(0, 1).text() == "Go rush A"
     assert window.fast_check.isChecked()
     assert window.update_button.text() == "检查更新"
     assert window.settings_update_button.text() == "检查更新"
-    assert "当前版本" in window.update_label.text()
+    assert "当前版本" in window.update_version_label.text()
     window._runtime("识别 CUDA · 翻译 CPU · 低延迟模式")
     assert "翻译 CPU" in window.runtime_label.text()
     monkeypatch.setattr(ui.QMessageBox, "information", lambda *args: None)
@@ -135,8 +138,10 @@ def test_main_window_starts_without_models(qapp, monkeypatch, tmp_path):
     assert not window.settings.click_through
     window.mode_combo.setCurrentIndex(0)
     assert window.settings.normal_window
-    settings_groups = window.tabs.widget(1).findChildren(QGroupBox)
-    assert [group.title() for group in settings_groups] == ["软件更新", "识别和翻译", "字幕", "历史和隐私", "游戏词库"]
+    settings_groups = window.settings_page.findChildren(QGroupBox)
+    assert [group.title() for group in settings_groups] == [
+        "软件更新", "本地模型", "翻译引擎", "识别和翻译", "字幕", "历史和隐私", "游戏词库",
+    ]
     assert all(isinstance(group, GlassSection) and group.icon.width() == 20 for group in settings_groups)
     assert window.advanced_fields.isHidden()
     previous = (window.vad_spin.value(), window.timeout_spin.value(), window.age_spin.value())
@@ -359,7 +364,9 @@ def test_theme_switches_are_independent_saved_and_shared_with_onboarding(qapp, m
         assert guide.action.text() == "暂停下载"
         assert guide.action.width() < guide.width() / 3
         assert guide.action.objectName() != "primary"
-        assert guide.details.height() >= 3 * guide.details.fontMetrics().lineSpacing()
+        assert "离线翻译" in guide.details.text()
+        assert "M2M100 418M" in guide.context.text()
+        assert "推荐 Whisper" in guide.context.text()
         assert guide.transfer.isVisible() and "4.7 MiB/s" in guide.transfer.text()
         assert guide.transfer.fontMetrics().height() <= guide.transfer.height()
         assert "预计" in guide.transfer.toolTip()
@@ -546,6 +553,181 @@ def _launch_upgrade_preview(monkeypatch, tmp_path):
     return window
 
 
+def test_engine_presets_gate_online_and_sync_actual_settings(qapp, monkeypatch, tmp_path):
+    from valorant_translator.config import ONLINE_TRANSLATION, Settings
+    from valorant_translator.ui.texts import tr
+
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        extreme = window.speed_combo.findData("extreme")
+        window._select_speed_mode(extreme)
+        assert window.speed_combo.currentData() == "balanced"
+        assert window.statusBar().currentMessage() == tr("engine.sign_in_required")
+        assert window._cloud_prompt.buttons()[0].text() == tr("engine.sign_in")
+        assert not window._cloud_prompt.isModal()
+        window._cloud_prompt.close()
+        window._select_speed_mode(window.speed_combo.findData("precise"))
+        assert window.model_combo.currentData() == "small"
+        assert not window.fast_check.isChecked()
+        assert Settings.load().speed_mode == "precise"
+        window.settings.cloud_access_token = "test-session"
+        monkeypatch.setattr(window.cloud, "entitlement", lambda: {
+            "trial_remaining_ms": 2_100_000, "subscribed": False, "online_allowed": True,
+        })
+        window._select_speed_mode(extreme)
+        assert _wait_for(lambda: window.speed_combo.currentData() == "extreme")
+        assert window.cloud_balance.text() == "试用剩余 0 小时 35 分 0 秒"
+        assert window.model_combo.currentData() == "tiny"
+        assert Settings.load().translation_model == ONLINE_TRANSLATION
+
+        monkeypatch.setattr(window.cloud, "entitlement", lambda: {
+            "trial_remaining_ms": 0, "subscribed": False, "online_allowed": False,
+        })
+        window._select_speed_mode(extreme)
+        assert _wait_for(lambda: window._cloud_prompt is not None)
+        assert window.speed_combo.currentData() == "balanced"
+        assert window.cloud_balance.text() == tr("engine.balance_exhausted")
+        assert window._cloud_prompt.buttons()[0].text() == tr("engine.subscribe")
+        assert not window._cloud_prompt.isModal()
+        window._cloud_prompt.close()
+    finally:
+        window.close()
+
+
+def test_online_mode_ignores_entitlement_after_local_selection(qapp, monkeypatch, tmp_path):
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        window.settings.cloud_access_token = "test-session"
+        replies = []
+        monkeypatch.setattr(window, "_request_cloud", lambda request, completed: replies.append(completed))
+        window._select_speed_mode(window.speed_combo.findData("extreme"))
+        window._select_speed_mode(window.speed_combo.findData("balanced"))
+        [reply] = replies
+        reply({"trial_remaining_ms": 900_000, "subscribed": False, "online_allowed": True}, "")
+        assert window.settings.speed_mode == "balanced"
+    finally:
+        window.close()
+
+
+def test_cloud_account_authentication_and_subscription_checkout(qapp, monkeypatch, tmp_path):
+    import base64
+
+    from PySide6.QtCore import QBuffer, QIODevice
+    from PySide6.QtGui import QPixmap
+    from PySide6.QtWidgets import QLineEdit
+    from valorant_translator.models.cloud import CloudError
+    from valorant_translator.ui.cloud_account import PaymentDialog, PlanDialog
+    from valorant_translator.ui.texts import tr
+
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        calls = []
+
+        def login(email, password):
+            calls.append(("login", email))
+            raise CloudError("unauthenticated")
+
+        def register(email, password):
+            calls.append(("register", email))
+            window.settings.cloud_access_token = "test-session"
+
+        def logout():
+            calls.append(("logout",))
+            window.settings.cloud_access_token = ""
+
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        image = QPixmap(10, 10)
+        image.fill(Qt.GlobalColor.white)
+        assert image.save(buffer, "PNG")
+        encoded = base64.b64encode(buffer.data()).decode()
+
+        def order(plan, channel):
+            calls.append((plan, channel))
+            return {"qr_png_base64": encoded, "pay_url": "weixin://checkout-fixture"}
+
+        monkeypatch.setattr(window.cloud, "login", login)
+        monkeypatch.setattr(window.cloud, "register", register)
+        monkeypatch.setattr(window.cloud, "logout", logout)
+        monkeypatch.setattr(window.cloud, "entitlement", lambda: {
+            "trial_remaining_ms": 143_000, "subscribed": False, "online_allowed": True,
+        })
+        monkeypatch.setattr(window.cloud, "plans", lambda: [{
+            "id": "test-monthly", "name": "测试套餐", "price_cents": 123,
+        }])
+        monkeypatch.setattr(window.cloud, "create_order", order)
+
+        window._select_speed_mode(window.speed_combo.findData("extreme"))
+        window._cloud_prompt.buttons()[0].click()
+        account = window._cloud_account_dialog
+        assert account.password.echoMode() == QLineEdit.EchoMode.Password
+        account.email.setText("test@example.test")
+        account.password.setText("test-password")
+        login_button = next(b for b in account.findChildren(GlassButton) if b.text() == tr("engine.login"))
+        login_button.click()
+        assert _wait_for(lambda: account.message.text() == tr("engine.login_failed"))
+        register_button = next(b for b in account.findChildren(GlassButton) if b.text() == tr("engine.register"))
+        register_button.click()
+        assert _wait_for(lambda: window._cloud_account_dialog is None)
+        assert _wait_for(lambda: "2 分 23 秒" in window.cloud_balance.text())
+
+        window._open_cloud_account()
+        account = window._cloud_account_dialog
+        next(b for b in account.findChildren(GlassButton) if b.text() == tr("engine.subscribe")).click()
+        plan = window.findChild(PlanDialog)
+        assert _wait_for(plan.pay.isEnabled)
+        assert "测试套餐 · ¥1.23 / 月" == plan.plans.currentText()
+        plan.channels_combo.setCurrentIndex(plan.channels_combo.findData("wechat"))
+        plan.pay.click()
+        assert _wait_for(lambda: window.findChild(PaymentDialog) is not None)
+        payment = window.findChild(PaymentDialog)
+        assert any(child.accessibleName() == tr("engine.payment_qr") for child in payment.findChildren(QLabel))
+        payment.accept()
+        next(b for b in account.findChildren(GlassButton) if b.text() == tr("engine.sign_out")).click()
+        assert _wait_for(lambda: window._cloud_account_dialog is None)
+        assert window.cloud_balance.text() == tr("engine.signed_out")
+        assert calls == [("login", "test@example.test"), ("register", "test@example.test"),
+                         ("test-monthly", "wechat"), ("logout",)]
+    finally:
+        window.close()
+
+
+def test_leaving_online_mode_discards_held_microphone_audio(qapp, monkeypatch, tmp_path):
+    import numpy as np
+
+    from valorant_translator.ui import talk as talk_ui
+    from valorant_translator.ui.texts import tr
+
+    window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    try:
+        requests = []
+        monkeypatch.setattr(talk_ui, "ready_engine_settings", lambda *args: requests.append(args))
+
+        class Capture:
+            def __init__(self, device, frame, *_):
+                self.frame = frame
+
+            def start(self):
+                self.frame(np.full(8000, .04, dtype=np.float32), 0)
+
+            def stop(self):
+                pass
+
+        window.talk.capture_factory = Capture
+        window.settings.microphone_id = "mic"
+        window.settings.select_speed_mode("extreme")
+        assert window.talk.begin(window.settings, cloud_client=window.cloud)
+        window._select_speed_mode(window.speed_combo.findData("balanced"))
+        window.talk.end()
+        assert _wait_for(lambda: not window.talk._busy)
+        assert window.talk.capture is None
+        assert window.talk._frames == []
+        assert window.talk_state.text() == tr("talk.capture_cancelled")
+        assert not requests
+    finally:
+        window.close()
+
+
 def test_upgrade_switches_five_skins_twice_and_persists_override(qapp, monkeypatch, tmp_path):
     from valorant_translator.ui.tokens import SKINS
 
@@ -584,8 +766,8 @@ def test_upgrade_truthful_loading_empty_and_errors(qapp, monkeypatch, tmp_path):
     window = _launch_upgrade_preview(monkeypatch, tmp_path)
     try:
         assert window.chinese_label.isHidden()
-        assert window.caption_hint.text() == "开始翻译，看到第一条字幕"
-        assert window.caption_loading.isVisible()
+        assert window.caption_hint.text() == "开始翻译后显示字幕"
+        assert window.caption_loading.isHidden()
         assert window.volume.isHidden()
         window._caption_state("loading", "正在加载本地模型。")
         assert window.caption_loading.isVisible() and "正在加载" in window.chinese_label.text()
@@ -599,24 +781,26 @@ def test_upgrade_truthful_loading_empty_and_errors(qapp, monkeypatch, tmp_path):
         assert window.language_label.width() > 0
         assert window.latency_stat.isVisible() and "0.35" in window.latency_stat.text()
         assert window.confidence_label.isHidden()
+        window.tabs.setCurrentWidget(window.runtime_page)
         window.detail_toggle.click()
         assert window.details_panel.isVisible()
         assert "识别 0.20s" in window.latency_label.text()
         window.detail_toggle.click()
         assert _wait_for(window.details_panel.isHidden)
+        window.tabs.setCurrentWidget(window.settings_page)
         window._set_model_busy(True)
         assert window.model_loading.isVisible()
         window._status("模型下载失败：网络中断")
         window._download_done()
         assert not window.model_loading.isVisible() and "网络中断" in window.model_state.text()
-        window.nav.button(2).click()
+        window.nav.button(window.tabs.indexOf(window.history_page)).click()
         assert window.history_loading.isVisible()
         assert _wait_for(lambda: "暂无翻译历史" in window.history_state.text())
         monkeypatch.setattr(window.history, "recent", lambda *_: (_ for _ in ()).throw(OSError("读写失败")))
         window._request_history()
         assert _wait_for(lambda: "读写失败" in window.history_state.text())
         window.game_group.buttons()[1].click()
-        window.nav.button(1).click()
+        window.nav.button(window.tabs.indexOf(window.settings_page)).click()
         assert window.glossary_loading.isVisible()
         assert _wait_for(lambda: window.glossary_status.text() == "该游戏词库建设中，暂用通用翻译")
         monkeypatch.setattr(ui, "read_default_glossary", lambda *_: (_ for _ in ()).throw(ValueError("词库损坏")))
@@ -630,6 +814,7 @@ def test_upgrade_dock_uses_existing_actions_and_motion_can_be_reduced(qapp, monk
     window = _launch_upgrade_preview(monkeypatch, tmp_path)
     try:
         qapp.processEvents()
+        window.tabs.setCurrentWidget(window.runtime_page)
         item, neighbor, _ = window.dock.buttons
         assert item.accessibleName() == "测试字幕"
         assert not item.text() and not item.icon().isNull()
@@ -711,9 +896,11 @@ def test_quick_start_uses_persisted_chinese_history_and_opens_existing_page(qapp
         item = window.recent_list.topLevelItem(0)
         window.recent_list.itemClicked.emit(item, 0)
         assert window.tabs.currentWidget() is window.history_page
+        assert window._selected_history_id() == latest.id
         window.history.clear_history()
         window._refresh_history()
-        assert window.chinese_label.isHidden() and window.caption_loading.isVisibleTo(window.hero)
+        assert window.chinese_label.isHidden() and window.caption_loading.isHidden()
+        assert window.caption_hint.text() == "开始翻译后显示字幕"
         assert window.recent_list.isHidden()
     finally:
         window.close()
@@ -760,29 +947,60 @@ def test_quick_start_has_no_dialog_before_first_live_caption(qapp, monkeypatch, 
         window.close()
 
 
-def test_onboarding_shows_step_and_only_detected_device_names(qapp, monkeypatch, tmp_path):
+def test_onboarding_first_run_skip_reopen_and_finish(qapp, monkeypatch, tmp_path):
     from valorant_translator.audio.capture import AudioDevice
+    from valorant_translator.config import Settings
+    from valorant_translator.ui import app as ui
 
     window = _launch_upgrade_preview(monkeypatch, tmp_path)
+    monkeypatch.setattr(window, "_show_routing_intro", lambda: pytest.fail("Welcome must open first"))
     try:
-        window._show_onboarding()
+        assert not window.settings.onboarding_done
+        QTimer.singleShot(0, window._show_first_run)
+        assert _wait_for(lambda: window.onboarding is not None and window.onboarding.isVisible())
         guide = window.onboarding
         assert guide.step_status.text() == "第 1 步，共 3 步"
-        assert "输入：" not in guide.details.text() and "麦克风：" not in guide.details.text()
-        window._apply_devices([AudioDevice("speaker", "扬声器", True)])
-        guide._refresh()
-        assert "扬声器" in guide.details.text()
-        assert "麦克风：" not in guide.details.text()
-        guide.step = 1
-        guide._refresh()
-        assert guide.step_status.text() == "第 2 步，共 3 步"
-        guide.close()
+        assert "队友的语音实时翻成字幕" in guide.details.text()
+        assert guide.context.isHidden()
+        guide.skip.click()
+        assert window.onboarding is None and Settings.load().onboarding_done
     finally:
         window.close()
 
+    reopened = ui.MainWindow()
+    try:
+        reopened.show()
+        reopened._show_first_run()
+        qapp.processEvents()
+        assert reopened.onboarding is None
+        reopened.tabs.setCurrentWidget(reopened.settings_page)
+        reopened.intro_button.click()
+        guide = reopened.onboarding
+        assert guide.step_status.text() == "第 1 步，共 3 步"
+        monkeypatch.setattr(reopened, "_request_devices", lambda: reopened.devices_refreshed.emit(True))
+        monkeypatch.setattr(reopened, "_models_ready", lambda: True)
+        guide.action.click()
+        assert guide.step_status.text() == "第 2 步，共 3 步"
+        guide.action.click()
+        assert _wait_for(lambda: guide.step == 2)
+        assert guide.step_status.text() == "第 3 步，共 3 步"
+        assert "输入：" not in guide.context.text()
+        assert "麦克风：" not in guide.context.text()
+        reopened._apply_devices([AudioDevice("speaker", "扬声器", True)])
+        guide._refresh()
+        assert "扬声器" in guide.context.text()
+        assert "麦克风：" not in guide.context.text()
+        assert guide.skip.isVisible() and guide.finish.isVisible()
+        guide.finish.click()
+        assert reopened.onboarding is None
+        assert reopened.tabs.currentWidget() is reopened.quick_page
+        assert reopened.start_button.isVisible()
+    finally:
+        reopened.close()
 
 
-def test_quick_start_fits_live_captions_history_and_controls_at_default_size(qapp, monkeypatch, tmp_path):
+
+def test_quick_start_fits_two_bilingual_captions_and_run_controls_at_default_size(qapp, monkeypatch, tmp_path):
     from valorant_translator.audio.capture import AudioDevice
     from valorant_translator.ui import app as ui
 
@@ -790,49 +1008,73 @@ def test_quick_start_fits_live_captions_history_and_controls_at_default_size(qap
     window = _launch_upgrade_preview(monkeypatch, tmp_path)
     try:
         window._apply_devices([AudioDevice("speaker", "系统回环播放设备", True)])
-        scroll = window.tabs.widget(0)
+        scroll = window.quick_page
         viewport = scroll.viewport()
 
-        def fits():
+        def check_quick_start():
             qapp.processEvents()
-            return (scroll.verticalScrollBar().maximum() == 0
-                    and not scroll.verticalScrollBar().isVisible()
-                    and scroll.horizontalScrollBar().maximum() == 0)
-
-        def layout_details():
-            groups = scroll.widget().findChildren(QGroupBox)
-            bounds = {group.title(): (group.mapTo(viewport, QPoint()).y(), group.height())
-                      for group in groups if group.isVisible()}
-            return (f"viewport={viewport.size().toTuple()}, "
-                    f"vertical={scroll.verticalScrollBar().maximum()}, "
-                    f"horizontal={scroll.horizontalScrollBar().maximum()}, "
-                    f"hero={window.hero.height()}, group (y, height)={bounds}, "
-                    f"recent rows={window.recent_list.topLevelItemCount()}, "
-                    f"row height={window.recent_list.sizeHintForRow(0)}, dock={window.dock.height()}")
+            assert scroll.verticalScrollBar().maximum() == 0
+            assert scroll.horizontalScrollBar().maximum() == 0
+            assert not scroll.verticalScrollBar().isVisible()
+            for control in (window.hero, window.quick_stats, window.quick_actions,
+                            window.start_button, window.stop_button):
+                assert control.isVisible()
+                assert viewport.rect().contains(QRect(control.mapTo(viewport, QPoint()), control.size()))
+            assert not window.hero.geometry().intersects(window.quick_stats.geometry())
+            assert not window.quick_stats.geometry().intersects(window.quick_actions.geometry())
 
         assert window.size().toTuple() == (1160, 840)
-        assert fits(), layout_details()
+        check_quick_start()
+        assert window.quick_count.text() == "0"
+        assert window.quick_latency.text() == "—"
+        assert window.quick_mode.text() == "平衡"
         window.pipeline = SimpleNamespace(failures=0, stop=lambda: None)
         window._status("正在翻译（识别 cpu，翻译 cpu）")
         window._runtime("识别 CPU · 翻译 CPU · 低延迟模式 · Whisper small")
         window._diagnostic("翻译已显示在字幕窗口")
         window._show_audio_level(0.2)
-        for line in ("守住 A 点。", "敌人在中路。", "听到我们后面的脚步在门口。", "能给我发一把 Vandal 吗？"):
-            result = SubtitleResult("a callout", line, "en", 0.2, 0.1, 0.5)
+        assert window.quick_volume.value() == 20
+        assert window.quick_audio_icon.mode == "pulse"
+        window._show_audio_level(.001)
+        assert window.quick_volume.value() == 0
+        assert window.quick_audio_icon.mode == "idle"
+        assert not window.quick_audio_icon._timer.isActive()
+        for original, line in (
+            ("I heard footsteps behind us near the doorway. Hold B and don't rotate yet.",
+             "我听到我们身后门口有脚步声。守住 B 点，先别转点。"),
+            ("There are three enemies at the back of A and one at mid stairs. Don't peek from the left.",
+             "A 后点有三个敌人，中路楼梯还有一个。别从左边露头。"),
+        ):
+            result = SubtitleResult(original, line, "en", 0.2, 0.1, 0.5)
             window.history.add_result(result)
             window._result(result)
         window._record_trace(TaskTrace(5, "结果丢弃", "语音太短", discarded=True))
-        assert fits(), layout_details()
-        recent = window.recent_list
-        assert recent.topLevelItemCount() == 3
-        assert recent.verticalScrollBar().maximum() == 0
-        assert recent.viewport().rect().contains(recent.visualItemRect(recent.topLevelItem(2)))
-        controls = (recent.parentWidget(), window.download_button, window.import_button, window.device_combo,
-                    window.refresh_button, window.mode_combo, window.test_button, window.show_button,
-                    window.position_button, window.feedback_button, window.dock)
-        for control in controls:
-            assert control.isVisible()
-            assert viewport.rect().contains(QRect(control.mapTo(viewport, QPoint()), control.size()))
+        check_quick_start()
+        assert "mid stairs" in window.original_label.text()
+        assert "footsteps behind us" in window.previous_original.text()
+        assert window.previous_original.isVisible()
+        assert window.quick_count.text() == "2"
+        assert window.quick_latency.text() == "0.50 秒"
+        window._trace_token = token = object()
+        window.bridge.effective_mode.emit(token, "local_fallback")
+        assert window.quick_mode.text() == "本地回退"
+        window.bridge.effective_mode.emit(object(), "extreme")
+        assert window.quick_mode.text() == "本地回退"
+        for page, widgets in (
+            (window.audio_page, (window.device_combo, window.refresh_button, window.mode_combo,
+                                 window.test_button, window.show_button, window.position_button,
+                                 window.talk_button, window.reverse_copy)),
+            (window.settings_page, (window.download_button, window.import_button,
+                                    window.settings_update_button, window.add_term_button)),
+            (window.history_page, (window.recent_list, window.history_table)),
+            (window.runtime_page, (window.volume, window.feedback_button, window.dock,
+                                   window.detail_toggle, window.runtime_label)),
+        ):
+            assert all(page.isAncestorOf(widget) and not widget.isVisible() for widget in widgets)
+            window.tabs.setCurrentWidget(page)
+            qapp.processEvents()
+            assert all(widget.isVisible() for widget in widgets)
+            window.tabs.setCurrentWidget(scroll)
     finally:
         window.close()
 
@@ -840,6 +1082,7 @@ def test_quick_start_fits_live_captions_history_and_controls_at_default_size(qap
 def test_runtime_progress_and_discard_have_separate_wrapping_rows(qapp, monkeypatch, tmp_path):
     window = _launch_upgrade_preview(monkeypatch, tmp_path)
     try:
+        window.tabs.setCurrentWidget(window.runtime_page)
         window._runtime("识别 CUDA · 翻译 CUDA · 低延迟模式 · Whisper tiny")
         window._diagnostic("正在识别上一句，队列约 4 句；处理较慢，请等待本句识别返回并查看详细诊断。")
         window._record_trace(TaskTrace(28, "结果丢弃", "识别完成已过期：距音频结束 17.72 秒，本类 28 次",

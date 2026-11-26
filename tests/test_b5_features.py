@@ -15,6 +15,7 @@ from valorant_translator.models.download import WHISPER_FILES, model_ready
 from valorant_translator.translation import glossary
 from valorant_translator.ui.talk import PushToTalk
 from valorant_translator.updates import channel, domestic, github
+from valorant_translator.version import APP_VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,7 +24,7 @@ def test_b5_attachment_glossary_and_game_profiles():
     dictionary = glossary.Glossary(ROOT / "config/glossary.json")
     assert tuple(len(dictionary.data[key]) for key in (
         "exact_phrases", "location_aliases", "target_replacements", "recognition_hotwords",
-        "entity_aliases", "translated_name_aliases", "contextual_rewrites")) == (573, 173, 269, 79, 41, 38, 17)
+        "entity_aliases", "translated_name_aliases", "contextual_rewrites")) == (573, 177, 269, 79, 41, 38, 17)
     assert dictionary.exact("finding") == "致盲。"
     assert dictionary.exact("veto ult") == "Veto 开大了。"
     assert dictionary.callout("hookah") == "B 水烟。"
@@ -100,10 +101,11 @@ def test_push_to_talk_captures_only_selected_microphone_and_hands_text_to_ui():
 def test_cpu_and_gpu_updates_are_disjoint_and_fallback_keeps_edition(monkeypatch):
     configs = domestic.load_channel(ROOT / "config/update_channel_domestic.json")
     configs.update(channel="dual", edition="cpu", github_repository="a/b")
+    future_version = f"{APP_VERSION}.post1"
 
     def entry(edition):
-        return {"version": "0.3.0b9", "release_notes": "new", "sha256": "a" * 64, "size": 123,
-                "download_url": f"https://{configs['download_hosts'][0]}/releases/0.3.0b9/{github.INSTALLERS[edition]}"}
+        return {"version": future_version, "release_notes": "new", "sha256": "a" * 64, "size": 123,
+                "download_url": f"https://{configs['download_hosts'][0]}/releases/{future_version}/{github.INSTALLERS[edition]}"}
 
     payload = {**entry("gpu"), "editions": {"cpu": entry("cpu")}}
     assert domestic.parse_manifest(json.dumps(entry("gpu")).encode(), configs["download_hosts"], edition="cpu") is None

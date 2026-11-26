@@ -1,0 +1,7 @@
+.env
+.env.*
+!.env.example
+.venv/
+plans.json
+*.sqlite3*
+__pycache__/

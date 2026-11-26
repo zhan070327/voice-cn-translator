@@ -434,3 +434,34 @@ def test_update_prompt_and_model_folder_picker_use_same_theme(window, tmp_path):
     run_dialogs(lambda: chosen.append(ui.QFileDialog.getExistingDirectory(window, "选择模型文件夹")),
                 ("选择模型文件夹", choose))
     assert [Path(path) for path in chosen] == [folder]
+
+
+def test_add_custom_term_directly_and_load_it_after_restart(window):
+    from valorant_translator.translation.enhancement import GameEnhancer
+
+    def fill(dialog, index, original, translated):
+        dialog.findChild(QComboBox).setCurrentIndex(index)
+        edits = dialog.findChildren(QLineEdit)
+        edits[0].setText(original)
+        edits[1].setText(translated)
+        button(dialog, "保存").click()
+
+    run_dialogs(window.add_term_button.click,
+                ("添加自定义术语", lambda dialog: fill(dialog, 0, "Fire in the hole!", "注意炸弹。")))
+    run_dialogs(window.add_term_button.click,
+                ("添加自定义术语", lambda dialog: fill(dialog, 1, "转点", "Rotate now.")))
+    store = RuleStore()
+    matcher = GameEnhancer("valorant", glossary.Glossary(), store)
+    assert matcher.match("Fire in the hole!", "en", "zh", window.settings).translation == "注意炸弹。"
+    assert matcher.match("转点", "zh", "en", window.settings).translation == "Rotate now."
+
+    def delete_first(dialog):
+        dialog.findChild(QTableWidget).selectRow(0)
+        button(dialog, "删除").click()
+
+    run_dialogs(lambda: ui.manage_rules(window, store),
+                ("自定义词库", delete_first),
+                ("删除词条", lambda dialog: button(dialog, "是").click()),
+                ("自定义词库", lambda dialog: dialog.reject()))
+    matcher = GameEnhancer("valorant", glossary.Glossary(), RuleStore())
+    assert matcher.match("Fire in the hole!", "en", "zh", window.settings).translation == "小心炸弹！"
