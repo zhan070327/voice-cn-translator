@@ -325,8 +325,8 @@ class MainWindow(QMainWindow):
 
         run_group, run_layout = self._group(tr("app.0031"), "play")
         run_group.setProperty("compactRun", True)
-        run_layout.setContentsMargins(GUTTER, INLINE, GUTTER, INLINE)
-        run_layout.setSpacing(INLINE)
+        run_layout.setContentsMargins(GUTTER, tokens.TIGHT, GUTTER, tokens.TIGHT)
+        run_layout.setSpacing(tokens.TIGHT)
         self.run_icon = run_group.icon
         run_row = QHBoxLayout()
         run_row.setSpacing(INLINE)
@@ -502,9 +502,9 @@ class MainWindow(QMainWindow):
         right_column.addWidget(recent_group)
         self.caption_light = CaptionLight(self.hero)
         main_layout.addWidget(self.hero)
-        main_layout.addSpacing(GUTTER)
+        main_layout.addSpacing(INLINE)
         main_layout.addWidget(update_strip)
-        main_layout.addSpacing(GUTTER)
+        main_layout.addSpacing(INLINE)
         main_layout.addWidget(run_group)
         main_layout.addSpacing(QUICK_START_GAP)
         main_layout.addLayout(columns, 1)
