@@ -1,5 +1,5 @@
-name: Load verified b8 Windows build
-description: Download only the pinned GPU and CPU artifacts from the successful b8 Windows build
+name: Load verified 0.6.0 Windows build
+description: Download only the pinned GPU and CPU artifacts from the successful 0.6.0 Windows build
 inputs:
   github-token:
     description: Read-only Actions token for the verified build run
@@ -13,9 +13,9 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         set -euo pipefail
-        sha=82e9e10abfb32ab72d49f98a88a1c670e1140c62
+        sha=731b4655b770d5bfd4111e66fa323b7885857d2c
         git merge-base --is-ancestor "$sha" HEAD
-        run="repos/$GITHUB_REPOSITORY/actions/runs/45756406388"
+        run="repos/$GITHUB_REPOSITORY/actions/runs/45857684725"
         gh api "$run" | jq -e --arg repo "$GITHUB_REPOSITORY" --arg sha "$sha" '
           .status == "completed" and .conclusion == "success" and .run_attempt == 1
           and .event == "workflow_dispatch" and .path == ".github/workflows/windows-beta.yml" and .head_branch == "main"
@@ -30,22 +30,22 @@ runs:
           verified("gpu") and verified("cpu")
         ' >/dev/null
         gh api "$run/artifacts" | jq -e '
-          any(.artifacts[]; .id == 15088029669 and .name == "windows-dual-gpu-45756406388-1" and .expired == false
-              and .digest == "sha256:2309251a33944ff38c81d023d7b338940fcee6425babdf8caa25c88d995a19ff")
-          and any(.artifacts[]; .id == 15088322497 and .name == "windows-dual-cpu-45756406388-1" and .expired == false
-              and .digest == "sha256:7f4ca60fb685f19f31fd6d281ce53e56a466de8d0a3b3bc0866dada39044af93")
+          any(.artifacts[]; .id == 15137523579 and .name == "windows-dual-gpu-45857684725-1" and .expired == false
+              and .digest == "sha256:c840768b8279997db273573f22d95278a26ae6d947c194ae37d706ed8dc20525")
+          and any(.artifacts[]; .id == 15136599951 and .name == "windows-dual-cpu-45857684725-1" and .expired == false
+              and .digest == "sha256:4c923bac7b9d52d59ef6c601ad29359a1a507beae9f33cdb00b02d42a95ad7ad")
         ' >/dev/null
     - uses: actions/download-artifact@v4
       with:
-        name: windows-dual-gpu-45756406388-1
+        name: windows-dual-gpu-45857684725-1
         path: dist/paired/gpu
-        run-id: 45756406388
+        run-id: 45857684725
         github-token: ${{ inputs.github-token }}
     - uses: actions/download-artifact@v4
       with:
-        name: windows-dual-cpu-45756406388-1
+        name: windows-dual-cpu-45857684725-1
         path: dist/paired/cpu
-        run-id: 45756406388
+        run-id: 45857684725
         github-token: ${{ inputs.github-token }}
     - name: Verify both installer hashes, sizes, versions, notes and build receipts
       shell: bash
@@ -54,8 +54,8 @@ runs:
         python -m pip install 'packaging>=24,<27' -r requirements_publish.txt
         python -m scripts.publish_paired_release \
           --gpu dist/paired/gpu --cpu dist/paired/cpu \
-          --expected-commit 82e9e10abfb32ab72d49f98a88a1c670e1140c62 \
-          --expected-run 45756406388 --expected-attempt 1 | tee -a "$GITHUB_STEP_SUMMARY"
+          --expected-commit 731b4655b770d5bfd4111e66fa323b7885857d2c \
+          --expected-run 45857684725 --expected-attempt 1 | tee -a "$GITHUB_STEP_SUMMARY"
     - name: Verify the validated manifest against the exact b4 updater
       shell: bash
       run: |
@@ -73,11 +73,11 @@ runs:
             "git", "show", "0571493f0c7eac412347635d7c3b74278923f7c0:valorant_translator/updates/domestic.py"
         ]), original.__dict__)
         current = original.parse_manifest(data, DOWNLOAD_HOSTS, "0.3.0b4")
-        assert current is not None and str(current.version) == "0.3.0b8"
+        assert current is not None and str(current.version) == "0.6.0"
         assert current.url.endswith("/" + INSTALLER_NAME)
         manifest = json.loads(data)
         assert (current.url, current.size, current.sha256) == (
             manifest["download_url"], manifest["size"], manifest["sha256"],
         )
-        print("The original b4 updater accepts the b8 GPU entry.")
+        print("The original b4 updater accepts the 0.6.0 GPU entry.")
         PY
