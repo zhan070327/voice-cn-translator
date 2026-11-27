@@ -17,9 +17,9 @@ ONLINE_TRANSLATION = "samefreq_cloud_translation"
 DEFAULT_CLOUD_URL = "https://cloud.samefreq.example"
 _SAVE_LOCK = Lock()
 SPEED_MODES = {
-    "extreme": (ONLINE_ASR, ONLINE_TRANSLATION, "tiny", True),
-    "balanced": (LOCAL_ASR, LOCAL_TRANSLATION, "tiny", True),
-    "precise": (LOCAL_ASR, LOCAL_TRANSLATION, "small", False),
+    "extreme": (ONLINE_ASR, ONLINE_TRANSLATION, True),
+    "balanced": (LOCAL_ASR, LOCAL_TRANSLATION, True),
+    "precise": (LOCAL_ASR, LOCAL_TRANSLATION, False),
 }
 
 
@@ -75,7 +75,7 @@ class Settings:
         return self.language
 
     def select_speed_mode(self, mode: str) -> bool:
-        self.asr_provider, self.translation_model, self.whisper_model, self.fast_mode = SPEED_MODES[mode]
+        self.asr_provider, self.translation_model, self.fast_mode = SPEED_MODES[mode]
         self.speed_mode = mode
         if mode == "precise":
             self.game_terms = self.official_lines = self.asr_correction = True

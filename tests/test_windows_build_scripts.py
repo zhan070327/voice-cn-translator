@@ -52,7 +52,8 @@ def test_batch_retains_required_build_checks():
     assert "scripts.publish_cos --seal-build" in domestic
     assert "scripts.verify_release --require-update-channel" in public
     assert "scripts.create_icon" in portable
-    assert "scripts.verify_release" in portable
+    assert "scripts.verify_release --write-exe-version" in portable
+    assert '--version-file ".venv\\windows-version.txt"' in portable
     assert "ValorantTranslator.exe\" --self-test" in portable
     assert "scripts.audit_cuda_bundle" in portable
     assert "--add-data \"config\\update_channel.json;config\"" in portable
@@ -71,3 +72,12 @@ def test_installer_version_matches_application():
     from scripts.verify_release import main
 
     main()
+
+
+def test_executable_version_resource_matches_application(tmp_path):
+    from scripts.verify_release import write_executable_version
+    from valorant_translator.version import APP_VERSION
+
+    path = tmp_path / "windows-version.txt"
+    write_executable_version(path)
+    assert f"StringStruct('ProductVersion', {APP_VERSION!r})" in path.read_text(encoding="utf-8")

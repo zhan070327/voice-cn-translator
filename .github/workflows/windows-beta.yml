@@ -2,7 +2,7 @@ name: Windows beta build
 
 on:
   push:
-    branches: [feature/ui-two-way, codex/b5-reverse-qa, feature/b5-integrated, feature/b5-ui-round3, feature/b5-final-rc, feature/b6-game-glossary-feedback]
+    branches: [feature/ui-two-way, codex/b5-reverse-qa, feature/b5-integrated, feature/b5-ui-round3, feature/b5-final-rc, feature/b6-game-glossary-feedback, fix/auto-update-reliability]
     paths: ['.github/workflows/windows-beta.yml', 'installer/ValorantTranslator.iss']
   workflow_dispatch:
     inputs:
@@ -152,6 +152,12 @@ jobs:
           $edition = if ($config.edition) { $config.edition } else { 'gpu' }
           if ($edition -ne $env:BUILD_EDITION) { throw 'Installed edition mismatches build input.' }
           $exe = Join-Path $location 'ValorantTranslator.exe'
+          $expectedVersion = & .\.venv\Scripts\python.exe -c "from valorant_translator.version import APP_VERSION; print(APP_VERSION)"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $installedVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion
+          if ($installedVersion -ne $expectedVersion) {
+            throw "Installed EXE ProductVersion '$installedVersion' does not match '$expectedVersion'."
+          }
           $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
           if ($process.ExitCode) { throw "Installed EXE self-test failed with exit code $($process.ExitCode)." }
           if ($env:BUILD_CHANNEL -ne 'domestic' -and $setup.Length -ge 2GB) {

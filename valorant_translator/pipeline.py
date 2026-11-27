@@ -79,7 +79,8 @@ class Pipeline:
                  custom_rules=None, languages: LanguageCatalog | None = None,
                  models: ModelManager | None = None, games=None, cloud_client: CloudClient | None = None,
                  on_cloud_blocked: Callable[[str], None] | None = None,
-                 on_effective_mode: Callable[[str], None] | None = None):
+                 on_effective_mode: Callable[[str], None] | None = None,
+                 on_activity: Callable[[int, str, str], None] | None = None):
         self.settings = settings
         self.requested_speed_mode = settings.speed_mode
         self.cloud_client = cloud_client or CloudClient(settings)
@@ -99,6 +100,7 @@ class Pipeline:
         self.on_diagnostic = on_diagnostic or (lambda _: None)
         self.on_runtime = on_runtime or (lambda _: None)
         self.on_trace = on_trace or (lambda _: None)
+        self._activity_callback = on_activity
         self.task_ids = count(1)
         self.history = history
         self.custom_rules = custom_rules
@@ -202,10 +204,21 @@ class Pipeline:
         self._trace(chunk, "结果丢弃", f"{reason}；距音频结束 {age:.2f} 秒；本类 {hits} 次", True, **timings)
         self.on_diagnostic(reason)
 
+    def pending_count(self) -> int:
+        return self.jobs.qsize() + self.translation_jobs.qsize()
+
+    def _report_activity(self, task_id: int, phase: str, text: str = "") -> None:
+        if self._activity_callback is not None:
+            try:
+                self._activity_callback(task_id, phase, text)
+            except Exception:
+                LOG.exception("Could not report pipeline activity")
+
     def _recognize(self, chunk, asr):
         t0 = time.monotonic()
         decoding = threading.Event()
         self.asr_busy.set()
+        self._report_activity(chunk.task_id, "recognizing")
         self.on_diagnostic(f"正在识别 {len(chunk.audio) / 16000:.1f} 秒音频片段…")
         self._trace(chunk, "等待识别锁", "等待识别模型")
         rejection = None
@@ -238,6 +251,9 @@ class Pipeline:
                 self._trace(chunk, "推理开始", f"{asr.device.upper()}，等锁 {started - t0:.3f} 秒",
                             识别等锁=started - t0)
                 asr.on_rejection = rejected
+                report_partial = self._activity_callback is not None and hasattr(asr, "on_partial")
+                if report_partial:
+                    asr.on_partial = lambda text: self._report_activity(chunk.task_id, "recognizing", text)
                 try:
                     result = asr.transcribe(chunk.audio, self.languages.source(self.settings.source_language))
                 except Exception as exc:
@@ -246,6 +262,8 @@ class Pipeline:
                     raise
                 finally:
                     asr.on_rejection = None
+                    if report_partial:
+                        asr.on_partial = None
                 elapsed = time.monotonic() - started
                 ratio = elapsed / max(0.1, len(chunk.audio) / 16000)
                 reset_estimate = self.asr_seconds_per_audio is None or getattr(asr, "fallback_seconds", 0)
@@ -258,6 +276,7 @@ class Pipeline:
         finally:
             self.asr_busy.clear()
             watchdog.cancel()
+            self._report_activity(chunk.task_id, "finished")
 
     @staticmethod
     def _device_label(provider) -> str:
@@ -461,6 +480,7 @@ class Pipeline:
                 self._discard(chunk, f"翻译排队过期：距音频结束 {age:.2f} 秒 / 上限 {limit:.1f} 秒")
                 continue
             started = now
+            self._report_activity(chunk.task_id, "translating", recognized.text)
             try:
                 normalized = glossary.normalize(recognized.text)
                 duplicate_age = time.monotonic() - self.last_result_time
@@ -567,3 +587,5 @@ class Pipeline:
                 LOG.exception("Translation task failed")
                 self.on_status(f"该句翻译失败，继续监听：{exc}")
                 self._discard(chunk, f"翻译异常：{exc}", 翻译=time.monotonic() - started)
+            finally:
+                self._report_activity(chunk.task_id, "finished")
